@@ -5,7 +5,7 @@ lazy val avlEditor = project
 
 name := "AVL Editor"
 
-version := "0.7.0"
+version := "1.0.0"
 
 scalaVersion := "2.10.4"
 

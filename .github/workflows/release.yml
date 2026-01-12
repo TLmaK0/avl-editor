@@ -2,7 +2,7 @@ name: Build and Release
 
 on:
   push:
-    tags: ['*.*.*', 'v*']
+    branches: [master]
   workflow_dispatch:
 
 jobs:
@@ -43,7 +43,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
+          # Get version from build.sbt
+          VERSION=$(grep 'version :=' build.sbt | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build staged distribution
@@ -142,7 +143,8 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
+          # Get version from build.sbt
+          VERSION=$(grep 'version :=' build.sbt | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
