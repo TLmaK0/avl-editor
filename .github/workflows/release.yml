@@ -14,10 +14,16 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            package_type: deb
+            artifact_ext: deb
           - os: windows-latest
             platform: windows
+            package_type: exe
+            artifact_ext: exe
           - os: macos-latest
             platform: macos
+            package_type: dmg
+            artifact_ext: dmg
 
     runs-on: ${{ matrix.os }}
 
@@ -39,45 +45,94 @@ jobs:
         shell: bash
         run: |
           VERSION=$(git describe --tags --always)
+          # Extract clean version for jpackage (must be X.Y.Z format)
+          CLEAN_VERSION=$(echo "$VERSION" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' || echo "0.7.0")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "clean_version=$CLEAN_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build package
-        run: sbt universal:packageBin
+      - name: Build staged distribution
+        run: sbt stage
 
-      - name: Clean package for platform (Unix)
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          cd target/universal
-          unzip *.zip -d temp
-          rm -f temp/*/bin/*.bat
-          chmod +x temp/*/bin/*
-          chmod +x temp/*/*.desktop 2>/dev/null || true
-          rm -f *.zip
-          cd temp && zip -r ../package.zip * && cd ..
-          rm -rf temp
-
-      - name: Clean package for platform (Windows)
+      - name: Install WiX Toolset (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          cd target/universal
-          Expand-Archive -Path *.zip -DestinationPath temp
-          Remove-Item temp/*/bin/*.sh -ErrorAction SilentlyContinue
-          Remove-Item *.zip
-          Compress-Archive -Path temp/* -DestinationPath package.zip
-          Remove-Item temp -Recurse
+          dotnet tool install --global wix --version 4.0.5
+
+      - name: Create native package (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          # Find the main jar
+          MAIN_JAR=$(ls target/universal/stage/lib/avl-editor.avl-editor*.jar | head -1 | xargs basename)
+
+          jpackage \
+            --type ${{ matrix.package_type }} \
+            --name "avl-editor" \
+            --app-version "${{ steps.version.outputs.clean_version }}" \
+            --description "AVL Editor - Aircraft aerodynamic analysis tool" \
+            --vendor "abajar" \
+            --input target/universal/stage/lib \
+            --main-jar "$MAIN_JAR" \
+            --main-class com.abajar.avleditor.Main \
+            --dest output \
+            --linux-shortcut \
+            --linux-menu-group "Science"
+
+      - name: Create native package (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          # Find the main jar
+          $MAIN_JAR = (Get-ChildItem target/universal/stage/lib/avl-editor.avl-editor*.jar | Select-Object -First 1).Name
+
+          jpackage `
+            --type ${{ matrix.package_type }} `
+            --name "AVL Editor" `
+            --app-version "${{ steps.version.outputs.clean_version }}" `
+            --description "AVL Editor - Aircraft aerodynamic analysis tool" `
+            --vendor "abajar" `
+            --input target/universal/stage/lib `
+            --main-jar "$MAIN_JAR" `
+            --main-class com.abajar.avleditor.Main `
+            --dest output `
+            --win-shortcut `
+            --win-menu `
+            --win-menu-group "AVL Editor"
+
+      - name: Create native package (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          # Find the main jar
+          MAIN_JAR=$(ls target/universal/stage/lib/avl-editor.avl-editor*.jar | head -1 | xargs basename)
+
+          jpackage \
+            --type ${{ matrix.package_type }} \
+            --name "AVL Editor" \
+            --app-version "${{ steps.version.outputs.clean_version }}" \
+            --description "AVL Editor - Aircraft aerodynamic analysis tool" \
+            --vendor "abajar" \
+            --input target/universal/stage/lib \
+            --main-jar "$MAIN_JAR" \
+            --main-class com.abajar.avleditor.Main \
+            --dest output \
+            --mac-package-name "AVL Editor"
 
       - name: Rename artifact
         shell: bash
         run: |
-          mv target/universal/package.zip avl-editor-${{ steps.version.outputs.version }}-${{ matrix.platform }}.zip
+          mkdir -p artifacts
+          # Fixed name for latest download links
+          cp output/*.${{ matrix.artifact_ext }} artifacts/avl-editor-${{ matrix.platform }}.${{ matrix.artifact_ext }}
+          # Versioned name for release history
+          mv output/*.${{ matrix.artifact_ext }} artifacts/avl-editor-${{ steps.version.outputs.version }}-${{ matrix.platform }}.${{ matrix.artifact_ext }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: avl-editor-${{ matrix.platform }}
-          path: avl-editor-*.zip
+          path: artifacts/*
 
   release:
     needs: build
@@ -106,7 +161,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: avl-editor ${{ steps.version.outputs.version }}
-          files: artifacts/*.zip
+          files: artifacts/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

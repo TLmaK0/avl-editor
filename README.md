@@ -3,15 +3,20 @@ AVL Editor
 
 ![AVL Editor Screenshot](2026-01-04_18-20.png)
 
-An editor for AVL (Athena Vortex Lattice) and a exporter for Crrcsim an Open source model airplane simulator http://sourceforge.net/projects/crrcsim/
+An editor for AVL (Athena Vortex Lattice) and an exporter for CRRCsim, an open source model airplane simulator http://sourceforge.net/projects/crrcsim/
 
-Install first avl 3.35 from here http://web.mit.edu/drela/Public/web/avl/
+Download
+--------
 
-[Download](https://github.com/TLmaK0/avl-crrcsim-editor/releases/latest)
+| Platform | Download |
+|----------|----------|
+| Windows | [avl-editor-windows.exe](https://github.com/TLmaK0/avl-crrcsim-editor/releases/latest/download/avl-editor-windows.exe) |
+| Linux | [avl-editor-linux.deb](https://github.com/TLmaK0/avl-crrcsim-editor/releases/latest/download/avl-editor-linux.deb) |
+| macOS | [avl-editor-macos.dmg](https://github.com/TLmaK0/avl-crrcsim-editor/releases/latest/download/avl-editor-macos.dmg) |
 
-And select avl path in Edit->Set AVL executable
+Or browse [all releases](https://github.com/TLmaK0/avl-crrcsim-editor/releases).
 
-Create your airplane, and then export as AVL file or CRRCsim Xml.
+Create your airplane, and then export as AVL file or CRRCsim XML.
 
 This software is in a early beta fase, so be careful with the result.
 
