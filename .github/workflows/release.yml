@@ -47,8 +47,15 @@ jobs:
           VERSION=$(git describe --tags --always)
           # Extract clean version for jpackage (must be X.Y.Z format)
           CLEAN_VERSION=$(echo "$VERSION" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' || echo "0.7.0")
+          # macOS doesn't allow versions starting with 0, transform 0.x.y to x.y.0
+          if [[ "$CLEAN_VERSION" =~ ^0\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAC_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.0"
+          else
+            MAC_VERSION="$CLEAN_VERSION"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "clean_version=$CLEAN_VERSION" >> $GITHUB_OUTPUT
+          echo "mac_version=$MAC_VERSION" >> $GITHUB_OUTPUT
 
       - name: Build staged distribution
         run: sbt stage
@@ -110,7 +117,7 @@ jobs:
           jpackage \
             --type ${{ matrix.package_type }} \
             --name "AVL Editor" \
-            --app-version "${{ steps.version.outputs.clean_version }}" \
+            --app-version "${{ steps.version.outputs.mac_version }}" \
             --description "AVL Editor - Aircraft aerodynamic analysis tool" \
             --vendor "abajar" \
             --input target/universal/stage/lib \
