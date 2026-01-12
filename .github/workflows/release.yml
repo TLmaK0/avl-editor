@@ -52,10 +52,7 @@ jobs:
             SHORT_HASH=$(git rev-parse --short HEAD)
             VERSION="${TAG}-${SHORT_HASH}"
           fi
-          # Extract clean version for jpackage (must be X.Y.Z format)
-          CLEAN_VERSION=$(echo "$VERSION" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' || echo "1.0.0")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "clean_version=$CLEAN_VERSION" >> $GITHUB_OUTPUT
 
       - name: Build staged distribution
         run: sbt stage
@@ -76,7 +73,7 @@ jobs:
           jpackage \
             --type ${{ matrix.package_type }} \
             --name "avl-editor" \
-            --app-version "${{ steps.version.outputs.clean_version }}" \
+            --app-version "${{ steps.version.outputs.version }}" \
             --description "AVL Editor - Aircraft aerodynamic analysis tool" \
             --vendor "abajar" \
             --input target/universal/stage/lib \
@@ -96,7 +93,7 @@ jobs:
           jpackage `
             --type ${{ matrix.package_type }} `
             --name "AVL Editor" `
-            --app-version "${{ steps.version.outputs.clean_version }}" `
+            --app-version "${{ steps.version.outputs.version }}" `
             --description "AVL Editor - Aircraft aerodynamic analysis tool" `
             --vendor "abajar" `
             --input target/universal/stage/lib `
@@ -117,7 +114,7 @@ jobs:
           jpackage \
             --type ${{ matrix.package_type }} \
             --name "AVL Editor" \
-            --app-version "${{ steps.version.outputs.clean_version }}" \
+            --app-version "${{ steps.version.outputs.version }}" \
             --description "AVL Editor - Aircraft aerodynamic analysis tool" \
             --vendor "abajar" \
             --input target/universal/stage/lib \
