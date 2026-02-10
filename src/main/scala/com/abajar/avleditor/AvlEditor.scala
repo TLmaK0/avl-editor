@@ -602,6 +602,10 @@ object AvlEditor{
             window.display.asyncExec(new Runnable {
               def run(): Unit = {
                 logger.log(Level.INFO, "AVL analysis completed successfully")
+                // Store calculation in AVL object for tree display
+                avl.setLastCalculation(calculation)
+                // Refresh tree to show the new results node
+                window.refreshTree
                 // Open plot window with generated images
                 val plotWindow = new swt.AvlPlotWindow(window.display)
                 plotWindow.open(geometryPlotPath, trefftzPlotPath)
@@ -1035,6 +1039,7 @@ object AvlEditor{
     }
 
     private def getChilds(node: Any): scala.collection.immutable.List[(String, Any)] = node match {
+      case null => List()
       case childs: java.util.List[_] =>
         childs.asScala.toList.map(child => (child.toString, child.asInstanceOf[Any]))
       case node =>

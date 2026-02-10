@@ -10,6 +10,8 @@
 
 package com.abajar.avleditor.avl.runcase;
 
+import com.abajar.avleditor.view.annotations.AvlEditorReadOnly;
+
 /**
  *
  * @author hfreire
@@ -46,6 +48,7 @@ public class StabilityDerivatives {
     /**
      * @return the Cma
      */
+    @AvlEditorReadOnly(text = "Cma", help = "Pitching moment due to angle of attack")
     public float getCma() {
         return Cma;
     }
@@ -60,6 +63,7 @@ public class StabilityDerivatives {
     /**
      * @return the Cmq
      */
+    @AvlEditorReadOnly(text = "Cmq", help = "Pitching moment due to pitch rate")
     public float getCmq() {
         return Cmq;
     }
@@ -81,6 +85,7 @@ public class StabilityDerivatives {
     /**
      * @return the CLa
      */
+    @AvlEditorReadOnly(text = "CLa", help = "Lift coefficient due to angle of attack")
     public float getCLa() {
         return CLa;
     }
@@ -95,6 +100,7 @@ public class StabilityDerivatives {
     /**
      * @return the CLq
      */
+    @AvlEditorReadOnly(text = "CLq", help = "Lift coefficient due to pitch rate")
     public float getCLq() {
         return CLq;
     }
@@ -116,6 +122,7 @@ public class StabilityDerivatives {
     /**
      * @return the CYb
      */
+    @AvlEditorReadOnly(text = "CYb", help = "Side force due to sideslip")
     public float getCYb() {
         return CYb;
     }
@@ -130,6 +137,7 @@ public class StabilityDerivatives {
     /**
      * @return the CYp
      */
+    @AvlEditorReadOnly(text = "CYp", help = "Side force due to roll rate")
     public float getCYp() {
         return CYp;
     }
@@ -144,6 +152,7 @@ public class StabilityDerivatives {
     /**
      * @return the CYr
      */
+    @AvlEditorReadOnly(text = "CYr", help = "Side force due to yaw rate")
     public float getCYr() {
         return CYr;
     }
@@ -165,6 +174,7 @@ public class StabilityDerivatives {
     /**
      * @return the Clb
      */
+    @AvlEditorReadOnly(text = "Clb", help = "Roll moment due to sideslip")
     public float getClb() {
         return Clb;
     }
@@ -179,6 +189,7 @@ public class StabilityDerivatives {
     /**
      * @return the Clp
      */
+    @AvlEditorReadOnly(text = "Clp", help = "Roll moment due to roll rate")
     public float getClp() {
         return Clp;
     }
@@ -193,6 +204,7 @@ public class StabilityDerivatives {
     /**
      * @return the Clr
      */
+    @AvlEditorReadOnly(text = "Clr", help = "Roll moment due to yaw rate")
     public float getClr() {
         return Clr;
     }
@@ -214,6 +226,7 @@ public class StabilityDerivatives {
     /**
      * @return the Cnb
      */
+    @AvlEditorReadOnly(text = "Cnb", help = "Yaw moment due to sideslip")
     public float getCnb() {
         return Cnb;
     }
@@ -228,6 +241,7 @@ public class StabilityDerivatives {
     /**
      * @return the Cnp
      */
+    @AvlEditorReadOnly(text = "Cnp", help = "Yaw moment due to roll rate")
     public float getCnp() {
         return Cnp;
     }
@@ -242,6 +256,7 @@ public class StabilityDerivatives {
     /**
      * @return the Cnr
      */
+    @AvlEditorReadOnly(text = "Cnr", help = "Yaw moment due to yaw rate")
     public float getCnr() {
         return Cnr;
     }
@@ -260,4 +275,8 @@ public class StabilityDerivatives {
         return Cnd;
     }
 
+    @Override
+    public String toString() {
+        return "Stability Derivatives";
+    }
 }

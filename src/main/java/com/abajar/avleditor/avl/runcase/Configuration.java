@@ -10,6 +10,8 @@
 
 package com.abajar.avleditor.avl.runcase;
 
+import com.abajar.avleditor.view.annotations.AvlEditorReadOnly;
+
 /**
  *
  * @author hfreire
@@ -34,6 +36,7 @@ public class Configuration {
     /**
      * @return the Sref
      */
+    @AvlEditorReadOnly(text = "Sref", help = "Reference area")
     public float getSref() {
         return Sref;
     }
@@ -48,6 +51,7 @@ public class Configuration {
     /**
      * @return the Cref
      */
+    @AvlEditorReadOnly(text = "Cref", help = "Reference chord")
     public float getCref() {
         return Cref;
     }
@@ -62,6 +66,7 @@ public class Configuration {
     /**
      * @return the Bref
      */
+    @AvlEditorReadOnly(text = "Bref", help = "Reference span")
     public float getBref() {
         return Bref;
     }
@@ -76,6 +81,7 @@ public class Configuration {
     /**
      * @return the Velocity
      */
+    @AvlEditorReadOnly(text = "Velocity", help = "Reference velocity")
     public float getVelocity() {
         return Velocity;
     }
@@ -90,6 +96,7 @@ public class Configuration {
     /**
      * @return the Alpha
      */
+    @AvlEditorReadOnly(text = "Alpha", help = "Angle of attack")
     public float getAlpha() {
         return Alpha;
     }
@@ -104,6 +111,7 @@ public class Configuration {
     /**
      * @return the Cmtot
      */
+    @AvlEditorReadOnly(text = "Cmtot", help = "Total pitching moment coefficient")
     public float getCmtot() {
         return Cmtot;
     }
@@ -118,6 +126,7 @@ public class Configuration {
     /**
      * @return the CLtot
      */
+    @AvlEditorReadOnly(text = "CLtot", help = "Total lift coefficient")
     public float getCLtot() {
         return CLtot;
     }
@@ -132,6 +141,7 @@ public class Configuration {
     /**
      * @return the CDvis
      */
+    @AvlEditorReadOnly(text = "CDvis", help = "Viscous drag coefficient")
     public float getCDvis() {
         return CDvis;
     }
@@ -146,6 +156,7 @@ public class Configuration {
     /**
      * @return the Clb
      */
+    @AvlEditorReadOnly(text = "Clb", help = "Roll moment due to sideslip")
     public float getClb() {
         return Clb;
     }
@@ -164,7 +175,13 @@ public class Configuration {
     /**
      * @return the e
      */
+    @AvlEditorReadOnly(text = "e (efficiency)", help = "Oswald efficiency factor")
     public Float getE() {
         return e;
+    }
+
+    @Override
+    public String toString() {
+        return "Configuration";
     }
 }

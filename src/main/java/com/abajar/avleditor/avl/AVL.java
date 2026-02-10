@@ -11,6 +11,7 @@
 package com.abajar.avleditor.avl;
 
 import com.abajar.avleditor.UnitConversor;
+import com.abajar.avleditor.avl.runcase.AvlCalculation;
 import com.abajar.avleditor.view.annotations.AvlEditorField;
 import com.abajar.avleditor.view.annotations.AvlEditorNode;
 import java.io.FileOutputStream;
@@ -60,6 +61,9 @@ public class AVL implements Serializable{
         help="Simulation velocity in m/s"
     )
     private float velocity = DEFAULT_VELOCITY;
+
+    // Transient: not saved to file, only available during session
+    private transient AvlCalculation lastCalculation;
 
     /**
      * @return the geometry
@@ -200,6 +204,21 @@ public class AVL implements Serializable{
      */
     public void setVelocity(float velocity) {
         this.velocity = velocity;
+    }
+
+    /**
+     * @return the last AVL calculation results (null if not yet calculated)
+     */
+    @AvlEditorNode(name = "Last Results")
+    public AvlCalculation getLastCalculation() {
+        return lastCalculation;
+    }
+
+    /**
+     * @param calculation the AVL calculation to store
+     */
+    public void setLastCalculation(AvlCalculation calculation) {
+        this.lastCalculation = calculation;
     }
 
 }

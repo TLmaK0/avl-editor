@@ -10,6 +10,8 @@
 
 package com.abajar.avleditor.avl.runcase;
 
+import com.abajar.avleditor.view.annotations.AvlEditorNode;
+
 /**
  *
  * @author hfreire
@@ -38,6 +40,7 @@ public class AvlCalculation {
     /**
      * @return the stabilityDerivatives
      */
+    @AvlEditorNode
     public StabilityDerivatives getStabilityDerivatives() {
         return stabilityDerivatives;
     }
@@ -52,6 +55,7 @@ public class AvlCalculation {
     /**
      * @return the configuration
      */
+    @AvlEditorNode
     public Configuration getConfiguration() {
         return configuration;
     }
@@ -82,5 +86,10 @@ public class AvlCalculation {
      */
     public int getAileronPosition() {
         return aileronPosition;
-    }    
+    }
+
+    @Override
+    public String toString() {
+        return "AVL Results";
+    }
 }

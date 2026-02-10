@@ -90,7 +90,7 @@ avl:
     - BFILE: body4.dat
       Bspace: 1.0
       Nbody: 20
-      Ydupl: 0.01
+      Ydupl: 0.0
       dX: 0.50005424
       dY: 0.06695098
       dZ: 0.0
@@ -110,6 +110,30 @@ avl:
       - radius: 0.06178311
         x: 0.7
       - radius: 0.037940174
+        x: 1.0
+    - BFILE: body5.dat
+      Bspace: 1.0
+      Nbody: 20
+      Ydupl: 0.0
+      dX: 1.0696428
+      dY: -0.5471295
+      dZ: -0.0263055
+      length: 0.25
+      masses: [
+        ]
+      name: body5
+      profilePoints:
+      - radius: 0.005
+        x: 0.0
+      - radius: 0.0126585765
+        x: 0.1
+      - radius: 0.01479042
+        x: 0.3
+      - radius: 0.015289623
+        x: 0.7
+      - radius: 0.012930143
+        x: 0.9
+      - radius: 0.006
         x: 1.0
     iYsym: 0
     iZsym: 0
