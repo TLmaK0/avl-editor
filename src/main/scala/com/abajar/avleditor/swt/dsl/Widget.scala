@@ -16,6 +16,7 @@ import org.eclipse.swt.widgets._
 import org.eclipse.swt.widgets._
 import org.eclipse.swt._
 import org.eclipse.swt.events._
+import org.eclipse.swt.graphics.{Color, Font}
 import java.io.File
 import org.eclipse.swt.widgets.{Button, Composite}
 
@@ -37,7 +38,17 @@ object Widget{
           item.setData(data)
           item.setText(title)
           item.setItemCount(itemsCount)
-          item.setExpanded(false)
+          val isRoot = parentItem.isEmpty
+          val wasExpanded = Option(tree.getData("expandCallback"))
+            .map(_.asInstanceOf[Any => Boolean])
+            .exists(_(data))
+          item.setExpanded(isRoot || wasExpanded)
+          item.setImage(com.abajar.avleditor.swt.TreeIcons.iconFor(data))
+          val pendingSel = Option(tree.getData("pendingSelection"))
+          if (pendingSel.exists(s => s.asInstanceOf[AnyRef] eq data.asInstanceOf[AnyRef])) {
+            tree.setSelection(item)
+            tree.setData("pendingSelection", null)
+          }
         }
       })
       tree
@@ -46,6 +57,22 @@ object Widget{
 
   implicit class SetAddListenerTableWrapper(table: Table){
     def setSourceHandler(listenerMethod: (Integer) => TableField): Table = {
+      val display = table.getDisplay
+      val evenRowColor = new Color(display, 245, 245, 250)
+      val oddRowColor = display.getSystemColor(SWT.COLOR_WHITE)
+      val readOnlyColor = new Color(display, 235, 235, 235)
+      val readOnlyFg = new Color(display, 100, 100, 100)
+      val monoFont = new Font(display, "Monospace", 9, SWT.NORMAL)
+
+      table.addDisposeListener(new DisposeListener {
+        def widgetDisposed(e: DisposeEvent): Unit = {
+          evenRowColor.dispose()
+          readOnlyColor.dispose()
+          readOnlyFg.dispose()
+          monoFont.dispose()
+        }
+      })
+
       table.addListener(SWT.SetData, new Listener {
         def handleEvent(event: Event) = {
           val item = event.item.asInstanceOf[TableItem]
@@ -53,7 +80,6 @@ object Widget{
           if (index >= 0) {
             val tableField = listenerMethod(index)
             item.setText(0, tableField.text)
-            // For boolean fields, show checkbox symbol instead of true/false
             val displayValue = tableField match {
               case boolField: TableFieldWritable if boolField.isBoolean =>
                 if (boolField.booleanValue) "☑" else "☐"
@@ -63,6 +89,19 @@ object Widget{
             }
             item.setText(1, displayValue)
             item.setData(tableField)
+            item.setFont(1, monoFont)
+
+            val black = display.getSystemColor(SWT.COLOR_BLACK)
+            tableField match {
+              case _: TableFieldReadOnly =>
+                item.setBackground(readOnlyColor)
+                item.setForeground(0, black)
+                item.setForeground(1, readOnlyFg)
+              case _ =>
+                item.setBackground(if (index % 2 == 0) oddRowColor else evenRowColor)
+                item.setForeground(black)
+            }
+
             table.getColumn(0).pack
             table.getColumn(1).pack
           }

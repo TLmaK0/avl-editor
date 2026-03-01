@@ -248,13 +248,13 @@ object AvlEditor{
           if (button == ENABLE_BUTTONS.IMPORT_BFILE) {
             handleImportBfile(nodeSelected)
           } else {
-            button.click(nodeSelected, window.treeNodeSelectedParent.get)
+            button.click(nodeSelected, window.treeNodeSelectedParent.orNull)
           }
           window.refreshTree
           loadAvlSurfaces()
           loadAvlBodies()
         }
-        case None => throw new Exception("Button click without node selected")
+        case None => ()
       }
     }
 

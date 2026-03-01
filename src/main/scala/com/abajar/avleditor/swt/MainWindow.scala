@@ -24,6 +24,7 @@ import dsl.TableField
 import com.abajar.avleditor.crrcsim.CRRCSim
 import java.util.ArrayList
 import org.eclipse.swt.widgets.Widget
+import org.eclipse.swt.custom.SashForm
 import com.abajar.avleditor.view.avl.SelectorMutableTreeNode.ENABLE_BUTTONS
 import java.io.File;
 
@@ -43,22 +44,7 @@ class MainWindow(
       tableClickHandler: (Any) => Unit
       ) {
 
-  implicit class AddButtonCompositeRegister(composite: Composite){
-    def addButtonRegister(
-          text: String,
-          callback: (ENABLE_BUTTONS) => (SelectionEvent) => Unit,
-          button: ENABLE_BUTTONS): Composite = {
-      allButtons += ButtonData(text, button, callback(button), composite)
-      buttonContainers += composite
-      composite
-    }
-  }
-
-  case class ButtonData(text: String, buttonType: ENABLE_BUTTONS, callback: (SelectionEvent) => Unit, container: Composite)
-
-  val allButtons = collection.mutable.ListBuffer[ButtonData]()
-  val buttonContainers = collection.mutable.Set[Composite]()
-  val activeButtons = collection.mutable.ListBuffer[Button]()
+  private val toolItems = collection.mutable.LinkedHashMap[ENABLE_BUTTONS, ToolItem]()
 
   val display = new Display
 
@@ -81,32 +67,26 @@ class MainWindow(
         (se: SelectionEvent) => menuClickHandler(menuOption)
 
   def disableAllButtons: Unit = {
-    for (btn <- activeButtons) {
-      if (!btn.isDisposed) btn.dispose()
-    }
-    activeButtons.clear()
+    toolItems.values.foreach(_.setEnabled(false))
   }
 
   def buttonsEnableOnly(
         buttons: scala.collection.immutable.List[ENABLE_BUTTONS]): Unit = {
-    disableAllButtons
-    for (buttonData <- allButtons) {
-      if (buttons.contains(buttonData.buttonType)) {
-        val btn = new Button(buttonData.container, SWT.PUSH)
-        btn.setText(buttonData.text)
-        btn.addSelectionListener(new SelectionAdapter {
-          override def widgetSelected(se: SelectionEvent) = {
-            buttonData.callback(se)
-          }
-        })
-        activeButtons += btn
-      }
+    toolItems.foreach { case (btnType, item) =>
+      item.setEnabled(buttons.contains(btnType))
     }
-    // Force layout update after adding buttons
-    for (container <- buttonContainers) {
-      container.layout(true)
-      container.getParent.layout(true)
-    }
+  }
+
+  private def addToolItem(toolbar: ToolBar, text: String, tooltip: String,
+        buttonType: ENABLE_BUTTONS): Unit = {
+    val item = new ToolItem(toolbar, SWT.PUSH)
+    item.setText(text)
+    item.setToolTipText(tooltip)
+    item.setEnabled(false)
+    item.addSelectionListener(new SelectionAdapter {
+      override def widgetSelected(se: SelectionEvent) = buttonClickHandler(buttonType)
+    })
+    toolItems(buttonType) = item
   }
 
   def showOpenDialog(
@@ -130,9 +110,33 @@ class MainWindow(
     = shell.saveFileDialog.setNameExtensions(descriptions).setExtensions(addWildcard(extensions)).show
 
   def refreshTree: Unit = {
+    val expandedData = collectExpandedData(tree.getItems)
+    val selectedData = treeNodeSelected
+    pendingExpansions = expandedData
+    pendingSelection = selectedData
+    tree.setData("expandCallback", (data: Any) => pendingExpansions.contains(data))
+    tree.setData("pendingSelection", pendingSelection.orNull)
     tree.removeAll()
     tree.setItemCount(1)
     tree.clearAll(true)
+  }
+
+  private var pendingSelection: Option[Any] = None
+
+  private var pendingExpansions: Set[Any] = Set.empty
+
+  def shouldExpand(data: Any): Boolean = pendingExpansions.contains(data)
+
+  private def collectExpandedData(items: Array[TreeItem]): Set[Any] = {
+    var result = Set[Any]()
+    for (item <- items) {
+      if (item.getExpanded) {
+        val data = item.getData
+        if (data != null) result += data
+        result ++= collectExpandedData(item.getItems)
+      }
+    }
+    result
   }
 
   private def addWildcard(extensions: Array[String]) =
@@ -142,9 +146,13 @@ class MainWindow(
     )
 
   private val shell = Shell( display, { shell => {
-    val layout = new GridLayout
-    layout.numColumns = 3
-    shell setLayout layout
+    TreeIcons.init(display)
+
+    val mainLayout = new GridLayout(1, false)
+    mainLayout.marginWidth = 4
+    mainLayout.marginHeight = 4
+    mainLayout.verticalSpacing = 4
+    shell.setLayout(mainLayout)
 
     shell.addMenu(menu => {
         menu.addSubmenu("File")
@@ -163,53 +171,62 @@ class MainWindow(
           .addItem("Clear AVL configuration", notifyMenuClick(MenuOption.ClearAvlConfiguration))
      })
 
-    val buttonBar1 = shell.addButtonBar()
-    buttonBar1.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false, 3, 1))
-    buttonBar1.addButtonRegister("+ Surface", notifyButtonClick, ENABLE_BUTTONS.ADD_SURFACE)
-      .addButtonRegister("+ Body", notifyButtonClick, ENABLE_BUTTONS.ADD_BODY)
-      .addButtonRegister("Auto Masses", notifyButtonClick, ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME)
-      .addButtonRegister("Calc CG", notifyButtonClick, ENABLE_BUTTONS.CALCULATE_CG)
-      .addButtonRegister("+ Section", notifyButtonClick, ENABLE_BUTTONS.ADD_SECTION)
-      .addButtonRegister("+ Control", notifyButtonClick, ENABLE_BUTTONS.ADD_CONTROL)
-      .addButtonRegister("+ Profile Point", notifyButtonClick, ENABLE_BUTTONS.ADD_PROFILE_POINT)
-      .addButtonRegister("Import BFILE", notifyButtonClick, ENABLE_BUTTONS.IMPORT_BFILE)
-      .addButtonRegister("+ Mass", notifyButtonClick, ENABLE_BUTTONS.ADD_MASS)
-      .addButtonRegister("Delete", notifyButtonClick, ENABLE_BUTTONS.DELETE)
+    val toolbar = new ToolBar(shell, SWT.HORIZONTAL | SWT.WRAP)
+    toolbar.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
 
-    val buttonBar2 = shell.addButtonBar()
-    buttonBar2.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false, 3, 1))
-    buttonBar2.addButtonRegister("+ Change Log", notifyButtonClick, ENABLE_BUTTONS.ADD_CHANGELOG)
-      .addButtonRegister("+ Battery", notifyButtonClick, ENABLE_BUTTONS.ADD_BATTERY)
-      .addButtonRegister("+ Shaft", notifyButtonClick, ENABLE_BUTTONS.ADD_SHAFT)
-      .addButtonRegister("+ Engine", notifyButtonClick, ENABLE_BUTTONS.ADD_ENGINE)
-      .addButtonRegister("+ Data", notifyButtonClick, ENABLE_BUTTONS.ADD_DATA)
-      .addButtonRegister("+ Idle Data", notifyButtonClick, ENABLE_BUTTONS.ADD_DATA_IDLE)
-      .addButtonRegister("+ Simple Trust", notifyButtonClick, ENABLE_BUTTONS.ADD_SYMPLE_TRUST)
-      .addButtonRegister("+ Collision Point", notifyButtonClick, ENABLE_BUTTONS.ADD_COLLISION_POINT)
+    // Geometry actions
+    addToolItem(toolbar, "+ Surface", "Add a new surface", ENABLE_BUTTONS.ADD_SURFACE)
+    addToolItem(toolbar, "+ Body", "Add a new body", ENABLE_BUTTONS.ADD_BODY)
+    addToolItem(toolbar, "+ Section", "Add a section to the selected surface", ENABLE_BUTTONS.ADD_SECTION)
+    addToolItem(toolbar, "+ Control", "Add a control to the selected section", ENABLE_BUTTONS.ADD_CONTROL)
+    addToolItem(toolbar, "+ Profile Pt", "Add a profile point to the selected body", ENABLE_BUTTONS.ADD_PROFILE_POINT)
+    addToolItem(toolbar, "Import BFILE", "Import body shape from file", ENABLE_BUTTONS.IMPORT_BFILE)
+    new ToolItem(toolbar, SWT.SEPARATOR)
 
+    // Mass actions
+    addToolItem(toolbar, "+ Mass", "Add a mass element", ENABLE_BUTTONS.ADD_MASS)
+    addToolItem(toolbar, "Auto Masses", "Generate masses from geometry volumes", ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME)
+    addToolItem(toolbar, "Calc CG", "Calculate center of gravity from masses", ENABLE_BUTTONS.CALCULATE_CG)
+    new ToolItem(toolbar, SWT.SEPARATOR)
 
+    // Config actions
+    addToolItem(toolbar, "+ Changelog", "Add a changelog entry", ENABLE_BUTTONS.ADD_CHANGELOG)
+    addToolItem(toolbar, "+ Battery", "Add a battery", ENABLE_BUTTONS.ADD_BATTERY)
+    addToolItem(toolbar, "+ Shaft", "Add a shaft", ENABLE_BUTTONS.ADD_SHAFT)
+    addToolItem(toolbar, "+ Engine", "Add an engine", ENABLE_BUTTONS.ADD_ENGINE)
+    addToolItem(toolbar, "+ Data", "Add engine data point", ENABLE_BUTTONS.ADD_DATA)
+    addToolItem(toolbar, "+ Idle", "Add idle data point", ENABLE_BUTTONS.ADD_DATA_IDLE)
+    addToolItem(toolbar, "+ Trust", "Add simple trust", ENABLE_BUTTONS.ADD_SYMPLE_TRUST)
+    addToolItem(toolbar, "+ Collision", "Add a collision point", ENABLE_BUTTONS.ADD_COLLISION_POINT)
+    new ToolItem(toolbar, SWT.SEPARATOR)
 
-    // Column 1: Tree
-    tree = shell.addTree(SWT.VIRTUAL | SWT.BORDER, notifyTreeClick)
-      .layoutData(new GridData(GridData.FILL_HORIZONTAL | GridData.FILL_VERTICAL))
+    // Delete
+    addToolItem(toolbar, "Delete", "Delete the selected element", ENABLE_BUTTONS.DELETE)
+
+    // Resizable 3-pane layout
+    val sash = new SashForm(shell, SWT.HORIZONTAL)
+    sash.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true))
+
+    // Pane 1: Tree
+    tree = new Tree(sash, SWT.VIRTUAL | SWT.BORDER)
+    tree.addSelectionListener(new SelectionAdapter {
+      override def widgetSelected(se: SelectionEvent) = notifyTreeClick(se)
+    })
+    tree.layoutData(new GridData(GridData.FILL_BOTH))
       .setSourceHandler(treeUpdateHandler)
-
     tree.setItemCount(1)
 
-    // Column 2: Properties + Help stacked vertically
-    val propsHelpComposite = new Composite(shell, SWT.NONE)
+    // Pane 2: Properties + Help stacked vertically
+    val propsHelpComposite = new Composite(sash, SWT.NONE)
     val propsHelpLayout = new GridLayout(1, false)
     propsHelpLayout.marginWidth = 0
     propsHelpLayout.marginHeight = 0
     propsHelpComposite.setLayout(propsHelpLayout)
-    propsHelpComposite.setLayoutData(new GridData(GridData.FILL_HORIZONTAL | GridData.FILL_VERTICAL))
 
     properties = new Table(propsHelpComposite, SWT.VIRTUAL | SWT.FULL_SELECTION | SWT.BORDER)
     properties.setLinesVisible(true)
     properties.setHeaderVisible(true)
-    val propsGridData = new GridData(GridData.FILL_HORIZONTAL | GridData.FILL_VERTICAL)
-    propsGridData.heightHint = 300
-    properties.setLayoutData(propsGridData)
+    properties.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true))
     properties.addColumn("Property")
       .addColumn("Value", true)
       .setSourceHandler(tableUpdateHandler)
@@ -218,19 +235,19 @@ class MainWindow(
     })
 
     help = new StyledText(propsHelpComposite, SWT.READ_ONLY | SWT.BORDER | SWT.WRAP)
-    val helpGridData = new GridData(GridData.FILL_HORIZONTAL)
+    val helpGridData = new GridData(SWT.FILL, SWT.CENTER, true, false)
     helpGridData.heightHint = 80
     help.setLayoutData(helpGridData)
 
-    // Column 3: 3D Viewer (OpenGL)
-    viewer3D = new Viewer3DGL(shell, SWT.BORDER)
-    val viewerGridData = new GridData(GridData.FILL_HORIZONTAL | GridData.FILL_VERTICAL)
-    viewerGridData.widthHint = 400
-    viewer3D.setLayoutData(viewerGridData)
+    // Pane 3: 3D Viewer (OpenGL)
+    viewer3D = new Viewer3DGL(sash, SWT.BORDER)
+
+    // Set pane proportions: 20% tree, 25% properties, 55% 3D viewer
+    sash.setWeights(Array(20, 25, 55): _*)
 
     footerLabel = new Label(shell, SWT.BORDER)
     footerLabel.setText("Ready")
-    footerLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 3, 1))
+    footerLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
     footerLabel.setCursor(display.getSystemCursor(SWT.CURSOR_HAND))
 
     shell.pack()

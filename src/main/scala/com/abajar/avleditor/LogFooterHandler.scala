@@ -10,8 +10,10 @@
 
 package com.abajar.avleditor
 
-import java.util.logging.{Handler, LogRecord, Formatter}
+import java.util.logging.{Handler, Level, LogRecord, Formatter}
 import org.eclipse.swt.widgets.{Display, Label}
+import org.eclipse.swt.graphics.Color
+import org.eclipse.swt.SWT
 import scala.collection.mutable.ListBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -20,6 +22,9 @@ class LogFooterHandler(display: Display, footerLabel: Label) extends Handler {
 
   val logHistory = new ListBuffer[String]()
   private val dateFormat = new SimpleDateFormat("HH:mm:ss")
+  private val warningColor = new Color(display, 180, 100, 0)
+  private val errorColor = new Color(display, 200, 40, 40)
+  private val infoColor = display.getSystemColor(SWT.COLOR_DARK_GREEN)
 
   setFormatter(new Formatter {
     override def format(record: LogRecord): String = {
@@ -49,6 +54,14 @@ class LogFooterHandler(display: Display, footerLabel: Label) extends Handler {
               formattedMessage
             }
             footerLabel.setText(shortMessage)
+            val level = record.getLevel
+            if (level.intValue >= Level.SEVERE.intValue) {
+              footerLabel.setForeground(errorColor)
+            } else if (level.intValue >= Level.WARNING.intValue) {
+              footerLabel.setForeground(warningColor)
+            } else {
+              footerLabel.setForeground(infoColor)
+            }
             footerLabel.getParent.layout()
           }
         }
@@ -58,5 +71,8 @@ class LogFooterHandler(display: Display, footerLabel: Label) extends Handler {
 
   override def flush(): Unit = {}
 
-  override def close(): Unit = {}
+  override def close(): Unit = {
+    warningColor.dispose()
+    errorColor.dispose()
+  }
 }

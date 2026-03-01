@@ -14,6 +14,7 @@ import org.eclipse.swt.SWT
 import org.eclipse.swt.layout.{GridLayout, GridData}
 import org.eclipse.swt.custom.ScrolledComposite
 import org.eclipse.swt.widgets.{Display, Shell, Table, TableColumn, TableItem, Label, Composite, Button, Group}
+import org.eclipse.swt.graphics.{Font, Color}
 import org.eclipse.swt.events.{SelectionAdapter, SelectionEvent}
 import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.avl.runcase.MilF8785cEvaluator
@@ -22,6 +23,12 @@ import scala.collection.JavaConverters._
 
 class AvlResultsWindow(display: Display) {
   private var shell: Shell = _
+  private val boldFont = new Font(display, "Sans", 10, SWT.BOLD)
+  private val monoFont = new Font(display, "Monospace", 9, SWT.NORMAL)
+  private val headerFont = new Font(display, "Sans", 9, SWT.BOLD)
+  private val passBgColor = new Color(display, 220, 245, 220)
+  private val failBgColor = new Color(display, 250, 220, 220)
+  private val naBgColor = new Color(display, 240, 240, 230)
 
   def open(calculation: AvlCalculation): Unit = {
     if (shell != null && !shell.isDisposed) {
@@ -126,15 +133,19 @@ class AvlResultsWindow(display: Display) {
     calculation.getEigenvalues.asScala.foreach { eig =>
       val sigma = new Label(eigGroup, SWT.NONE)
       sigma.setText(f"${eig.getSigma}%.6f")
+      sigma.setFont(monoFont)
 
       val omega = new Label(eigGroup, SWT.NONE)
       omega.setText(f"${eig.getOmega}%.6f")
+      omega.setFont(monoFont)
 
       val wn = new Label(eigGroup, SWT.NONE)
       wn.setText(f"${eig.getNaturalFrequency}%.6f")
+      wn.setFont(monoFont)
 
       val zeta = new Label(eigGroup, SWT.NONE)
       zeta.setText(f"${eig.getDampingRatio}%.6f")
+      zeta.setFont(monoFont)
     }
 
     // Control Derivatives group
@@ -176,6 +187,7 @@ class AvlResultsWindow(display: Display) {
 
     val valueLabel = new Label(parent, SWT.NONE)
     valueLabel.setText(value)
+    valueLabel.setFont(monoFont)
     valueLabel.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, true, false))
   }
 
@@ -189,6 +201,7 @@ class AvlResultsWindow(display: Display) {
     for (i <- 0 until numControls) {
       val label = new Label(parent, SWT.NONE)
       label.setText(controlNames(i))
+      label.setFont(headerFont)
       label.setLayoutData(new GridData(SWT.CENTER, SWT.CENTER, true, false))
     }
   }
@@ -200,6 +213,7 @@ class AvlResultsWindow(display: Display) {
     for (i <- 0 until numControls) {
       val valueLabel = new Label(parent, SWT.NONE)
       valueLabel.setText(f"${values(i)}%.6f")
+      valueLabel.setFont(monoFont)
       valueLabel.setLayoutData(new GridData(SWT.CENTER, SWT.CENTER, true, false))
     }
   }
@@ -207,24 +221,40 @@ class AvlResultsWindow(display: Display) {
   private def addModalHeader(parent: Composite, text: String): Unit = {
     val header = new Label(parent, SWT.NONE)
     header.setText(text)
+    header.setFont(headerFont)
     header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
   }
 
   private def addModalNormRow(parent: Composite, row: ModalNormRow): Unit = {
+    val bgColor = row.pass match {
+      case Some(true)  => passBgColor
+      case Some(false) => failBgColor
+      case None        => naBgColor
+    }
+
     val mode = new Label(parent, SWT.NONE)
     mode.setText(row.modeName)
+    mode.setFont(headerFont)
+    mode.setBackground(bgColor)
 
     val wn = new Label(parent, SWT.NONE)
     wn.setText(row.wn.map(v => f"$v%.4f").getOrElse("N/A"))
+    wn.setFont(monoFont)
+    wn.setBackground(bgColor)
 
     val zeta = new Label(parent, SWT.NONE)
     zeta.setText(row.zeta.map(v => f"$v%.4f").getOrElse("N/A"))
+    zeta.setFont(monoFont)
+    zeta.setBackground(bgColor)
 
     val criterion = new Label(parent, SWT.WRAP)
     criterion.setText(row.criterion)
+    criterion.setBackground(bgColor)
     criterion.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
 
     val result = new Label(parent, SWT.NONE)
+    result.setBackground(bgColor)
+    result.setFont(headerFont)
     row.pass match {
       case Some(true) =>
         result.setText("PASS")
