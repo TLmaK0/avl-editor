@@ -59,3 +59,10 @@ The project uses a local `PLAN.md` file (not tracked in git) to maintain context
 - It contains the feature description, current status, next steps, and relevant context
 - Helps the agent continue work after context cleanup
 - Should include task lists, important decisions, and files being modified
+
+## Engineering Policy
+
+- Never ship "quick patches" as final fixes.
+- Always solve the root cause, even if the implementation takes longer.
+- If a temporary workaround is unavoidable, label it explicitly as temporary, explain the risk, and propose the permanent fix immediately.
+- Prefer robust, evidence-based behavior over UI heuristics that can misclassify results.

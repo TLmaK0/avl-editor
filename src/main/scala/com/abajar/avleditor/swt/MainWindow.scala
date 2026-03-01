@@ -233,7 +233,8 @@ class MainWindow(
     footerLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 3, 1))
     footerLabel.setCursor(display.getSystemCursor(SWT.CURSOR_HAND))
 
-    shell pack
+    shell.pack()
+    shell.setMaximized(true)
   }})
 
   def treeNodeSelected: Option[Any] = {

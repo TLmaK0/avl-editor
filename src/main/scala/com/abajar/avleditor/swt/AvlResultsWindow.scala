@@ -30,7 +30,7 @@ class AvlResultsWindow(display: Display) {
 
     shell = new Shell(display, SWT.DIALOG_TRIM | SWT.RESIZE | SWT.MAX)
     shell.setText("AVL Results")
-    shell.setSize(760, 820)
+    shell.setSize(1000, 820)
 
     shell.setLayout(new GridLayout(1, false))
 

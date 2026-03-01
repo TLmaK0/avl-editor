@@ -1,0 +1,12 @@
+project:
+  name: Untitled
+  bpm: 120
+  key: C
+  time_signature: 4/4
+patterns: {}
+tracks: []
+arrangement:
+  sections: []
+master:
+  volume: 1.0
+  effects: []

@@ -1071,14 +1071,23 @@ object AvlEditor{
 
     private def getChilds(node: Any): scala.collection.immutable.List[(String, Any)] = node match {
       case null => List()
-      case childs: java.util.List[_] =>
-        childs.asScala.toList.map(child => (child.toString, child.asInstanceOf[Any]))
       case node =>
         node.getClass.getMethods.foldLeft(List[(String, Any)]())(
           (nodes, method)=>
             if (method.isAnnotationPresent(classOf[AvlEditorNode])){
-              val nodePair = getNameNodePair(method, node)
-              if (nodePair._2 != null) nodes :+ nodePair else nodes
+              val raw = method.invoke(node)
+              val value =
+                if (raw == null && method.getAnnotation(classOf[AvlEditorNode]).name == LastResultsNodeName) noAvlResultsNode
+                else raw
+              value match {
+                case null => nodes
+                case list: java.util.List[_] =>
+                  nodes ++ list.asScala.toList.map(child => (child.toString, child.asInstanceOf[Any]))
+                case obj =>
+                  val name = method.getAnnotation(classOf[AvlEditorNode]).name
+                  val displayName = if (name == "Node") obj.toString else name
+                  nodes :+ (displayName, obj)
+              }
             } else {
               nodes
             }

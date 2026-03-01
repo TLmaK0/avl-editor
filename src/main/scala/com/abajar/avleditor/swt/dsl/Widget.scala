@@ -37,7 +37,7 @@ object Widget{
           item.setData(data)
           item.setText(title)
           item.setItemCount(itemsCount)
-          item.setExpanded(true)
+          item.setExpanded(false)
         }
       })
       tree
