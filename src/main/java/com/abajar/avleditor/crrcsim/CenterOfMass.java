@@ -10,13 +10,8 @@
 
 package com.abajar.avleditor.crrcsim;
 
-import com.abajar.avleditor.avl.AVL;
 import com.abajar.avleditor.avl.AVLGeometry;
-import com.abajar.avleditor.avl.mass.Mass;
-import com.abajar.avleditor.crrcsim.CRRCSim;
-import com.abajar.avleditor.view.annotations.AvlEditorField;
 import com.abajar.avleditor.view.annotations.AvlEditorReadOnly;
-import java.util.ArrayList;
 import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 
@@ -43,12 +38,11 @@ public class CenterOfMass {
         this.crrcsim = crrcsim;
     }
 
-    private float getMassesSum(){
-        float total=0;
-        for(Mass mass: this.crrcsim.getAvl().getGeometry().getMasses()){
-            total += mass.getMass();
+    private AVLGeometry getGeometry() {
+        if (this.crrcsim == null || this.crrcsim.getAvl() == null) {
+            return null;
         }
-        return total;
+        return this.crrcsim.getAvl().getGeometry();
     }
 
     @AvlEditorReadOnly(text="X position",
@@ -57,10 +51,8 @@ public class CenterOfMass {
     @XmlAttribute(name="x")
     @XmlJavaTypeAdapter(MetersConversorInverted.class)
     public float getX(){
-        float total = 0;
-        float totalMass = this.getMassesSum();
-        for(Mass mass: this.crrcsim.getAvl().getGeometry().getMasses()) total += mass.getX() * mass.getMass();
-        return  totalMass == 0 ? 0 : total / totalMass;
+        AVLGeometry geometry = getGeometry();
+        return geometry == null ? 0 : geometry.getXref();
     }
 
     @AvlEditorReadOnly(text="Y position",
@@ -69,10 +61,8 @@ public class CenterOfMass {
     @XmlAttribute(name="y")
     @XmlJavaTypeAdapter(MetersConversor.class)
     public float getY(){
-        float total = 0;
-        float totalMass = this.getMassesSum();
-        for(Mass mass: this.crrcsim.getAvl().getGeometry().getMasses()) total += mass.getY() * mass.getMass();
-        return  totalMass == 0 ? 0 : total / totalMass;
+        AVLGeometry geometry = getGeometry();
+        return geometry == null ? 0 : geometry.getYref();
     }
 
     @AvlEditorReadOnly(text="Z position",
@@ -81,9 +71,7 @@ public class CenterOfMass {
     @XmlAttribute(name="z")
     @XmlJavaTypeAdapter(MetersConversorInverted.class)
     public float getZ(){
-        float total = 0;
-        float totalMass = this.getMassesSum();
-        for(Mass mass: this.crrcsim.getAvl().getGeometry().getMasses()) total += mass.getZ() * mass.getMass();
-        return  totalMass == 0 ? 0 : total / totalMass;
+        AVLGeometry geometry = getGeometry();
+        return geometry == null ? 0 : geometry.getZref();
     }
 }

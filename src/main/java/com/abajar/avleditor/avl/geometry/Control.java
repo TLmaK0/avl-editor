@@ -241,7 +241,7 @@ public class Control extends MassObject implements AVLSerializable {
     }
 
     public ArrayList<Mass> getMassesRecursive() {
-        return getMasses();
+        return new ArrayList<Mass>(getMasses());
     }
 
     public void setParentSection(Section section) {

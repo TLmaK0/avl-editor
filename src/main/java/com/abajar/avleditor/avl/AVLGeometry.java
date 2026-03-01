@@ -39,9 +39,14 @@ import com.abajar.avleditor.avl.mass.Mass;
 @XmlSeeAlso({
     MassObject.class
 })
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SURFACE, ENABLE_BUTTONS.ADD_MASS, ENABLE_BUTTONS.ADD_BODY})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SURFACE, ENABLE_BUTTONS.ADD_MASS, ENABLE_BUTTONS.ADD_BODY, ENABLE_BUTTONS.CALCULATE_CG, ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME})
 public class AVLGeometry extends MassObject implements AVLSerializable{
     final static Logger logger = Logger.getLogger(AVLGeometry.class.getName());
+    private static final float EPSILON = 1.0e-8f;
+    private static final float DEFAULT_UNIFORM_DENSITY = 1.0f;
+    private static final float AIRFOIL_AREA_FACTOR = 0.68f;
+    private static final float AIRFOIL_CENTROID_CHORD_FRACTION = 0.42f;
+    private static final float DEFAULT_THICKNESS_RATIO = 0.12f;
 
 
     @AvlEditorField(text="Name",
@@ -441,7 +446,7 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
     }
 
     public ArrayList<Mass> getMassesRecursive() {
-        ArrayList<Mass> masses = getMasses();
+        ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Surface surface: getSurfaces()){
           masses.addAll(surface.getMassesRecursive());
         }
@@ -451,6 +456,303 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         }
 
         return masses;
+    }
+
+    public boolean calculateCenterOfMassFromMasses() {
+        ArrayList<Mass> masses = getMassesRecursive();
+        float totalMass = 0f;
+        float xWeighted = 0f;
+        float yWeighted = 0f;
+        float zWeighted = 0f;
+
+        for (Mass mass : masses) {
+            float massValue = mass.getMass();
+            totalMass += massValue;
+            xWeighted += mass.getX() * massValue;
+            yWeighted += mass.getY() * massValue;
+            zWeighted += mass.getZ() * massValue;
+        }
+
+        if (Math.abs(totalMass) < 1.0e-8f) {
+            logger.log(Level.WARNING, "Cannot calculate CG: total mass is zero");
+            return false;
+        }
+
+        this.setXref(xWeighted / totalMass);
+        this.setYref(yWeighted / totalMass);
+        this.setZref(zWeighted / totalMass);
+        logger.log(Level.INFO, "CG calculated from masses: Xref={0}, Yref={1}, Zref={2}",
+                new Object[]{this.getXref(), this.getYref(), this.getZref()});
+        return true;
+    }
+
+    public boolean autoMassesFromVolume() {
+        float currentTotalMass = getTotalMass(getMassesRecursive());
+        ArrayList<VolumeDescriptor> descriptors = new ArrayList<VolumeDescriptor>();
+        float totalVolume = 0f;
+
+        for (Surface surface : getSurfaces()) {
+            VolumeCentroid definedSideVolume = estimateSurfaceDefinedSideVolume(surface);
+            if (definedSideVolume.volume > EPSILON) {
+                if (surface.isSymmetric()) {
+                    VolumeCentroid mirroredSideVolume = mirrorAcrossY(definedSideVolume, 0f);
+                    String baseName = "auto mass " + surface.getName();
+                    descriptors.add(new VolumeDescriptor(surface, formatAutoMassName(baseName, definedSideVolume.getY()), definedSideVolume));
+                    descriptors.add(new VolumeDescriptor(surface, formatAutoMassName(baseName, mirroredSideVolume.getY()), mirroredSideVolume));
+                    totalVolume += definedSideVolume.volume + mirroredSideVolume.volume;
+                } else {
+                    descriptors.add(new VolumeDescriptor(surface, "auto mass " + surface.getName(), definedSideVolume));
+                    totalVolume += definedSideVolume.volume;
+                }
+            }
+        }
+
+        for (Body bodyPart : getBodies()) {
+            VolumeCentroid bodyDefinedSideVolume = estimateBodyDefinedSideVolume(bodyPart);
+            if (bodyDefinedSideVolume.volume > EPSILON) {
+                if (isBodyDuplicated(bodyPart)) {
+                    float mirrorPlaneY = bodyPart.getYdupl();
+                    VolumeCentroid mirroredSideVolume = mirrorAcrossY(bodyDefinedSideVolume, mirrorPlaneY);
+                    String baseName = "auto mass " + bodyPart.getName();
+                    descriptors.add(new VolumeDescriptor(bodyPart, formatAutoMassName(baseName, bodyDefinedSideVolume.getY()), bodyDefinedSideVolume));
+                    descriptors.add(new VolumeDescriptor(bodyPart, formatAutoMassName(baseName, mirroredSideVolume.getY()), mirroredSideVolume));
+                    totalVolume += bodyDefinedSideVolume.volume + mirroredSideVolume.volume;
+                } else {
+                    descriptors.add(new VolumeDescriptor(bodyPart, "auto mass " + bodyPart.getName(), bodyDefinedSideVolume));
+                    totalVolume += bodyDefinedSideVolume.volume;
+                }
+            }
+        }
+
+        if (totalVolume <= EPSILON || descriptors.isEmpty()) {
+            logger.log(Level.WARNING, "Auto masses from volume failed: zero total volume");
+            return false;
+        }
+
+        clearAllMasses();
+
+        float uniformDensity;
+        if (currentTotalMass > EPSILON) {
+            uniformDensity = currentTotalMass / totalVolume;
+        } else {
+            uniformDensity = DEFAULT_UNIFORM_DENSITY;
+        }
+
+        for (VolumeDescriptor descriptor : descriptors) {
+            Mass mass = descriptor.owner.createMass();
+            mass.setName(descriptor.name);
+            mass.setMass(descriptor.volumeCentroid.volume * uniformDensity);
+            mass.setX(descriptor.volumeCentroid.getX());
+            mass.setY(descriptor.volumeCentroid.getY());
+            mass.setZ(descriptor.volumeCentroid.getZ());
+        }
+
+        logger.log(Level.INFO, "Auto masses generated from volume. density={0}, totalVolume={1}, totalMass={2}",
+                new Object[]{uniformDensity, totalVolume, getTotalMass(getMassesRecursive())});
+        return true;
+    }
+
+    private void clearAllMasses() {
+        getMasses().clear();
+
+        for (Surface surface : getSurfaces()) {
+            surface.getMasses().clear();
+            for (Section section : surface.getSections()) {
+                section.getMasses().clear();
+                for (Control control : section.getControls()) {
+                    control.getMasses().clear();
+                }
+            }
+        }
+
+        for (Body bodyPart : getBodies()) {
+            bodyPart.getMasses().clear();
+        }
+    }
+
+    private float getTotalMass(ArrayList<Mass> masses) {
+        float total = 0f;
+        for (Mass mass : masses) {
+            total += mass.getMass();
+        }
+        return total;
+    }
+
+    private VolumeCentroid estimateSurfaceDefinedSideVolume(Surface surface) {
+        VolumeCentroid definedSideVolume = new VolumeCentroid();
+        ArrayList<Section> sections = surface.getSections();
+        if (sections.size() < 2) {
+            return definedSideVolume;
+        }
+
+        for (int i = 0; i < sections.size() - 1; i++) {
+            Section root = sections.get(i);
+            Section tip = sections.get(i + 1);
+            float rootChord = Math.max(0f, root.getChord());
+            float tipChord = Math.max(0f, tip.getChord());
+            float span = (float) Math.hypot(
+                tip.getYle() - root.getYle(),
+                tip.getZle() - root.getZle()
+            );
+
+            if (span <= EPSILON || (rootChord <= EPSILON && tipChord <= EPSILON)) {
+                continue;
+            }
+
+            float averageChord = 0.5f * (rootChord + tipChord);
+            float averageThicknessRatio = 0.5f
+                * (estimateSectionThicknessRatio(root) + estimateSectionThicknessRatio(tip));
+
+            float segmentVolume = AIRFOIL_AREA_FACTOR
+                * averageThicknessRatio
+                * averageChord
+                * averageChord
+                * span;
+
+            if (segmentVolume <= EPSILON) {
+                continue;
+            }
+
+            float x = 0.5f * (root.getXle() + tip.getXle())
+                + AIRFOIL_CENTROID_CHORD_FRACTION * averageChord
+                + surface.getdX();
+            float y = 0.5f * (root.getYle() + tip.getYle()) + surface.getdY();
+            float z = 0.5f * (root.getZle() + tip.getZle()) + surface.getdZ();
+
+            definedSideVolume.add(segmentVolume, x, y, z);
+        }
+        return definedSideVolume;
+    }
+
+    private float estimateSectionThicknessRatio(Section section) {
+        String naca = section.getNACA();
+        if (naca == null) {
+            return DEFAULT_THICKNESS_RATIO;
+        }
+
+        String digits = naca.replaceAll("[^0-9]", "");
+        if (digits.length() < 2) {
+            return DEFAULT_THICKNESS_RATIO;
+        }
+
+        try {
+            int thicknessPercent = Integer.parseInt(digits.substring(digits.length() - 2));
+            float ratio = thicknessPercent / 100f;
+            if (ratio > EPSILON) {
+                return ratio;
+            }
+        } catch (NumberFormatException ignored) {
+        }
+        return DEFAULT_THICKNESS_RATIO;
+    }
+
+    private VolumeCentroid estimateBodyDefinedSideVolume(Body bodyPart) {
+        VolumeCentroid definedSideVolume = new VolumeCentroid();
+        ArrayList<com.abajar.avleditor.avl.geometry.BodyProfilePoint> points = bodyPart.getProfilePoints();
+        if (points.size() < 2 || bodyPart.getLength() <= EPSILON) {
+            return definedSideVolume;
+        }
+
+        ArrayList<com.abajar.avleditor.avl.geometry.BodyProfilePoint> sortedPoints =
+            new ArrayList<com.abajar.avleditor.avl.geometry.BodyProfilePoint>(points);
+        java.util.Collections.sort(sortedPoints, new java.util.Comparator<com.abajar.avleditor.avl.geometry.BodyProfilePoint>() {
+            @Override
+            public int compare(com.abajar.avleditor.avl.geometry.BodyProfilePoint a, com.abajar.avleditor.avl.geometry.BodyProfilePoint b) {
+                return Float.compare(a.getX(), b.getX());
+            }
+        });
+
+        for (int i = 0; i < sortedPoints.size() - 1; i++) {
+            com.abajar.avleditor.avl.geometry.BodyProfilePoint p1 = sortedPoints.get(i);
+            com.abajar.avleditor.avl.geometry.BodyProfilePoint p2 = sortedPoints.get(i + 1);
+
+            float x1 = p1.getX();
+            float x2 = p2.getX();
+            if (x2 <= x1) {
+                continue;
+            }
+
+            float length = (x2 - x1) * bodyPart.getLength();
+            float r1 = Math.max(0f, p1.getRadius());
+            float r2 = Math.max(0f, p2.getRadius());
+            float segmentVolume = (float) (Math.PI * length * (r1 * r1 + r1 * r2 + r2 * r2) / 3.0);
+            if (segmentVolume <= EPSILON) {
+                continue;
+            }
+
+            float denominator = 4f * (r1 * r1 + r1 * r2 + r2 * r2);
+            if (Math.abs(denominator) <= EPSILON) {
+                continue;
+            }
+
+            float centroidFromSegmentStart = length * (r1 * r1 + 2f * r1 * r2 + 3f * r2 * r2) / denominator;
+            float x = bodyPart.getdX() + x1 * bodyPart.getLength() + centroidFromSegmentStart;
+            float y = bodyPart.getdY();
+            float z = bodyPart.getdZ();
+            definedSideVolume.add(segmentVolume, x, y, z);
+        }
+        return definedSideVolume;
+    }
+
+    private boolean isBodyDuplicated(Body bodyPart) {
+        return bodyPart.getYdupl() != 0f || bodyPart.getdY() != 0f;
+    }
+
+    private VolumeCentroid mirrorAcrossY(VolumeCentroid source, float mirrorPlaneY) {
+        VolumeCentroid mirrored = new VolumeCentroid();
+        if (source.volume <= EPSILON) {
+            return mirrored;
+        }
+        float x = source.getX();
+        float y = 2f * mirrorPlaneY - source.getY();
+        float z = source.getZ();
+        mirrored.add(source.volume, x, y, z);
+        return mirrored;
+    }
+
+    private String formatAutoMassName(String baseName, float y) {
+        if (Math.abs(y) <= EPSILON) {
+            return baseName + " center";
+        }
+        return y > 0f ? baseName + " +Y" : baseName + " -Y";
+    }
+
+    private static class VolumeCentroid {
+        private float volume;
+        private float xMoment;
+        private float yMoment;
+        private float zMoment;
+
+        void add(float deltaVolume, float x, float y, float z) {
+            volume += deltaVolume;
+            xMoment += deltaVolume * x;
+            yMoment += deltaVolume * y;
+            zMoment += deltaVolume * z;
+        }
+
+        float getX() {
+            return volume <= EPSILON ? 0f : xMoment / volume;
+        }
+
+        float getY() {
+            return volume <= EPSILON ? 0f : yMoment / volume;
+        }
+
+        float getZ() {
+            return volume <= EPSILON ? 0f : zMoment / volume;
+        }
+    }
+
+    private static class VolumeDescriptor {
+        private final MassObject owner;
+        private final String name;
+        private final VolumeCentroid volumeCentroid;
+
+        VolumeDescriptor(MassObject owner, String name, VolumeCentroid volumeCentroid) {
+            this.owner = owner;
+            this.name = name;
+            this.volumeCentroid = volumeCentroid;
+        }
     }
 
     /**

@@ -12,12 +12,15 @@ package com.abajar.avleditor.swt
 
 import org.eclipse.swt.SWT
 import org.eclipse.swt.layout.{GridLayout, GridData}
+import org.eclipse.swt.custom.ScrolledComposite
 import org.eclipse.swt.widgets.{Display, Shell, Table, TableColumn, TableItem, Label, Composite, Button, Group}
 import org.eclipse.swt.events.{SelectionAdapter, SelectionEvent}
 import com.abajar.avleditor.avl.runcase.AvlCalculation
+import com.abajar.avleditor.avl.runcase.MilF8785cEvaluator
+import com.abajar.avleditor.avl.runcase.ModalNormRow
+import scala.collection.JavaConverters._
 
 class AvlResultsWindow(display: Display) {
-
   private var shell: Shell = _
 
   def open(calculation: AvlCalculation): Unit = {
@@ -27,16 +30,24 @@ class AvlResultsWindow(display: Display) {
 
     shell = new Shell(display, SWT.DIALOG_TRIM | SWT.RESIZE | SWT.MAX)
     shell.setText("AVL Results")
-    shell.setSize(600, 700)
+    shell.setSize(760, 820)
 
-    val layout = new GridLayout(2, true)
-    shell.setLayout(layout)
+    shell.setLayout(new GridLayout(1, false))
+
+    val scrolled = new ScrolledComposite(shell, SWT.V_SCROLL | SWT.H_SCROLL)
+    scrolled.setLayoutData(new GridData(GridData.FILL_BOTH))
+    scrolled.setExpandHorizontal(true)
+    scrolled.setExpandVertical(true)
+
+    val content = new Composite(scrolled, SWT.NONE)
+    content.setLayout(new GridLayout(2, true))
+    scrolled.setContent(content)
 
     val config = calculation.getConfiguration
     val stab = calculation.getStabilityDerivatives
 
     // Configuration group
-    val configGroup = new Group(shell, SWT.NONE)
+    val configGroup = new Group(content, SWT.NONE)
     configGroup.setText("Configuration")
     configGroup.setLayout(new GridLayout(2, false))
     configGroup.setLayoutData(new GridData(GridData.FILL_BOTH))
@@ -54,7 +65,7 @@ class AvlResultsWindow(display: Display) {
     }
 
     // Stability Derivatives group
-    val stabGroup = new Group(shell, SWT.NONE)
+    val stabGroup = new Group(content, SWT.NONE)
     stabGroup.setText("Stability Derivatives")
     stabGroup.setLayout(new GridLayout(2, false))
     stabGroup.setLayoutData(new GridData(GridData.FILL_BOTH))
@@ -73,8 +84,61 @@ class AvlResultsWindow(display: Display) {
     addRow(stabGroup, "Cnp", f"${stab.getCnp}%.6f")
     addRow(stabGroup, "Cnr", f"${stab.getCnr}%.6f")
 
+    // Modal analysis vs MIL-F-8785C
+    val modalGroup = new Group(content, SWT.NONE)
+    modalGroup.setText("Modal Analysis vs MIL-F-8785C (Level 1, Phase B)")
+    modalGroup.setLayout(new GridLayout(5, false))
+    val modalGridData = new GridData(GridData.FILL_HORIZONTAL)
+    modalGridData.horizontalSpan = 2
+    modalGroup.setLayoutData(modalGridData)
+
+    val modes = MilF8785cEvaluator.oscillatoryPositiveModes(calculation)
+    if (modes.isEmpty) {
+      val noData = new Label(modalGroup, SWT.WRAP)
+      noData.setText("No oscillatory eigenmodes available. Define mass/inertia and run AVL again.")
+      val noDataGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
+      noDataGrid.horizontalSpan = 5
+      noData.setLayoutData(noDataGrid)
+    } else {
+      addModalHeader(modalGroup, "Mode")
+      addModalHeader(modalGroup, "wn [rad/s]")
+      addModalHeader(modalGroup, "zeta")
+      addModalHeader(modalGroup, "Criterion")
+      addModalHeader(modalGroup, "Result")
+
+      val rows = MilF8785cEvaluator.evaluate(calculation)
+      rows.foreach(row => addModalNormRow(modalGroup, row))
+    }
+
+    // Raw eigenvalues table from AVL .eig
+    val eigGroup = new Group(content, SWT.NONE)
+    eigGroup.setText("AVL Eigenvalues")
+    eigGroup.setLayout(new GridLayout(4, false))
+    val eigGridData = new GridData(GridData.FILL_HORIZONTAL)
+    eigGridData.horizontalSpan = 2
+    eigGroup.setLayoutData(eigGridData)
+
+    addModalHeader(eigGroup, "sigma [1/s]")
+    addModalHeader(eigGroup, "omega [rad/s]")
+    addModalHeader(eigGroup, "wn [rad/s]")
+    addModalHeader(eigGroup, "zeta")
+
+    calculation.getEigenvalues.asScala.foreach { eig =>
+      val sigma = new Label(eigGroup, SWT.NONE)
+      sigma.setText(f"${eig.getSigma}%.6f")
+
+      val omega = new Label(eigGroup, SWT.NONE)
+      omega.setText(f"${eig.getOmega}%.6f")
+
+      val wn = new Label(eigGroup, SWT.NONE)
+      wn.setText(f"${eig.getNaturalFrequency}%.6f")
+
+      val zeta = new Label(eigGroup, SWT.NONE)
+      zeta.setText(f"${eig.getDampingRatio}%.6f")
+    }
+
     // Control Derivatives group
-    val controlGroup = new Group(shell, SWT.NONE)
+    val controlGroup = new Group(content, SWT.NONE)
     controlGroup.setText("Control Derivatives")
     val numCtrls = calculation.getControlNames.length
     controlGroup.setLayout(new GridLayout(numCtrls + 1, false))  // +1 for row label
@@ -90,7 +154,7 @@ class AvlResultsWindow(display: Display) {
     addControlRow(controlGroup, "Cn", stab.getCnd)
 
     // Close button
-    val closeButton = new Button(shell, SWT.PUSH)
+    val closeButton = new Button(content, SWT.PUSH)
     closeButton.setText("Close")
     val buttonGridData = new GridData(SWT.RIGHT, SWT.CENTER, false, false)
     buttonGridData.horizontalSpan = 2
@@ -101,6 +165,7 @@ class AvlResultsWindow(display: Display) {
       }
     })
 
+    scrolled.setMinSize(content.computeSize(SWT.DEFAULT, SWT.DEFAULT))
     shell.open()
   }
 
@@ -136,6 +201,39 @@ class AvlResultsWindow(display: Display) {
       val valueLabel = new Label(parent, SWT.NONE)
       valueLabel.setText(f"${values(i)}%.6f")
       valueLabel.setLayoutData(new GridData(SWT.CENTER, SWT.CENTER, true, false))
+    }
+  }
+
+  private def addModalHeader(parent: Composite, text: String): Unit = {
+    val header = new Label(parent, SWT.NONE)
+    header.setText(text)
+    header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
+  }
+
+  private def addModalNormRow(parent: Composite, row: ModalNormRow): Unit = {
+    val mode = new Label(parent, SWT.NONE)
+    mode.setText(row.modeName)
+
+    val wn = new Label(parent, SWT.NONE)
+    wn.setText(row.wn.map(v => f"$v%.4f").getOrElse("N/A"))
+
+    val zeta = new Label(parent, SWT.NONE)
+    zeta.setText(row.zeta.map(v => f"$v%.4f").getOrElse("N/A"))
+
+    val criterion = new Label(parent, SWT.WRAP)
+    criterion.setText(row.criterion)
+    criterion.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
+
+    val result = new Label(parent, SWT.NONE)
+    row.pass match {
+      case Some(true) =>
+        result.setText("PASS")
+        result.setForeground(display.getSystemColor(SWT.COLOR_DARK_GREEN))
+      case Some(false) =>
+        result.setText("FAIL")
+        result.setForeground(display.getSystemColor(SWT.COLOR_DARK_RED))
+      case None =>
+        result.setText("N/A")
     }
   }
 

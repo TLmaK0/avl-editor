@@ -134,6 +134,8 @@ public class SelectorMutableTreeNode  extends DefaultMutableTreeNode{
 
     private static final TreeModificator addSurface = new AddSurface();
     private static final TreeModificator addBody = new AddBody();
+    private static final TreeModificator calculateCenterOfMass = new CalculateCenterOfMass();
+    private static final TreeModificator autoMassesFromVolume = new AutoMassesFromVolume();
     private static final TreeModificator addSection = new AddSection();
     private static final TreeModificator addControl = new AddControl();
     private static final TreeModificator addMass = new AddMass();
@@ -155,6 +157,8 @@ public class SelectorMutableTreeNode  extends DefaultMutableTreeNode{
     public enum ENABLE_BUTTONS {
         ADD_SURFACE         (addSurface),
         ADD_BODY            (addBody),
+        CALCULATE_CG        (calculateCenterOfMass),
+        AUTO_MASSES_FROM_VOLUME (autoMassesFromVolume),
         ADD_SECTION         (addSection),
         ADD_CONTROL         (addControl),
         ADD_MASS            (addMass),
@@ -205,4 +209,3 @@ public class SelectorMutableTreeNode  extends DefaultMutableTreeNode{
         return options;
     }
 }
-

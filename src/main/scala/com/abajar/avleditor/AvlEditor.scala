@@ -69,6 +69,19 @@ import com.abajar.avleditor.avl.connectivity.AvlRunner
 object AvlEditor{
 
     val logger = Logger.getLogger(AvlEditor.getClass.getName)
+    private val LastResultsNodeName = "Last Results"
+
+    private class NoAvlResultsNode {
+      @AvlEditorReadOnly(
+        text = "Status",
+        help = "Run AVL to generate and inspect the latest results."
+      )
+      def getStatus: String = "No AVL run yet"
+
+      override def toString: String = "No AVL results"
+    }
+
+    private val noAvlResultsNode = new NoAvlResultsNode
 
     val CONFIGURATION_ROOT = System.getProperty("user.home") + "/.avleditor"
     val CONFIGURATION_PATH = CONFIGURATION_ROOT + "/configuration.xml"
@@ -765,6 +778,24 @@ object AvlEditor{
     }
 
     private def handleTreeEvent(data: Any): Unit = {
+      if (data == null) {
+        window.properties.setItemCount(0)
+        window.properties.clearAll()
+        window.disableAllButtons
+        window.help.setText("No AVL results yet. Run AVL first.")
+        window.viewer3D.clearSelectedSection()
+        window.viewer3D.clearSelectedControl()
+        window.viewer3D.clearSelectedBody()
+        window.viewer3D.clearSelectedProfilePoint()
+        return
+      }
+
+      data match {
+        case _: java.util.List[_] =>
+          window.help.setText("Container node. Expand it and select a child item to edit properties.")
+        case _ =>
+      }
+
       val objClass = data.getClass
       val parentClass = window.treeNodeSelectedParent.map(_.getClass.getName).getOrElse("No Parent")
       // Load properties BEFORE button layout to ensure itemCount is correct
@@ -1046,7 +1077,8 @@ object AvlEditor{
         node.getClass.getMethods.foldLeft(List[(String, Any)]())(
           (nodes, method)=>
             if (method.isAnnotationPresent(classOf[AvlEditorNode])){
-              nodes :+ getNameNodePair(method, node)
+              val nodePair = getNameNodePair(method, node)
+              if (nodePair._2 != null) nodes :+ nodePair else nodes
             } else {
               nodes
             }
@@ -1055,8 +1087,19 @@ object AvlEditor{
 
     private def getNameNodePair(method: Method, parentNode: Any) = {
       val name = method.getAnnotation(classOf[AvlEditorNode]).name
-      val node = method.invoke(parentNode)
-      (if (name == "Node") node.toString else name , node)
+      val rawNode = method.invoke(parentNode)
+      val node =
+        if (rawNode == null && name == LastResultsNodeName) noAvlResultsNode
+        else rawNode
+      val displayName =
+        if (name == "Node") {
+          Option(node).map(_.toString).getOrElse("(empty)")
+        } else {
+          node match {
+            case list: java.util.List[_] => s"$name (${list.size()})"
+            case _ => name
+          }
+        }
+      (displayName, node)
     }
 }
-

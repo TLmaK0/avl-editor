@@ -129,7 +129,11 @@ class MainWindow(
         extensions: Array[String]): Option[File]
     = shell.saveFileDialog.setNameExtensions(descriptions).setExtensions(addWildcard(extensions)).show
 
-  def refreshTree: Unit = tree.clearAll(true)
+  def refreshTree: Unit = {
+    tree.removeAll()
+    tree.setItemCount(1)
+    tree.clearAll(true)
+  }
 
   private def addWildcard(extensions: Array[String]) =
     extensions.map(
@@ -163,6 +167,8 @@ class MainWindow(
     buttonBar1.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false, 3, 1))
     buttonBar1.addButtonRegister("+ Surface", notifyButtonClick, ENABLE_BUTTONS.ADD_SURFACE)
       .addButtonRegister("+ Body", notifyButtonClick, ENABLE_BUTTONS.ADD_BODY)
+      .addButtonRegister("Auto Masses", notifyButtonClick, ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME)
+      .addButtonRegister("Calc CG", notifyButtonClick, ENABLE_BUTTONS.CALCULATE_CG)
       .addButtonRegister("+ Section", notifyButtonClick, ENABLE_BUTTONS.ADD_SECTION)
       .addButtonRegister("+ Control", notifyButtonClick, ENABLE_BUTTONS.ADD_CONTROL)
       .addButtonRegister("+ Profile Point", notifyButtonClick, ENABLE_BUTTONS.ADD_PROFILE_POINT)
@@ -233,16 +239,16 @@ class MainWindow(
   def treeNodeSelected: Option[Any] = {
     Option(tree).flatMap { tree =>
       val items = tree.getSelection
-      if (items.length > 0) { Some(items(0).getData) }
+      if (items.length > 0) { Option(items(0).getData) }
       else { None }
     }
   }
 
   def treeNodeSelectedParent: Option[Any] = {
-    Option(tree).map { tree =>
+    Option(tree).flatMap { tree =>
       val items = tree.getSelection
       if (items.length > 0 && Option(items(0).getParentItem).isDefined) {
-        items(0).getParentItem.getData
+        Option(items(0).getParentItem.getData)
       } else { None }
     }
   }

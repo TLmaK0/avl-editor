@@ -374,7 +374,7 @@ public class Section  extends MassObject implements AVLSerializable{
     }
 
     public ArrayList<Mass> getMassesRecursive() {
-        ArrayList<Mass> masses = getMasses();
+        ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Control control: getControls()){
           masses.addAll(control.getMassesRecursive());
         }

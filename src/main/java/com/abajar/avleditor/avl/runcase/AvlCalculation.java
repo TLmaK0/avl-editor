@@ -11,6 +11,8 @@
 package com.abajar.avleditor.avl.runcase;
 
 import com.abajar.avleditor.view.annotations.AvlEditorNode;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  *
@@ -23,6 +25,10 @@ public class AvlCalculation {
     private final int rudderPosition;
     private final int aileronPosition;
     private String[] controlNames = new String[]{"d1", "d2", "d3"};
+    private float[] controlGains = new float[]{1f, 1f, 1f};
+    private float[] trimControlValues = new float[]{Float.NaN, Float.NaN, Float.NaN};
+    private float[] trimControlDeflections = new float[]{Float.NaN, Float.NaN, Float.NaN};
+    private List<AvlEigenvalue> eigenvalues = new ArrayList<AvlEigenvalue>();
 
     public AvlCalculation(int elevatorPosition, int rudderPosition, int aileronPosition){
         this.elevatorPosition = elevatorPosition;
@@ -36,6 +42,39 @@ public class AvlCalculation {
 
     public String[] getControlNames() {
         return controlNames;
+    }
+
+    public void setControlGains(float[] controlGains) {
+        this.controlGains = controlGains;
+    }
+
+    public float[] getControlGains() {
+        return controlGains;
+    }
+
+    public void setTrimControlValues(float[] trimControlValues) {
+        this.trimControlValues = trimControlValues;
+    }
+
+    public float[] getTrimControlValues() {
+        return trimControlValues;
+    }
+
+    public void setTrimControlDeflections(float[] trimControlDeflections) {
+        this.trimControlDeflections = trimControlDeflections;
+    }
+
+    public float[] getTrimControlDeflections() {
+        return trimControlDeflections;
+    }
+
+    @AvlEditorNode(name = "Eigenvalues")
+    public List<AvlEigenvalue> getEigenvalues() {
+        return eigenvalues;
+    }
+
+    public void setEigenvalues(List<AvlEigenvalue> eigenvalues) {
+        this.eigenvalues = eigenvalues;
     }
     /**
      * @return the stabilityDerivatives

@@ -6,9 +6,9 @@ avl:
     Cref: 0.36554733
     Mach: 0.0
     Sref: 0.39084935
-    Xref: 0.0
-    Yref: 0.0
-    Zref: 0.0
+    Xref: 0.68
+    Yref: -0.00714
+    Zref: 0.03634
     Zsym: 0.0
     body:
     - BFILE: body1.dat
@@ -19,8 +19,12 @@ avl:
       dY: 0.0
       dZ: 0.015202628
       length: 0.3
-      masses: [
-        ]
+      masses:
+      - mass: 0.102
+        name: body1 ballast
+        x: 0.14
+        y: 0.0
+        z: 0.015
       name: body1
       profilePoints:
       - radius: 0.0
@@ -37,8 +41,12 @@ avl:
       dY: 1.0E-6
       dZ: 0.02849165
       length: 0.3
-      masses: [
-        ]
+      masses:
+      - mass: 0.187
+        name: body2 ballast
+        x: 0.232
+        y: 0.0
+        z: 0.028
       name: body2
       profilePoints:
       - radius: 0.022110574
@@ -61,8 +69,12 @@ avl:
       dY: 0.0
       dZ: 0.086127296
       length: 1.25
-      masses: [
-        ]
+      masses:
+      - mass: 0.8075
+        name: body3 ballast
+        x: 0.849
+        y: 0.0
+        z: 0.086
       name: body3
       profilePoints:
       - radius: 0.0
@@ -95,8 +107,12 @@ avl:
       dY: 0.06695098
       dZ: 0.0
       length: 1.0
-      masses: [
-        ]
+      masses:
+      - mass: 0.323
+        name: body4 ballast
+        x: 1.0
+        y: 0.067
+        z: 0.0
       name: body4
       profilePoints:
       - radius: 0.07747216
@@ -119,8 +135,12 @@ avl:
       dY: -0.5471295
       dZ: -0.0263055
       length: 0.25
-      masses: [
-        ]
+      masses:
+      - mass: 0.0765
+        name: body5 ballast
+        x: 1.195
+        y: -0.547
+        z: -0.026
       name: body5
       profilePoints:
       - radius: 0.005
@@ -137,8 +157,12 @@ avl:
         x: 1.0
     iYsym: 0
     iZsym: 0
-    masses: [
-      ]
+    masses:
+    - mass: 0.449608
+      name: manual nose ballast target cgx 0.684
+      x: 0.0549442
+      y: 0.0
+      z: 0.015202628
     name: Geometry
     surfaces:
     - Cspace: 1.0
@@ -150,8 +174,12 @@ avl:
       dX: 0.0
       dY: 0.0
       dZ: 0.0
-      masses: [
-        ]
+      masses:
+      - mass: 0.595
+        name: wing ballast
+        x: 0.85
+        y: 0.0
+        z: -0.02
       name: wing
       sections:
       - AFILE: ''
@@ -166,7 +194,7 @@ avl:
         Yle: 0.1003801
         Zle: -0.0099917
         controls:
-        - SgnDup: 1.0
+        - SgnDup: -1.0
           Xhinge: 0.8906355
           Xhvec: 0.0
           Yhvec: 1.0
@@ -200,7 +228,7 @@ avl:
             ]
           name: flapaileron
           type: 0
-        - SgnDup: 1.0
+        - SgnDup: -1.0
           Xhinge: 0.84077805
           Xhvec: 0.0
           Yhvec: 1.0
@@ -224,7 +252,7 @@ avl:
         Yle: 0.5346084
         Zle: -0.0318574
         controls:
-        - SgnDup: 1.0
+        - SgnDup: -1.0
           Xhinge: 0.716577
           Xhvec: 0.0
           Yhvec: 1.0
@@ -246,8 +274,12 @@ avl:
       dX: 0.0
       dY: 0.0
       dZ: 0.0
-      masses: [
-        ]
+      masses:
+      - mass: 0.153
+        name: vertical stabilizer ballast
+        x: 1.35
+        y: 0.0
+        z: 0.22
       name: vertical stabilizer
       sections:
       - AFILE: ''
@@ -319,12 +351,16 @@ avl:
       Nspan: 8
       Sspace: 1.0
       Ydupl: 0.0
-      dAinc: 0.0
+      dAinc: 25.0
       dX: 0.0
       dY: 0.0
       dZ: 0.0
-      masses: [
-        ]
+      masses:
+      - mass: 0.136
+        name: canard ballast
+        x: 0.30
+        y: 0.0
+        z: 0.0
       name: canard
       sections:
       - AFILE: ''
@@ -344,7 +380,7 @@ avl:
           Xhvec: 0.0
           Yhvec: 1.0
           Zhvec: 0.0
-          gain: 20.0
+          gain: 30.0
           masses: [
             ]
           name: canard
@@ -368,7 +404,7 @@ avl:
           Xhvec: 0.0
           Yhvec: 1.0
           Zhvec: 0.0
-          gain: 20.0
+          gain: 30.0
           masses: [
             ]
           name: canard
@@ -376,8 +412,8 @@ avl:
         masses: [
           ]
       symmetric: true
-  lengthUnit: cm
-  massUnit: g
+  lengthUnit: m
+  massUnit: kg
   reynoldsNumber: 1.225
   timeUnit: s
   velocity: 30.0

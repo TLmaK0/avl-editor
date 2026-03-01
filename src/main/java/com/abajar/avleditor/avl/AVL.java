@@ -25,19 +25,19 @@ import java.io.Serializable;
 public class AVL implements Serializable{
     static final long serialVersionUID = 791092777497735586L;
     public static final float DEFAULT_REYNOLDS_NUMBER = 1.225f;
-    public static final String DEFAULT_LENGTH_UNIT = "cm";
-    public static final String DEFAULT_MASS_UNIT = "g";
+    public static final String DEFAULT_LENGTH_UNIT = "m";
+    public static final String DEFAULT_MASS_UNIT = "kg";
     public static final String DEFAULT_TIME_UNIT = "s";
     public static final float DEFAULT_VELOCITY = 30; // 30m/s
 
     private AVLGeometry geometry = new AVLGeometry();
 
-    @AvlEditorField(text="Length unit (default cm)",
+    @AvlEditorField(text="Length unit (default m)",
         help="Choose cm, m, in"
     )
     private String lengthUnit = DEFAULT_LENGTH_UNIT;
 
-    @AvlEditorField(text="Mass unit (default g)",
+    @AvlEditorField(text="Mass unit (default kg)",
         help="Choose g, kg, oz"
     )
     private String massUnit = DEFAULT_MASS_UNIT;

@@ -146,6 +146,10 @@ object Widget{
               // Open dropdown immediately
               combo.setListVisible(true)
 
+            case _: TableFieldReadOnly =>
+              // Read-only fields are inspectable but not editable.
+              ()
+
             case _ =>
               val newEditor = new Text(table, SWT.NONE)
               newEditor.setText(item.getText(columnNumber))

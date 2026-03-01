@@ -352,6 +352,6 @@ public class Body extends MassObject implements AVLSerializable  {
     }
 
     public ArrayList<Mass> getMassesRecursive(){
-        return getMasses();
+        return new ArrayList<Mass>(getMasses());
     }
 }

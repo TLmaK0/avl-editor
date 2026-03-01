@@ -68,7 +68,6 @@ public class CRRCSim implements Serializable{
         return battery;
     }
 
-    @AvlEditorNode
     @XmlElement(name="CG")
     public CenterOfMass getCenterOfMass(){
         return this.centerOfMass;

@@ -40,6 +40,18 @@ class AddBody implements TreeModificator{
   }
 }
 
+class CalculateCenterOfMass implements TreeModificator{
+  public void modify(Object node, Object parent){
+    ((AVLGeometry)node).calculateCenterOfMassFromMasses();
+  }
+}
+
+class AutoMassesFromVolume implements TreeModificator{
+  public void modify(Object node, Object parent){
+    ((AVLGeometry)node).autoMassesFromVolume();
+  }
+}
+
 class AddSection implements TreeModificator{
   public void modify(Object node, Object parent){
     ((Surface)node).createSection();
@@ -157,5 +169,3 @@ class ImportBfile implements TreeModificator{
     // which opens a FileDialog and calls body.importProfilePoints()
   }
 }
-
-
