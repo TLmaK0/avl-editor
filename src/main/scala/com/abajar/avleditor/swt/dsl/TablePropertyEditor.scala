@@ -22,7 +22,7 @@ trait TableField {
   def value_=(value: String)
 }
 
-class TableFieldWritable(protected val instance: Any, protected val field: Field, val textArg: String, helpArg: String) extends TableField{
+class TableFieldWritable(val instance: Any, val field: Field, val textArg: String, helpArg: String) extends TableField{
   def text(): String = textArg
   def help(): String = helpArg
 
@@ -75,8 +75,8 @@ class TableFieldReadOnly(protected val instance: Any, protected val method: Meth
 }
 
 class TableFieldFile(
-    protected val instance: Any,
-    protected val field: Field,
+    val instance: Any,
+    val field: Field,
     val textArg: String,
     helpArg: String,
     val extensions: Array[String],
@@ -102,8 +102,8 @@ class TableFieldFile(
 }
 
 class TableFieldOptions(
-    protected val instance: Any,
-    protected val field: Field,
+    val instance: Any,
+    val field: Field,
     val textArg: String,
     helpArg: String,
     val options: Array[String]
@@ -112,7 +112,7 @@ class TableFieldOptions(
   def help(): String = helpArg
 
   // Find setter method for this field (e.g., setType for field "type")
-  private val setterMethod: Option[Method] = {
+  val setterMethod: Option[Method] = {
     val setterName = "set" + field.getName.capitalize
     try {
       Some(instance.getClass.getMethod(setterName, classOf[Int]))

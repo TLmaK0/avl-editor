@@ -19,6 +19,7 @@ import org.eclipse.swt.events._
 import org.eclipse.swt.graphics.{Color, Font}
 import java.io.File
 import org.eclipse.swt.widgets.{Button, Composite}
+import com.abajar.avleditor.undo.{UndoManager, PropertyChangeCommand, OptionsChangeCommand}
 
 object Widget{
   implicit class SetLayoutDataWrapper[T <: Control](val subject:T) {
@@ -113,10 +114,17 @@ object Widget{
 
   // Companion object to store shared state for property change callbacks
   private var propertyChangeCallback: Option[() => Unit] = None
+  private var _undoManager: Option[UndoManager] = None
 
   def setPropertyChangeCallback(callback: () => Unit): Unit = {
     propertyChangeCallback = Some(callback)
   }
+
+  def setUndoManager(manager: UndoManager): Unit = {
+    _undoManager = Some(manager)
+  }
+
+  def undoManager: Option[UndoManager] = _undoManager
 
   implicit class AddColumnTableWrapper(table: Table){
     val minimumWidth = 50
@@ -147,31 +155,39 @@ object Widget{
               dialog.setFilterExtensions(fileField.extensions.map(ext => "*." + ext))
               dialog.setFilterNames(Array(fileField.extensionDescription))
               Option(dialog.open).foreach { path =>
+                val oldValue = fileField.field.get(fileField.instance)
                 item.setText(columnNumber, path)
                 fileField.value = path
-                // Notify property change callback
+                _undoManager.foreach(_.push(
+                  new PropertyChangeCommand(fileField.instance, fileField.field, oldValue, path)))
                 propertyChangeCallback.foreach(callback => callback())
               }
 
             case boolField: TableFieldWritable if boolField.isBoolean =>
-              // Toggle value directly on click, no editor needed
-              val newValue = !boolField.booleanValue
+              val oldValue = boolField.booleanValue
+              val newValue = !oldValue
               boolField.booleanValue = newValue
               item.setText(columnNumber, if (newValue) "☑" else "☐")
-              // Notify property change callback
+              boolField.field.setAccessible(true)
+              _undoManager.foreach(_.push(
+                new PropertyChangeCommand(boolField.instance, boolField.field,
+                  java.lang.Boolean.valueOf(oldValue), java.lang.Boolean.valueOf(newValue))))
               propertyChangeCallback.foreach(callback => callback())
 
             case optionsField: TableFieldOptions =>
               val combo = new CCombo(table, SWT.READ_ONLY | SWT.FLAT)
               optionsField.options.foreach(combo.add)
-              combo.select(optionsField.selectedIndex)
+              val oldIndex = optionsField.selectedIndex
+              combo.select(oldIndex)
               combo.addSelectionListener(new SelectionAdapter {
                 override def widgetSelected(e: SelectionEvent): Unit = {
                   val selectedIdx = combo.getSelectionIndex
                   optionsField.selectedIndex = selectedIdx
                   item.setText(columnNumber, optionsField.value)
                   combo.dispose()
-                  // Notify property change callback
+                  _undoManager.foreach(_.push(
+                    new OptionsChangeCommand(optionsField.instance, optionsField.field,
+                      optionsField.setterMethod, oldIndex, selectedIdx)))
                   propertyChangeCallback.foreach(callback => callback())
                 }
               })
@@ -189,7 +205,11 @@ object Widget{
               // Read-only fields are inspectable but not editable.
               ()
 
-            case _ =>
+            case writableField: TableFieldWritable =>
+              val oldRawValue = {
+                writableField.field.setAccessible(true)
+                writableField.field.get(writableField.instance)
+              }
               val newEditor = new Text(table, SWT.NONE)
               newEditor.setText(item.getText(columnNumber))
               newEditor.addModifyListener(new ModifyListener{
@@ -204,8 +224,14 @@ object Widget{
                   if (editorControl != null && !editorControl.isDisposed) {
                     val text = editorControl.asInstanceOf[Text]
                     tableField.value = text.getText
+                    val newRawValue = {
+                      writableField.field.setAccessible(true)
+                      writableField.field.get(writableField.instance)
+                    }
+                    _undoManager.foreach(_.push(
+                      new PropertyChangeCommand(writableField.instance, writableField.field,
+                        oldRawValue, newRawValue)))
                     editorControl.dispose()
-                    // Notify property change callback
                     propertyChangeCallback.foreach(callback => callback())
                   }
                 }

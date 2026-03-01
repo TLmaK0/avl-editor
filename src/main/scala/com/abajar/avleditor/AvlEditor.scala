@@ -64,6 +64,7 @@ import com.abajar.avleditor.view.avl.SelectorMutableTreeNode.ENABLE_BUTTONS
 import com.abajar.avleditor.swt.MenuOption._
 import com.abajar.avleditor.swt.dsl.TableField
 import com.abajar.avleditor.avl.connectivity.AvlRunner
+import com.abajar.avleditor.undo._
 
 
 object AvlEditor{
@@ -112,14 +113,22 @@ object AvlEditor{
       }
     })
 
+    val undoManager = new UndoManager()
+
     val window = new MainWindow(
         handleClickButton,
         treeSourceHandler,
         handleTreeEvent,
         handleClickMenu,
         propertiesSourceHandler,
-        handleClickProperties
+        handleClickProperties,
+        () => performUndo(),
+        () => performRedo(),
+        undoManager
       )
+
+    // Wire undo manager to Widget for property change tracking
+    swt.dsl.Widget.setUndoManager(undoManager)
 
     // Set up property change callback to update 3D viewer when scale changes
     swt.dsl.Widget.setPropertyChangeCallback(() => {
@@ -243,18 +252,198 @@ object AvlEditor{
 
     private def handleClickButton(button: ENABLE_BUTTONS): Unit = {
       window.treeNodeSelected match {
-        case Some(nodeSelected) => {
-          // Special handling for IMPORT_BFILE - open file dialog
+        case Some(nodeSelected) =>
           if (button == ENABLE_BUTTONS.IMPORT_BFILE) {
             handleImportBfile(nodeSelected)
+          } else if (button == ENABLE_BUTTONS.DELETE) {
+            handleDeleteWithUndo(nodeSelected)
+          } else if (button == ENABLE_BUTTONS.CALCULATE_CG) {
+            handleCalculateCGWithUndo(nodeSelected)
+          } else if (button == ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME) {
+            handleAutoMassesWithUndo(nodeSelected)
           } else {
-            button.click(nodeSelected, window.treeNodeSelectedParent.orNull)
+            handleAddWithUndo(button, nodeSelected)
           }
           window.refreshTree
           loadAvlSurfaces()
           loadAvlBodies()
-        }
         case None => ()
+      }
+    }
+
+    private def handleDeleteWithUndo(nodeSelected: Any): Unit = {
+      val parent = window.treeNodeSelectedParent.orNull
+      val listAndIndex = findNodeInParentLists(nodeSelected, parent)
+      ENABLE_BUTTONS.DELETE.click(nodeSelected, parent)
+      listAndIndex.foreach { case (list, index) =>
+        undoManager.push(new RemoveCommand(list, nodeSelected, index))
+      }
+    }
+
+    private def handleAddWithUndo(button: ENABLE_BUTTONS, nodeSelected: Any): Unit = {
+      val parent = window.treeNodeSelectedParent.orNull
+      val listsToTrack = collectListsToTrack(button, nodeSelected)
+      val oldIdentities = listsToTrack.map { list =>
+        (list, (0 until list.size).map(i => list.get(i).asInstanceOf[AnyRef]).toSeq)
+      }
+
+      button.click(nodeSelected, parent)
+
+      val commands = new scala.collection.mutable.ArrayBuffer[UndoCommand]()
+      for ((list, oldRefs) <- oldIdentities) {
+        for (i <- 0 until list.size) {
+          val elem = list.get(i).asInstanceOf[AnyRef]
+          if (!oldRefs.exists(_ eq elem)) {
+            commands += new AddCommand(
+              list.asInstanceOf[java.util.ArrayList[Any]], list.get(i), i)
+          }
+        }
+      }
+
+      if (commands.size == 1) {
+        undoManager.push(commands.head)
+      } else if (commands.size > 1) {
+        undoManager.push(new CompoundCommand(commands.toSeq, button.name))
+      }
+    }
+
+    private def handleCalculateCGWithUndo(nodeSelected: Any): Unit = {
+      val parent = window.treeNodeSelectedParent.orNull
+      val geo = nodeSelected.asInstanceOf[com.abajar.avleditor.avl.AVLGeometry]
+      val oldXref = geo.getXref
+      val oldYref = geo.getYref
+      val oldZref = geo.getZref
+
+      ENABLE_BUTTONS.CALCULATE_CG.click(nodeSelected, parent)
+
+      val newXref = geo.getXref
+      val newYref = geo.getYref
+      val newZref = geo.getZref
+
+      if (oldXref != newXref || oldYref != newYref || oldZref != newZref) {
+        val geoClass = geo.getClass
+        val commands = new scala.collection.mutable.ArrayBuffer[UndoCommand]()
+        Seq(("Xref", oldXref, newXref), ("Yref", oldYref, newYref), ("Zref", oldZref, newZref))
+          .filter { case (_, o, n) => o != n }
+          .foreach { case (name, oldVal, newVal) =>
+            val field = geoClass.getDeclaredField(name)
+            commands += new PropertyChangeCommand(geo, field,
+              java.lang.Float.valueOf(oldVal), java.lang.Float.valueOf(newVal))
+          }
+        undoManager.push(new CompoundCommand(commands.toSeq, "Calculate CG"))
+      }
+    }
+
+    private def handleAutoMassesWithUndo(nodeSelected: Any): Unit = {
+      val parent = window.treeNodeSelectedParent.orNull
+      val massLists = collectAllMassLists()
+      val before = ListSnapshotCommand.snapshot(massLists)
+
+      ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME.click(nodeSelected, parent)
+
+      val after = massLists.map(list => new java.util.ArrayList[Any](list))
+      val snapshots = before.zip(after).map { case ((list, old), neu) => (list, old, neu) }
+      undoManager.push(new ListSnapshotCommand(snapshots, "Auto Masses"))
+    }
+
+    private def collectListsToTrack(button: ENABLE_BUTTONS, nodeSelected: Any): Seq[java.util.ArrayList[_]] = {
+      import scala.collection.JavaConverters._
+      button match {
+        case ENABLE_BUTTONS.ADD_CONTROL =>
+          val section = nodeSelected.asInstanceOf[com.abajar.avleditor.avl.geometry.Section]
+          val surface = section.getParentSurface
+          if (surface != null) {
+            surface.getSections.asScala.map(_.getControls.asInstanceOf[java.util.ArrayList[_]]).toSeq
+          } else {
+            Seq(section.getControls)
+          }
+        case _ =>
+          collectChildLists(nodeSelected)
+      }
+    }
+
+    private def collectChildLists(node: Any): Seq[java.util.ArrayList[_]] = {
+      if (node == null) return Seq.empty
+      val results = new scala.collection.mutable.ArrayBuffer[java.util.ArrayList[_]]()
+      for (method <- node.getClass.getMethods) {
+        if (method.isAnnotationPresent(classOf[AvlEditorNode]) && method.getParameterTypes.isEmpty) {
+          try {
+            method.invoke(node) match {
+              case list: java.util.ArrayList[_] => results += list
+              case _ =>
+            }
+          } catch { case _: Exception => }
+        }
+      }
+      results.toSeq
+    }
+
+    private def collectAllMassLists(): Seq[java.util.ArrayList[Any]] = {
+      import scala.collection.JavaConverters._
+      val results = new scala.collection.mutable.ArrayBuffer[java.util.ArrayList[Any]]()
+      val avl = crrcsim.getAvl()
+      if (avl != null && avl.getGeometry != null) {
+        val geo = avl.getGeometry
+        results += geo.getMasses.asInstanceOf[java.util.ArrayList[Any]]
+        geo.getSurfaces.asScala.foreach { s =>
+          results += s.getMasses.asInstanceOf[java.util.ArrayList[Any]]
+        }
+        geo.getBodies.asScala.foreach { b =>
+          results += b.getMasses.asInstanceOf[java.util.ArrayList[Any]]
+        }
+      }
+      results.toSeq
+    }
+
+    private def findNodeInParentLists(node: Any, parent: Any): Option[(java.util.ArrayList[Any], Int)] = {
+      if (parent == null) return None
+      for (method <- parent.getClass.getMethods) {
+        if (method.isAnnotationPresent(classOf[AvlEditorNode]) && method.getParameterTypes.isEmpty) {
+          try {
+            method.invoke(parent) match {
+              case list: java.util.ArrayList[_] =>
+                for (i <- 0 until list.size) {
+                  if (list.get(i).asInstanceOf[AnyRef] eq node.asInstanceOf[AnyRef]) {
+                    return Some((list.asInstanceOf[java.util.ArrayList[Any]], i))
+                  }
+                }
+              case _ =>
+            }
+          } catch { case _: Exception => }
+        }
+      }
+      None
+    }
+
+    private def performUndo(): Unit = {
+      if (undoManager.canUndo) {
+        undoManager.undo()
+        afterUndoRedo()
+      }
+    }
+
+    private def performRedo(): Unit = {
+      if (undoManager.canRedo) {
+        undoManager.redo()
+        afterUndoRedo()
+      }
+    }
+
+    private def afterUndoRedo(): Unit = {
+      initSectionParents()
+      initBodyParents()
+      window.refreshTree
+      loadAvlSurfaces()
+      loadAvlBodies()
+      // Reload properties for current selection
+      window.treeNodeSelected.foreach(loadPropertiesForTreeItem)
+    }
+
+    private def initBodyParents(): Unit = {
+      import scala.collection.JavaConverters._
+      val avl = crrcsim.getAvl()
+      if (avl != null && avl.getGeometry != null) {
+        avl.getGeometry.getBodies.asScala.foreach(_.initProfilePointParents())
       }
     }
 

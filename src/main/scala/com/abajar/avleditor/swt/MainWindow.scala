@@ -26,6 +26,7 @@ import java.util.ArrayList
 import org.eclipse.swt.widgets.Widget
 import org.eclipse.swt.custom.SashForm
 import com.abajar.avleditor.view.avl.SelectorMutableTreeNode.ENABLE_BUTTONS
+import com.abajar.avleditor.undo.UndoManager
 import java.io.File;
 
 object MenuOption extends Enumeration {
@@ -41,10 +42,15 @@ class MainWindow(
       treeClickHandler: (Any) => Unit,
       menuClickHandler: (MenuOption) => Unit,
       tableUpdateHandler: (Integer) => TableField,
-      tableClickHandler: (Any) => Unit
+      tableClickHandler: (Any) => Unit,
+      undoHandler: () => Unit,
+      redoHandler: () => Unit,
+      val undoManager: UndoManager
       ) {
 
   private val toolItems = collection.mutable.LinkedHashMap[ENABLE_BUTTONS, ToolItem]()
+  private var undoItem: ToolItem = _
+  private var redoItem: ToolItem = _
 
   val display = new Display
 
@@ -202,6 +208,50 @@ class MainWindow(
 
     // Delete
     addToolItem(toolbar, "Delete", "Delete the selected element", ENABLE_BUTTONS.DELETE)
+    new ToolItem(toolbar, SWT.SEPARATOR)
+
+    // Undo/Redo
+    undoItem = new ToolItem(toolbar, SWT.PUSH)
+    undoItem.setText("\u21A9 Undo")
+    undoItem.setToolTipText("Undo last action (Ctrl+Z)")
+    undoItem.setEnabled(false)
+    undoItem.addSelectionListener(new SelectionAdapter {
+      override def widgetSelected(se: SelectionEvent) = undoHandler()
+    })
+
+    redoItem = new ToolItem(toolbar, SWT.PUSH)
+    redoItem.setText("Redo \u21AA")
+    redoItem.setToolTipText("Redo last undone action (Shift+Ctrl+Z)")
+    redoItem.setEnabled(false)
+    redoItem.addSelectionListener(new SelectionAdapter {
+      override def widgetSelected(se: SelectionEvent) = redoHandler()
+    })
+
+    // Update undo/redo button state when undo manager changes
+    undoManager.addListener(() => {
+      if (!toolbar.isDisposed) {
+        undoItem.setEnabled(undoManager.canUndo)
+        redoItem.setEnabled(undoManager.canRedo)
+        undoItem.setToolTipText(
+          undoManager.undoDescription.map(d => s"Undo: $d (Ctrl+Z)").getOrElse("Undo (Ctrl+Z)"))
+        redoItem.setToolTipText(
+          undoManager.redoDescription.map(d => s"Redo: $d (Shift+Ctrl+Z)").getOrElse("Redo (Shift+Ctrl+Z)"))
+      }
+    })
+
+    // Keyboard shortcuts: Ctrl+Z for undo, Shift+Ctrl+Z for redo
+    display.addFilter(SWT.KeyDown, new Listener {
+      override def handleEvent(e: Event): Unit = {
+        if ((e.stateMask & SWT.CTRL) != 0 && e.keyCode == 'z') {
+          if ((e.stateMask & SWT.SHIFT) != 0) {
+            redoHandler()
+          } else {
+            undoHandler()
+          }
+          e.doit = false
+        }
+      }
+    })
 
     // Resizable 3-pane layout
     val sash = new SashForm(shell, SWT.HORIZONTAL)
