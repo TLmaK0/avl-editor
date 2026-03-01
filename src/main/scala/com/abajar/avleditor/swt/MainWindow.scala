@@ -112,7 +112,7 @@ class MainWindow(
   def refreshTree: Unit = {
     val expandedData = collectExpandedData(tree.getItems)
     val selectedData = treeNodeSelected
-    pendingExpansions = expandedData
+    pendingExpansions = expandedData ++ selectedData
     pendingSelection = selectedData
     tree.setData("expandCallback", (data: Any) => pendingExpansions.contains(data))
     tree.setData("pendingSelection", pendingSelection.orNull)
