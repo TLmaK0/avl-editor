@@ -42,7 +42,6 @@ public class Config  implements Serializable{
     private MassInertia mass_inertia = new MassInertia();
     private Sound sound = new Sound();
     private Power power = new Power();
-    private Aero aero;
 
     @Override
     public String toString() {
@@ -106,20 +105,6 @@ public class Config  implements Serializable{
      */
     public void setSound(Sound sound) {
         this.sound = sound;
-    }
-
-    /**
-     * @return the aero
-     */
-    public Aero getAero() {
-        return aero;
-    }
-
-    /**
-     * @param aero the aero to set
-     */
-    public void setAero(Aero aero) {
-        this.aero = aero;
     }
 
     void setMass_inertiaFromMasses(ArrayList<Mass> masses, String lengthUnit, String massUnit) {

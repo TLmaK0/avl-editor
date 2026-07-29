@@ -477,7 +477,6 @@ object AvlEditor{
       case SaveAs => saveFile
       case Open => openFile
       case ExportAsAvl => exportAsAVL
-      case ExportAsCRRCSim => exportAsCRRCsim
       case RunAvl => runAvl
       case SetAvlExecutable => setAvlExecutable
       case ClearAvlConfiguration => clearAvlConfiguration
@@ -757,14 +756,6 @@ object AvlEditor{
       })
     }
 
-    def exportAsCRRCsim: Unit = {
-      val path = this.configuration.getProperty("crrcsim.save", "~/")
-      this.showSaveDialog(path, "CRRCsim file (*.xml)", "xml").foreach(file => {
-        this.configuration.setProperty("crrcsim.save",file.getAbsolutePath())
-        if (existsAvlExecutable) exportAsCRRCsim(file)
-      })
-    }
-
     def runAvl: Unit = {
       if (!existsAvlExecutable) {
         logger.log(Level.WARNING, "AVL executable not configured")
@@ -829,29 +820,6 @@ object AvlEditor{
 
     private def existsAvlExecutable: Boolean = {
       Option(this.configuration.getProperty("avl.path")).isDefined
-    }
-
-    private def exportAsCRRCsim(file: File): Unit = {
-      crrcsim.calculate(this.configuration.getProperty("avl.path"), this.crrcsim.getOriginPath())
-
-      val avl = this.crrcsim.getAvl()
-      val lengthUnit = avl.getLengthUnit()
-      val centerOfMass = crrcsim.getCenterOfMass()
-      val m = JAXBContext.newInstance(classOf[CRRCSim]).createMarshaller()
-
-      m.setAdapter(new XRelativeToCG(lengthUnit, centerOfMass.getX()))
-      m.setAdapter(new YRelativeToCG(lengthUnit, centerOfMass.getY()))
-      m.setAdapter(new ZRelativeToCG(lengthUnit, centerOfMass.getZ()))
-      m.setAdapter(new XRelativeToCGInverted(lengthUnit, centerOfMass.getX()))
-      m.setAdapter(new YRelativeToCGInverted(lengthUnit, centerOfMass.getY()))
-      m.setAdapter(new ZRelativeToCGInverted(lengthUnit, centerOfMass.getZ()))
-      m.setAdapter(new MetersConversor(new MultiUnit(lengthUnit, avl.getMassUnit(), avl.getTimeUnit())))
-      m.setAdapter(new MetersConversorInverted(new MultiUnit(lengthUnit, avl.getMassUnit(), avl.getTimeUnit())))
-      m.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, true)
-
-      val fos = new FileOutputStream(file)
-      m.marshal(crrcsim, fos)
-      fos.close()
     }
 
     private def setAvlExecutable = {
