@@ -28,5 +28,22 @@ object EndToEndCheck {
     val calc = new AvlRunner(props.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
     JsbsimExporter.export(new File(outDir), "eurofighter", crrcsim, calc)
     System.err.println(s"EXPORT_DONE -> $outDir/aircraft/eurofighter/eurofighter.xml")
+
+    // FlightGear package + structural validation of the new pieces (.ac + set.xml).
+    val fgRoot = new File(outDir, "fg")
+    FlightGearExporter.export(fgRoot, "eurofighter", crrcsim, calc)
+    val acPath = new File(fgRoot, "eurofighter/Models/eurofighter.ac").getPath
+    val acModel = com.abajar.avleditor.ac3d.AC3DLoader.load(acPath)
+    val nSurf = acModel.map(m => countSurfaces(m.rootObject)).getOrElse(0)
+    println(s"AC3D_ROUNDTRIP ok=${acModel.isDefined} surfaces=$nSurf")
+    val setXml = new File(fgRoot, "eurofighter/eurofighter-set.xml")
+    val xmlOk = try {
+      javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(setXml); true
+    } catch { case _: Throwable => false }
+    println(s"SET_XML_VALID=$xmlOk")
+    println(if (acModel.isDefined && nSurf > 0 && xmlOk) "FG_PACKAGE_OK" else "FG_PACKAGE_FAIL")
   }
+
+  private def countSurfaces(o: com.abajar.avleditor.ac3d.AC3DObject): Int =
+    o.surfaces.length + o.children.map(countSurfaces).sum
 }

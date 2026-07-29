@@ -478,6 +478,7 @@ object AvlEditor{
       case Open => openFile
       case ExportAsAvl => exportAsAVL
       case ExportAsJsbsim => exportAsJsbsim
+      case ExportForFlightGear => exportForFlightGear
       case RunAvl => runAvl
       case SetAvlExecutable => setAvlExecutable
       case ClearAvlConfiguration => clearAvlConfiguration
@@ -757,9 +758,11 @@ object AvlEditor{
       })
     }
 
-    private def exportAsJsbsim: Unit = {
+    // Runs AVL for the current model, prompts for a directory, and hands (dir, name,
+    // calculation) to an exporter. Shared by the JSBSim and FlightGear exports.
+    private def exportWithAvl(dialogTitle: String)(writer: (File, String, com.abajar.avleditor.avl.runcase.AvlCalculation) => Unit): Unit = {
       if (!existsAvlExecutable) {
-        logger.log(Level.WARNING, "AVL executable not configured; cannot compute derivatives for JSBSim export")
+        logger.log(Level.WARNING, "AVL executable not configured; cannot compute derivatives for export")
         return
       }
       val avl = crrcsim.getAvl()
@@ -767,25 +770,34 @@ object AvlEditor{
       if (!errors.isEmpty) {
         import scala.collection.JavaConverters._
         errors.asScala.foreach(e => logger.log(Level.WARNING, s"Validation error: $e"))
-        logger.log(Level.SEVERE, "Model validation failed; fix errors before exporting to JSBSim.")
+        logger.log(Level.SEVERE, "Model validation failed; fix errors before exporting.")
         return
       }
       val dirDialog = new org.eclipse.swt.widgets.DirectoryDialog(window.getShell)
-      dirDialog.setText("Choose JSBSim output directory")
+      dirDialog.setText(dialogTitle)
       Option(dirDialog.open()).foreach { dir =>
         try {
           crrcsim.calculate()
-          val avlPath = configuration.getProperty("avl.path")
-          val calc = new AvlRunner(avlPath, avl, crrcsim.getOriginPath()).getCalculation()
+          val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
           val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
-          com.abajar.avleditor.jsbsim.JsbsimExporter.export(new File(dir), name, crrcsim, calc)
-          logger.log(Level.INFO, s"Exported JSBSim model '$name' to $dir")
+          writer(new File(dir), name, calc)
+          logger.log(Level.INFO, s"Exported '$name' to $dir")
         } catch {
           case ex: Throwable =>
-            logger.log(Level.SEVERE, s"JSBSim export failed: ${ex.getMessage}", ex)
+            logger.log(Level.SEVERE, s"Export failed: ${ex.getMessage}", ex)
         }
       }
     }
+
+    private def exportAsJsbsim: Unit =
+      exportWithAvl("Choose JSBSim output directory") { (dir, name, calc) =>
+        com.abajar.avleditor.jsbsim.JsbsimExporter.export(dir, name, crrcsim, calc)
+      }
+
+    private def exportForFlightGear: Unit =
+      exportWithAvl("Choose FlightGear aircraft directory") { (dir, name, calc) =>
+        com.abajar.avleditor.jsbsim.FlightGearExporter.export(dir, name, crrcsim, calc)
+      }
 
     def runAvl: Unit = {
       if (!existsAvlExecutable) {
