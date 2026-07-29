@@ -1,0 +1,135 @@
+name: Build XFOIL binaries
+
+# XFOIL upstream (MIT, GPL) is a fixed release, so this does not run per push.
+# Trigger it manually; it publishes binaries to the fixed `xfoil-6.99` release,
+# which the app (XfoilManager) downloads and caches like it does for AVL.
+on:
+  workflow_dispatch:
+
+env:
+  XFOIL_URL: https://web.mit.edu/drela/Public/web/xfoil/xfoil6.99.tgz
+  RELEASE_TAG: xfoil-6.99
+  # Compatibility flags required to build the F77 sources with modern gfortran.
+  FL: "-O -fdefault-real-8 -std=legacy -fallow-argument-mismatch"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false          # Linux is validated; let it publish even if Win/mac need iteration.
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            asset: xfoil-linux
+          - os: macos-latest
+            platform: macos
+            asset: xfoil-macos
+          - os: windows-latest
+            platform: windows
+            asset: xfoil-windows.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      # ---------- Linux (validated recipe) ----------
+      - name: Build (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gfortran libx11-dev make gcc
+          curl -fsSL "$XFOIL_URL" -o xfoil.tgz
+          tar xzf xfoil.tgz
+          cd Xfoil/plotlib
+          cp config.make.gfortranDP config.make
+          sed -i "s|^FFLAGS .*|FFLAGS = -m64 -O2 $FL|" config.make
+          make
+          cd ../bin
+          mkdir -p dist
+          make xfoil \
+            FC=gfortran \
+            FFLAGS="$FL" FFLOPT="$FL" \
+            PLTOBJ=../plotlib/libPlt_gDP.a \
+            PLTLIB="-lX11" \
+            FTNLIB="-static-libgfortran -static-libgcc" \
+            BINDIR="$PWD/dist/"
+          # Smoke test: the sweep that crashes the Debian binary must succeed here.
+          printf 'PLOP\nG\n\nNACA 0012\nPANE\nOPER\nITER 200\nVISC 1000000\nPACC\np.txt\n\nASEQ 0 18 2\nPACC\n\nQUIT\n' | dist/xfoil >/dev/null 2>&1 || true
+          test "$(grep -cE '^[[:space:]]+[0-9]+\.[0-9]' p.txt)" -ge 5
+          mkdir -p out && cp dist/xfoil "out/${{ matrix.asset }}"
+
+      # ---------- macOS (best-effort; needs CI iteration for X11/no-X) ----------
+      - name: Build (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install gcc || true            # provides gfortran
+          curl -fsSL "$XFOIL_URL" -o xfoil.tgz
+          tar xzf xfoil.tgz
+          cd Xfoil/plotlib
+          cp config.make.gfortranDP config.make
+          # macOS X11 headers come from XQuartz; if absent this job is expected to fail
+          # until we switch to a no-X plot backend. Iterate here.
+          sed -i '' "s|^FFLAGS .*|FFLAGS = -O2 $FL|" config.make || sed -i "s|^FFLAGS .*|FFLAGS = -O2 $FL|" config.make
+          make
+          cd ../bin
+          mkdir -p dist
+          make xfoil FC=gfortran FFLAGS="$FL" FFLOPT="$FL" \
+            PLTOBJ=../plotlib/libPlt_gDP.a PLTLIB="-lX11" \
+            FTNLIB="-static-libgfortran -static-libgcc" BINDIR="$PWD/dist/"
+          mkdir -p out && cp dist/xfoil "out/${{ matrix.asset }}"
+
+      # ---------- Windows (best-effort; mingw plot backend, needs CI iteration) ----------
+      - name: Setup MSYS2 (Windows)
+        if: matrix.platform == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc-fortran make curl tar
+      - name: Build (Windows)
+        if: matrix.platform == 'windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          curl -fsSL "$XFOIL_URL" -o xfoil.tgz
+          tar xzf xfoil.tgz
+          cd Xfoil/plotlib
+          # Windows uses the Win32 plot backend shipped as Makefile.mingw.
+          make -f Makefile.mingw FFLAGS="-O2 -fdefault-real-8 -std=legacy -fallow-argument-mismatch"
+          cd ../bin
+          make xfoil FC=gfortran \
+            FFLAGS="-O -fdefault-real-8 -std=legacy -fallow-argument-mismatch" \
+            FFLOPT="-O -fdefault-real-8 -std=legacy -fallow-argument-mismatch" \
+            FTNLIB="-static -static-libgfortran -static-libgcc" \
+            BINDIR="$PWD/dist/" || true
+          mkdir -p out && cp xfoil.exe "out/${{ matrix.asset }}" 2>/dev/null || cp dist/xfoil.exe "out/${{ matrix.asset }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/*
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    if: always()          # publish whatever built (Linux) even if Win/mac still need work
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish to fixed XFOIL release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: XFOIL 6.99 binaries
+          files: artifacts/*
+          body: |
+            XFOIL 6.99 compiled from MIT source (GPL) with stable gfortran flags.
+            Downloaded and cached by AVL Editor's XfoilManager.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
