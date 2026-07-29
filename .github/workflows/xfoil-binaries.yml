@@ -15,7 +15,7 @@ env:
 jobs:
   build:
     strategy:
-      fail-fast: false          # Linux is validated; let it publish even if Win/mac need iteration.
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -29,7 +29,7 @@ jobs:
             asset: xfoil-windows.exe
     runs-on: ${{ matrix.os }}
     steps:
-      # ---------- Linux (validated recipe) ----------
+      # ---------- Linux: X11 backend (validated recipe) ----------
       - name: Build (Linux)
         if: matrix.platform == 'linux'
         shell: bash
@@ -45,41 +45,39 @@ jobs:
           make
           cd ../bin
           mkdir -p dist
-          make xfoil \
-            FC=gfortran \
-            FFLAGS="$FL" FFLOPT="$FL" \
-            PLTOBJ=../plotlib/libPlt_gDP.a \
-            PLTLIB="-lX11" \
-            FTNLIB="-static-libgfortran -static-libgcc" \
-            BINDIR="$PWD/dist/"
+          make xfoil FC=gfortran FFLAGS="$FL" FFLOPT="$FL" \
+            PLTOBJ=../plotlib/libPlt_gDP.a PLTLIB="-lX11" \
+            FTNLIB="-static-libgfortran -static-libgcc" BINDIR="$PWD/dist/"
           # Smoke test: the sweep that crashes the Debian binary must succeed here.
           printf 'PLOP\nG\n\nNACA 0012\nPANE\nOPER\nITER 200\nVISC 1000000\nPACC\np.txt\n\nASEQ 0 18 2\nPACC\n\nQUIT\n' | dist/xfoil >/dev/null 2>&1 || true
           test "$(grep -cE '^[[:space:]]+[0-9]+\.[0-9]' p.txt)" -ge 5
-          mkdir -p out && cp dist/xfoil "out/${{ matrix.asset }}"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp dist/xfoil "$GITHUB_WORKSPACE/out/${{ matrix.asset }}"
 
-      # ---------- macOS (best-effort; needs CI iteration for X11/no-X) ----------
+      # ---------- macOS: X11 backend via XQuartz ----------
       - name: Build (macOS)
         if: matrix.platform == 'macos'
         shell: bash
         run: |
           set -euo pipefail
-          brew install gcc || true            # provides gfortran
+          brew install gcc
+          brew install --cask xquartz     # provides X11 headers/libs at /opt/X11
           curl -fsSL "$XFOIL_URL" -o xfoil.tgz
           tar xzf xfoil.tgz
           cd Xfoil/plotlib
           cp config.make.gfortranDP config.make
-          # macOS X11 headers come from XQuartz; if absent this job is expected to fail
-          # until we switch to a no-X plot backend. Iterate here.
-          sed -i '' "s|^FFLAGS .*|FFLAGS = -O2 $FL|" config.make || sed -i "s|^FFLAGS .*|FFLAGS = -O2 $FL|" config.make
-          make
+          make FC=gfortran \
+            FFLAGS="-O2 -fdefault-real-8 -std=legacy -fallow-argument-mismatch" \
+            CFLAGS="-O2 -DUNDERSCORE -I/opt/X11/include"
           cd ../bin
           mkdir -p dist
           make xfoil FC=gfortran FFLAGS="$FL" FFLOPT="$FL" \
-            PLTOBJ=../plotlib/libPlt_gDP.a PLTLIB="-lX11" \
+            PLTOBJ=../plotlib/libPlt_gDP.a PLTLIB="-L/opt/X11/lib -lX11" \
             FTNLIB="-static-libgfortran -static-libgcc" BINDIR="$PWD/dist/"
-          mkdir -p out && cp dist/xfoil "out/${{ matrix.asset }}"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp dist/xfoil "$GITHUB_WORKSPACE/out/${{ matrix.asset }}"
 
-      # ---------- Windows (best-effort; mingw plot backend, needs CI iteration) ----------
+      # ---------- Windows: Win32 (mingw) backend, no X11 ----------
       - name: Setup MSYS2 (Windows)
         if: matrix.platform == 'windows'
         uses: msys2/setup-msys2@v2
@@ -95,15 +93,19 @@ jobs:
           curl -fsSL "$XFOIL_URL" -o xfoil.tgz
           tar xzf xfoil.tgz
           cd Xfoil/plotlib
-          # Windows uses the Win32 plot backend shipped as Makefile.mingw.
-          make -f Makefile.mingw FFLAGS="-O2 -fdefault-real-8 -std=legacy -fallow-argument-mismatch"
+          # Win32 GDI plot backend (no X11); produces libPlt_gfortran.a
+          make -f Makefile.mingw FC=gfortran CC=gcc \
+            FFLAGS="-O2 -fdefault-real-8 -std=legacy -fallow-argument-mismatch" \
+            CFLAGS="-O2"
           cd ../bin
-          make xfoil FC=gfortran \
-            FFLAGS="-O -fdefault-real-8 -std=legacy -fallow-argument-mismatch" \
-            FFLOPT="-O -fdefault-real-8 -std=legacy -fallow-argument-mismatch" \
-            FTNLIB="-static -static-libgfortran -static-libgcc" \
-            BINDIR="$PWD/dist/" || true
-          mkdir -p out && cp xfoil.exe "out/${{ matrix.asset }}" 2>/dev/null || cp dist/xfoil.exe "out/${{ matrix.asset }}"
+          mkdir -p dist
+          make xfoil FC=gfortran FFLAGS="$FL" FFLOPT="$FL" \
+            PLTOBJ=../plotlib/libPlt_gfortran.a PLTLIB="-lgdi32 -luser32" \
+            FTNLIB="-static -static-libgfortran -static-libgcc" BINDIR="$PWD/dist/" || true
+          BIN="$(find . -maxdepth 3 \( -name 'xfoil.exe' -o -name 'xfoil' \) -type f | head -1)"
+          test -n "$BIN"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "$BIN" "$GITHUB_WORKSPACE/out/${{ matrix.asset }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -114,7 +116,7 @@ jobs:
 
   release:
     needs: build
-    if: always()          # publish whatever built (Linux) even if Win/mac still need work
+    if: always()          # publish whatever built even if some OS still needs work
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
