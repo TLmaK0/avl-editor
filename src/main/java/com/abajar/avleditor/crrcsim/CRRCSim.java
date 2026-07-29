@@ -172,6 +172,7 @@ public class CRRCSim implements Serializable{
 
     private Changelog changelog1 = new Changelog();
     private transient Aero aero;
+    private AeroModel aeroModel = new AeroModel();
     private final AVL avl;
     private Config config = new Config();
     private ArrayList<Wheel> wheels = new ArrayList<Wheel>();
@@ -187,7 +188,7 @@ public class CRRCSim implements Serializable{
     }
 
     public void calculate(String avlPath, Path originPath) throws IOException, InterruptedException, Exception{
-        this.aero = new AeroFactory().createFromAvl(avlPath, this.avl, originPath);
+        this.aero = new AeroFactory().createFromAvl(avlPath, this.avl, originPath, this.aeroModel);
         this.config.setMass_inertiaFromMasses(avl.getGeometry().getMassesRecursive(), avl.getLengthUnit(), avl.getMassUnit());
     }
 
@@ -321,5 +322,20 @@ public class CRRCSim implements Serializable{
         return aero;
     }
 
-    
+    /**
+     * Empirical aero modeling parameters, editable and persisted with the
+     * aircraft. Kept out of the exported CRRCsim XML ({@code @XmlTransient}):
+     * its values are baked into the generated {@code <aero>} element instead.
+     *
+     * @return the editable aero model
+     */
+    @XmlTransient
+    @AvlEditorNode(name = "Aero Model")
+    public AeroModel getAeroModel() {
+        return aeroModel;
+    }
+
+    public void setAeroModel(AeroModel aeroModel) {
+        this.aeroModel = aeroModel;
+    }
 }

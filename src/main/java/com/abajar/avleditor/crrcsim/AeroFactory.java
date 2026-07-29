@@ -24,7 +24,9 @@ import java.nio.file.Path;
  * @author Hugo
  */
 public class AeroFactory {
-    public Aero createFromAvl(String avlPath, AVL avl, Path originPath) throws IOException, InterruptedException, Exception{
+    public Aero createFromAvl(String avlPath, AVL avl, Path originPath, AeroModel aeroModel) throws IOException, InterruptedException, Exception{
+        if (aeroModel == null) aeroModel = new AeroModel();
+
         AvlRunner avlRunner = new AvlRunner(avlPath, avl, originPath);
         
         AvlCalculation avlCalculation = avlRunner.getCalculation();
@@ -47,11 +49,9 @@ public class AeroFactory {
         Miscellaneous misc = aero.getMisc();
         misc.setAlpha_0((float)(config.getAlpha() * Math.PI / 180));
 
-        misc.setEta_loc(0.3f); //eta_loc for stall model http://en.wikipedia.org/wiki/Pseudorapidity
-        misc.setCG_arm(0.25f); //The typical value CG_arm = 0.25 means that the point of application of the averaged dCL is 0.25*chord ahead of the CG.
-        misc.setSpan_eff(config.getE()); //span efficiency: Effective span, 0.95 for most planes, 0.85 flying wing.
-
-        //TODO: eta_loc, CG_arm, span_eff add to editor
+        misc.setEta_loc(aeroModel.getEta_loc()); //eta_loc for stall model http://en.wikipedia.org/wiki/Pseudorapidity
+        misc.setCG_arm(aeroModel.getCG_arm()); //The point of application of the averaged dCL, as a fraction of chord ahead of the CG.
+        misc.setSpan_eff(config.getE()); //span efficiency: derived from AVL (effective span, 0.95 most planes, 0.85 flying wing).
 
         PitchMoment pitchMoment = aero.getPitchMoment();
         pitchMoment.setCm_0(config.getCmtot());
@@ -62,25 +62,24 @@ public class AeroFactory {
         Lift lift = aero.getLift();
         lift.setCL_0(config.getCLtot());
 
-        //TODO: CL_max, CL_min add to editor
-        lift.setCL_max(1.1f);
-        lift.setCL_min(-0.6f);
+        lift.setCL_max(aeroModel.getCL_max());
+        lift.setCL_min(aeroModel.getCL_min());
 
         lift.setCL_a(std.getCLa());
         lift.setCL_q(std.getCLq());
         if (elevatorPosition != -1) lift.setCL_de(std.getCLd()[elevatorPosition]);
-        lift.setCL_drop(0.1f);     //CL drop during stall break //TODO: CL_drop add to editor
-        lift.setCL_CD0(0);      //CL at minimum profile //TODO: CL_CD0 add to editor  // 0.30 for 7037, 0.15 MH32, 0.0 RG15, AGxx, power
+        lift.setCL_drop(aeroModel.getCL_drop());     //CL drop during stall break
+        lift.setCL_CD0(aeroModel.getCL_CD0());      //CL at minimum profile
         lift.setCL_0(config.getCLtot());
 
         Drag drag = aero.getDrag();
         drag.setCD_prof(config.getCDvis());
 
-        drag.setUexp_CD(0.5f); //for Re-scaling of CD_prof  ~ (U/U_ref)^Uexp_CD //TODO: Uexp_CD add to editor
-        drag.setCD_stall(-0.5f); //drag coeff. during stalling //TODO: CD_stall add to editor
-        drag.setCD_CLsq(0.01f); //d(CD)/d(CL^2), curvature of parabolic profile polar: 0.01 composites, 0.015 saggy ships, 0.02 beat up ship //TODO: CD_CLsq add to editor
-        drag.setCD_AIsq(0.01f); //drag due to aileron deflection d(CD)/d(aileron^2) , curvature of ail. CD influence: 0.01/(max_aileron)^2  //TODO: CD_AIsq add to editor //
-        drag.setCD_ELsq(0f); //drag due to elevon deflection d(CD)/d(elevator^2), curvature of ele. CD influence: 0.01/(max_elevator)^2 for Zagi otherwise 0 //TODO: CD_ELsq add to editor  //
+        drag.setUexp_CD(aeroModel.getUexp_CD()); //for Re-scaling of CD_prof  ~ (U/U_ref)^Uexp_CD
+        drag.setCD_stall(aeroModel.getCD_stall()); //drag coeff. during stalling
+        drag.setCD_CLsq(aeroModel.getCD_CLsq()); //d(CD)/d(CL^2), curvature of parabolic profile polar
+        drag.setCD_AIsq(aeroModel.getCD_AIsq()); //drag due to aileron deflection d(CD)/d(aileron^2)
+        drag.setCD_ELsq(aeroModel.getCD_ELsq()); //drag due to elevon deflection d(CD)/d(elevator^2)
 
         Y Y = aero.getSideForce();
         Y.setCY_b(std.getCYb());

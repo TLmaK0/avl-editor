@@ -94,7 +94,7 @@ object Widget{
 
             val black = display.getSystemColor(SWT.COLOR_BLACK)
             tableField match {
-              case _: TableFieldReadOnly =>
+              case f: TableField if !f.editable =>
                 item.setBackground(readOnlyColor)
                 item.setForeground(0, black)
                 item.setForeground(1, readOnlyFg)
@@ -147,7 +147,6 @@ object Widget{
 
           val item = e.item.asInstanceOf[TableItem]
           val tableField = item.getData.asInstanceOf[TableField]
-          println(s"DEBUG: tableField class = ${tableField.getClass.getName}")
 
           tableField match {
             case fileField: TableFieldFile =>
@@ -201,8 +200,8 @@ object Widget{
               // Open dropdown immediately
               combo.setListVisible(true)
 
-            case _: TableFieldReadOnly =>
-              // Read-only fields are inspectable but not editable.
+            case f: TableField if !f.editable =>
+              // Non-editable fields are inspectable but not editable.
               ()
 
             case writableField: TableFieldWritable =>

@@ -13,13 +13,16 @@ package com.abajar.avleditor.swt.dsl
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 
-//TODO: This needs some kind of abstraction away from model and view
-
+// A TableField adapts a model member (a reflected field or getter) to the
+// property-table view. `editable` lets the view decide interactivity without
+// knowing the concrete subtype; the view still matches concrete types when it
+// needs a specific editor widget (file dialog, combo, checkbox) or undo command.
 trait TableField {
   def text(): String
   def help(): String
   def value: String
   def value_=(value: String)
+  def editable: Boolean = true
 }
 
 class TableFieldWritable(val instance: Any, val field: Field, val textArg: String, helpArg: String) extends TableField{
@@ -70,8 +73,10 @@ class TableFieldReadOnly(protected val instance: Any, protected val method: Meth
     }
   }
 
-  //TODO: Raise exception
-  final def value_=(value: String): Unit = { }
+  override def editable: Boolean = false
+
+  final def value_=(value: String): Unit =
+    throw new UnsupportedOperationException(s"Read-only field cannot be modified: ${textArg}")
 }
 
 class TableFieldFile(
