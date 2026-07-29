@@ -91,6 +91,19 @@ public class Control extends MassObject implements AVLSerializable {
     )
     private int type;
 
+    @AvlEditorField(text="max deflection (deg)",
+        help="Maximum surface deflection in degrees, used by the JSBSim / FlightGear export"
+    )
+    private float maxDeflection = 25f;
+
+    public float getMaxDeflection() {
+        return maxDeflection;
+    }
+
+    public void setMaxDeflection(float maxDeflection) {
+        this.maxDeflection = maxDeflection;
+    }
+
     /**
      * @return the name
      */

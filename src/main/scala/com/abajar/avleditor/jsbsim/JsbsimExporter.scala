@@ -30,10 +30,6 @@ import JsbsimWriter._
  */
 object JsbsimExporter {
 
-  private val DefaultElevatorDeflRad = math.toRadians(25)
-  private val DefaultAileronDeflRad = math.toRadians(20)
-  private val DefaultRudderDeflRad = math.toRadians(25)
-
   def buildAircraft(name: String, crrcsim: CRRCSim, calc: AvlCalculation): Aircraft = {
     val avl = crrcsim.getAvl
     val geo = avl.getGeometry
@@ -54,11 +50,26 @@ object JsbsimExporter {
 
     val aero = buildAero(calc, sref, bref)
     val controls = detectControls(geo)
-    // A single belly contact keeps the model on the ground; real gear can replace it.
-    val contacts = Seq(Contact("BELLY", Vec3(cg.x, cg.y, cg.z - 0.1)))
+    val contacts = buildContacts(crrcsim, cg)
 
     Aircraft(name, Metrics(sref, bref, cref, aeroRp), mass, contacts, controls, aero,
       propulsion = buildPropulsion(crrcsim))
+  }
+
+  /**
+   * Landing gear / contact points from the model's collision points (wheels). Each wheel's
+   * position (metric, structural frame) becomes a JSBSim BOGEY contact. Falls back to a single
+   * belly contact under the CG when the model has none.
+   */
+  def buildContacts(crrcsim: CRRCSim, cg: Vec3): Seq[Contact] = {
+    val wheels = Option(crrcsim.getWheels).map(_.asScala).getOrElse(Nil)
+    val contacts = wheels.zipWithIndex.flatMap { case (w, i) =>
+      Option(w.getPos).map { p =>
+        val name = Option(w.getName).filter(_.nonEmpty).getOrElse(s"GEAR$i")
+        Contact(name.replaceAll("\\s+", "_"), Vec3(p.getX.toDouble, p.getY.toDouble, p.getZ.toDouble))
+      }
+    }
+    if (contacts.nonEmpty) contacts else Seq(Contact("BELLY", Vec3(cg.x, cg.y, cg.z - 0.1)))
   }
 
   /**
@@ -119,19 +130,24 @@ object JsbsimExporter {
     )
   }
 
-  /** Detect the aileron/elevator/rudder surfaces present, one FCS channel each. */
-  private def detectControls(geo: com.abajar.avleditor.avl.AVLGeometry): Seq[ControlSurface] = {
-    val names = geo.getSurfaces.asScala
+  /**
+   * One FCS channel per control axis present. The control's `type` selects the axis
+   * (0 = Aileron, 1 = Elevator, 2 = Rudder) and its editable per-control `maxDeflection`
+   * (degrees) sets the channel range; when several controls share an axis the largest wins.
+   */
+  def detectControls(geo: com.abajar.avleditor.avl.AVLGeometry): Seq[ControlSurface] = {
+    val controls = geo.getSurfaces.asScala
       .flatMap(_.getSections.asScala)
       .flatMap(_.getControls.asScala)
-      .map(c => Option(c.getName).getOrElse("").toLowerCase)
-      .toSet
-    def has(keys: String*) = keys.exists(k => names.exists(_.contains(k)))
-    var out = List.empty[ControlSurface]
-    if (has("elev", "ele", "pitch")) out ::= ControlSurface(ControlAxis.Elevator, DefaultElevatorDeflRad)
-    if (has("ail", "flap", "roll")) out ::= ControlSurface(ControlAxis.Aileron, DefaultAileronDeflRad)
-    if (has("rud", "yaw")) out ::= ControlSurface(ControlAxis.Rudder, DefaultRudderDeflRad)
-    out
+    val axisFor = Map(0 -> ControlAxis.Aileron, 1 -> ControlAxis.Elevator, 2 -> ControlAxis.Rudder)
+    val maxDeflByAxis = scala.collection.mutable.Map.empty[ControlAxis.Value, Double]
+    for (c <- controls; axis <- axisFor.get(c.getType)) {
+      val defl = math.toRadians(if (c.getMaxDeflection > 0) c.getMaxDeflection.toDouble else 25.0)
+      maxDeflByAxis(axis) = math.max(maxDeflByAxis.getOrElse(axis, 0.0), defl)
+    }
+    // Stable order: Elevator, Aileron, Rudder.
+    Seq(ControlAxis.Elevator, ControlAxis.Aileron, ControlAxis.Rudder)
+      .flatMap(a => maxDeflByAxis.get(a).map(d => ControlSurface(a, d)))
   }
 
   /** Write the aircraft + engine files under `rootDir` in JSBSim's expected layout. */
