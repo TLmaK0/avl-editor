@@ -96,7 +96,7 @@ jobs:
           # Win32 GDI plot backend (no X11); produces libPlt_gfortran.a
           make -f Makefile.mingw FC=gfortran CC=gcc \
             FFLAGS="-O2 -fdefault-real-8 -std=legacy -fallow-argument-mismatch" \
-            CFLAGS="-O2"
+            CFLAGS="-O2 -DUNDERSCORE"
           cd ../bin
           mkdir -p dist
           make xfoil FC=gfortran FFLAGS="$FL" FFLOPT="$FL" \
