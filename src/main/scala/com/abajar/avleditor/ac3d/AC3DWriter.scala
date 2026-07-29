@@ -27,9 +27,29 @@ object AC3DWriter {
 
   private case class Quad(v: Array[(Float, Float, Float)]) // 4 vertices, CCW
 
-  def fromGeometry(geo: AVLGeometry): String = {
-    val quads = collectQuads(geo)
-    render(quads)
+  private val RadialSegments = 12
+
+  def fromGeometry(geo: AVLGeometry): String =
+    render(collectQuads(geo) ++ collectBodyQuads(geo))
+
+  /** Fuselage/bodies as surfaces of revolution from their profile points. */
+  private def collectBodyQuads(geo: AVLGeometry): Seq[Quad] = {
+    val out = scala.collection.mutable.ArrayBuffer[Quad]()
+    for (body <- geo.getBodies.asScala) {
+      val pts = body.getProfilePoints.asScala.map(p => (p.getX, p.getRadius)).toIndexedSeq
+      if (pts.length >= 2) {
+        val dX = body.getdX; val dY = body.getdY; val dZ = body.getdZ
+        def vertex(x: Float, r: Float, j: Int): (Float, Float, Float) = {
+          val a = 2.0 * math.Pi * j / RadialSegments
+          (dX + x, (dY + r * math.cos(a)).toFloat, (dZ + r * math.sin(a)).toFloat)
+        }
+        for (i <- 0 until pts.length - 1; j <- 0 until RadialSegments) {
+          val (xa, ra) = pts(i); val (xb, rb) = pts(i + 1); val j1 = (j + 1) % RadialSegments
+          out += Quad(Array(vertex(xa, ra, j), vertex(xb, rb, j), vertex(xb, rb, j1), vertex(xa, ra, j1)))
+        }
+      }
+    }
+    out.toSeq
   }
 
   private def collectQuads(geo: AVLGeometry): Seq[Quad] = {
