@@ -1,0 +1,281 @@
+/*
+ * Copyright (C) 2015  Hugo Freire Gil
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ */
+
+package com.abajar.avleditor.jsbsim
+
+/**
+ * Generates a JSBSim aircraft definition (`<fdm_config>`) in **metric** units.
+ *
+ * The aerodynamics are built from AVL stability derivatives (linear model). Where
+ * an XFOIL-derived lift table is supplied it overrides the linear CL(alpha) so the
+ * model captures CLmax/stall. Propulsion is optional (a glider is valid).
+ *
+ * The generated model targets JSBSim standalone, FlightGear and PX4 SITL
+ * (px4-jsbsim-bridge), which all consume the same format.
+ */
+object JsbsimWriter {
+
+  // ---- Input data (simulator-agnostic; built from the editor model elsewhere) ----
+
+  final case class Vec3(x: Double, y: Double, z: Double)
+
+  /** Reference geometry (metric). aeroRp = aerodynamic reference point. */
+  final case class Metrics(wingAreaM2: Double, wingSpanM: Double, chordM: Double, aeroRp: Vec3)
+
+  /** Mass & inertia (kg, kg·m²) and CG location (m). */
+  final case class MassBalance(massKg: Double, ixx: Double, iyy: Double, izz: Double,
+                               ixz: Double, cg: Vec3)
+
+  /** A landing-gear / collision contact point (m). */
+  final case class Contact(name: String, at: Vec3)
+
+  /** A control surface driven by a pilot command, with its max deflection (rad). */
+  final case class ControlSurface(axis: ControlAxis.Value, maxDeflectionRad: Double)
+
+  /**
+   * Linear aerodynamic model from AVL. Angles in rad, rates non-dimensionalised by
+   * JSBSim's bi2vel/ci2vel. Control derivatives are per-radian of surface deflection.
+   */
+  // Regular class (not case): Scala 2.10 caps case classes at 22 params.
+  final class AeroDerivatives(
+    val cl0: Double, val cla: Double, val clq: Double, val clde: Double,
+    val cd0: Double, val spanEfficiency: Double, val aspectRatio: Double, val cdde: Double,
+    val cm0: Double, val cma: Double, val cmq: Double, val cmde: Double,
+    val cyb: Double, val cyp: Double, val cyr: Double, val cydr: Double, val cyda: Double,
+    val clb: Double, val clp: Double, val clr: Double, val cldr: Double, val clda: Double,
+    val cnb: Double, val cnp: Double, val cnr: Double, val cndr: Double, val cnda: Double
+  )
+
+  /** Optional XFOIL-derived non-linear lift curve (alpha rad -> CL), overrides cl0+cla. */
+  final case class LiftTable(alphaRadToCl: Seq[(Double, Double)])
+
+  /** Optional electric propulsion (kept minimal; refined in the propulsion phase). */
+  final case class Propulsion(engineName: String, thrusterName: String)
+
+  final case class Aircraft(
+    name: String,
+    metrics: Metrics,
+    mass: MassBalance,
+    contacts: Seq[Contact],
+    controls: Seq[ControlSurface],
+    aero: AeroDerivatives,
+    liftTable: Option[LiftTable] = None,
+    propulsion: Option[Propulsion] = None
+  )
+
+  object ControlAxis extends Enumeration {
+    val Elevator, Aileron, Rudder = Value
+  }
+
+  // ---- Rendering ----
+
+  def write(ac: Aircraft): String = {
+    val sb = new StringBuilder
+    sb.append("""<?xml version="1.0"?>""").append("\n")
+    sb.append(s"""<fdm_config name="${xml(ac.name)}" version="2.0" release="ALPHA">""").append("\n")
+    sb.append(fileHeader(ac))
+    sb.append(metrics(ac.metrics))
+    sb.append(massBalance(ac.mass))
+    sb.append(groundReactions(ac.contacts))
+    sb.append(propulsion(ac.propulsion))
+    sb.append(flightControl(ac.controls))
+    sb.append(aerodynamics(ac))
+    sb.append("</fdm_config>\n")
+    sb.toString
+  }
+
+  private def f(v: Double): String = {
+    if (v == 0.0) "0" else new java.math.BigDecimal(v).round(new java.math.MathContext(8)).toPlainString
+  }
+
+  private def xml(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+  private def fileHeader(ac: Aircraft): String =
+    s"""  <fileheader>
+    |    <author>AVL Editor</author>
+    |    <description>Auto-generated from AVL geometry + stability derivatives</description>
+    |  </fileheader>
+    |""".stripMargin
+
+  private def metrics(m: Metrics): String =
+    s"""  <metrics>
+    |    <wingarea unit="M2">${f(m.wingAreaM2)}</wingarea>
+    |    <wingspan unit="M">${f(m.wingSpanM)}</wingspan>
+    |    <chord unit="M">${f(m.chordM)}</chord>
+    |    <location name="AERORP" unit="M"><x>${f(m.aeroRp.x)}</x><y>${f(m.aeroRp.y)}</y><z>${f(m.aeroRp.z)}</z></location>
+    |  </metrics>
+    |""".stripMargin
+
+  private def massBalance(m: MassBalance): String =
+    s"""  <mass_balance>
+    |    <ixx unit="KG*M2">${f(m.ixx)}</ixx>
+    |    <iyy unit="KG*M2">${f(m.iyy)}</iyy>
+    |    <izz unit="KG*M2">${f(m.izz)}</izz>
+    |    <ixz unit="KG*M2">${f(m.ixz)}</ixz>
+    |    <emptywt unit="KG">${f(m.massKg)}</emptywt>
+    |    <location name="CG" unit="M"><x>${f(m.cg.x)}</x><y>${f(m.cg.y)}</y><z>${f(m.cg.z)}</z></location>
+    |  </mass_balance>
+    |""".stripMargin
+
+  private def groundReactions(contacts: Seq[Contact]): String = {
+    val body =
+      if (contacts.isEmpty) ""
+      else contacts.map { c =>
+        s"""    <contact type="BOGEY" name="${xml(c.name)}">
+      |      <location unit="M"><x>${f(c.at.x)}</x><y>${f(c.at.y)}</y><z>${f(c.at.z)}</z></location>
+      |      <static_friction>0.8</static_friction>
+      |      <dynamic_friction>0.5</dynamic_friction>
+      |      <rolling_friction>0.02</rolling_friction>
+      |      <spring_coeff unit="N/M">100.0</spring_coeff>
+      |      <damping_coeff unit="N/M/SEC">20.0</damping_coeff>
+      |    </contact>
+      |""".stripMargin
+      }.mkString
+    s"  <ground_reactions>\n$body  </ground_reactions>\n"
+  }
+
+  private def propulsion(p: Option[Propulsion]): String = p match {
+    case None => "  <propulsion/>\n"
+    case Some(pr) =>
+      s"""  <propulsion>
+      |    <engine file="${xml(pr.engineName)}">
+      |      <thruster file="${xml(pr.thrusterName)}"><location unit="M"><x>0</x><y>0</y><z>0</z></location></thruster>
+      |    </engine>
+      |  </propulsion>
+      |""".stripMargin
+  }
+
+  private def flightControl(controls: Seq[ControlSurface]): String = {
+    val channels = controls.map { c =>
+      val (cmd, pos) = c.axis match {
+        case ControlAxis.Elevator => ("fcs/elevator-cmd-norm", "fcs/elevator-pos-rad")
+        case ControlAxis.Aileron  => ("fcs/aileron-cmd-norm", "fcs/aileron-pos-rad")
+        case ControlAxis.Rudder   => ("fcs/rudder-cmd-norm", "fcs/rudder-pos-rad")
+      }
+      s"""    <channel name="${c.axis}">
+      |      <aerosurface_scale name="${pos}-scale">
+      |        <input>${cmd}</input>
+      |        <range><min>${f(-c.maxDeflectionRad)}</min><max>${f(c.maxDeflectionRad)}</max></range>
+      |        <output>${pos}</output>
+      |      </aerosurface_scale>
+      |    </channel>
+      |""".stripMargin
+    }.mkString
+    s"""  <flight_control name="FCS">
+    |$channels  </flight_control>
+    |""".stripMargin
+  }
+
+  // -- Aerodynamics: build force/moment axes from the linear derivatives --
+
+  private def term(name: String, factors: String): String =
+    s"""      <function name="aero/$name">
+    |        <product>
+    |$factors        </product>
+    |      </function>
+    |""".stripMargin
+
+  private def p(prop: String): String = s"          <property>$prop</property>\n"
+  private def v(value: Double): String = s"          <value>${f(value)}</value>\n"
+
+  private def aerodynamics(ac: Aircraft): String = {
+    val a = ac.aero
+    val qA = "aero/qbar-area"
+
+    // LIFT
+    val liftFns =
+      ac.liftTable match {
+        case Some(t) =>
+          val tbl = t.alphaRadToCl.map { case (al, cl) => s"            $al $cl" }.mkString("\n")
+          s"""      <function name="aero/force/lift_table">
+          |        <product>
+          |          <property>$qA</property>
+          |          <table><independentVar lookup="row">aero/alpha-rad</independentVar>
+          |            <tableData>
+          |$tbl
+          |            </tableData>
+          |          </table>
+          |        </product>
+          |      </function>
+          |""".stripMargin
+        case None =>
+          term("force/lift_0", p(qA) + v(a.cl0)) +
+          term("force/lift_alpha", p(qA) + v(a.cla) + p("aero/alpha-rad"))
+      }
+    val liftRates =
+      term("force/lift_q", p(qA) + v(a.clq) + p("aero/ci2vel") + p("velocities/q-aero-rad_sec")) +
+      term("force/lift_de", p(qA) + v(a.clde) + p("fcs/elevator-pos-rad"))
+
+    // DRAG: parasite + induced (CL^2 / (pi AR e)) + elevator
+    val k = 1.0 / (math.Pi * math.max(a.aspectRatio, 1e-6) * math.max(a.spanEfficiency, 1e-6))
+    val drag =
+      term("force/drag_0", p(qA) + v(a.cd0)) +
+      s"""      <function name="aero/force/drag_induced">
+      |        <product>
+      |          <property>$qA</property>
+      |          <value>${f(k)}</value>
+      |          <property>aero/cl-squared</property>
+      |        </product>
+      |      </function>
+      |""".stripMargin +
+      term("force/drag_de", p(qA) + v(a.cdde) + p("fcs/elevator-pos-rad"))
+
+    // SIDE
+    val side =
+      term("force/side_beta", p(qA) + v(a.cyb) + p("aero/beta-rad")) +
+      term("force/side_p", p(qA) + v(a.cyp) + p("aero/bi2vel") + p("velocities/p-aero-rad_sec")) +
+      term("force/side_r", p(qA) + v(a.cyr) + p("aero/bi2vel") + p("velocities/r-aero-rad_sec")) +
+      term("force/side_dr", p(qA) + v(a.cydr) + p("fcs/rudder-pos-rad")) +
+      term("force/side_da", p(qA) + v(a.cyda) + p("fcs/aileron-pos-rad"))
+
+    val span = "metrics/bw-ft"
+    val chord = "metrics/cbarw-ft"
+
+    // ROLL (about body x): qbar-area * span * Cl
+    val roll =
+      term("moment/roll_beta", p(qA) + p(span) + v(a.clb) + p("aero/beta-rad")) +
+      term("moment/roll_p", p(qA) + p(span) + v(a.clp) + p("aero/bi2vel") + p("velocities/p-aero-rad_sec")) +
+      term("moment/roll_r", p(qA) + p(span) + v(a.clr) + p("aero/bi2vel") + p("velocities/r-aero-rad_sec")) +
+      term("moment/roll_dr", p(qA) + p(span) + v(a.cldr) + p("fcs/rudder-pos-rad")) +
+      term("moment/roll_da", p(qA) + p(span) + v(a.clda) + p("fcs/aileron-pos-rad"))
+
+    // PITCH (about body y): qbar-area * chord * Cm
+    val pitch =
+      term("moment/pitch_0", p(qA) + p(chord) + v(a.cm0)) +
+      term("moment/pitch_alpha", p(qA) + p(chord) + v(a.cma) + p("aero/alpha-rad")) +
+      term("moment/pitch_q", p(qA) + p(chord) + v(a.cmq) + p("aero/ci2vel") + p("velocities/q-aero-rad_sec")) +
+      term("moment/pitch_de", p(qA) + p(chord) + v(a.cmde) + p("fcs/elevator-pos-rad"))
+
+    // YAW (about body z): qbar-area * span * Cn
+    val yaw =
+      term("moment/yaw_beta", p(qA) + p(span) + v(a.cnb) + p("aero/beta-rad")) +
+      term("moment/yaw_p", p(qA) + p(span) + v(a.cnp) + p("aero/bi2vel") + p("velocities/p-aero-rad_sec")) +
+      term("moment/yaw_r", p(qA) + p(span) + v(a.cnr) + p("aero/bi2vel") + p("velocities/r-aero-rad_sec")) +
+      term("moment/yaw_dr", p(qA) + p(span) + v(a.cndr) + p("fcs/rudder-pos-rad")) +
+      term("moment/yaw_da", p(qA) + p(span) + v(a.cnda) + p("fcs/aileron-pos-rad"))
+
+    s"""  <aerodynamics>
+    |    <axis name="LIFT">
+    |$liftFns$liftRates    </axis>
+    |    <axis name="DRAG">
+    |$drag    </axis>
+    |    <axis name="SIDE">
+    |$side    </axis>
+    |    <axis name="ROLL">
+    |$roll    </axis>
+    |    <axis name="PITCH">
+    |$pitch    </axis>
+    |    <axis name="YAW">
+    |$yaw    </axis>
+    |  </aerodynamics>
+    |""".stripMargin
+  }
+}
