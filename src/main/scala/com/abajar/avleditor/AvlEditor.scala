@@ -479,6 +479,7 @@ object AvlEditor{
       case ExportAsAvl => exportAsAVL
       case ExportAsJsbsim => exportAsJsbsim
       case ExportForFlightGear => exportForFlightGear
+      case FlyInFlightGear => flyInFlightGear
       case RunAvl => runAvl
       case SetAvlExecutable => setAvlExecutable
       case ClearAvlConfiguration => clearAvlConfiguration
@@ -758,9 +759,8 @@ object AvlEditor{
       })
     }
 
-    // Runs AVL for the current model, prompts for a directory, and hands (dir, name,
-    // calculation) to an exporter. Shared by the JSBSim and FlightGear exports.
-    private def exportWithAvl(dialogTitle: String)(writer: (File, String, com.abajar.avleditor.avl.runcase.AvlCalculation) => Unit): Unit = {
+    // Runs AVL for the current model and hands (name, calculation) to a callback.
+    private def withAvlCalculation(action: (String, com.abajar.avleditor.avl.runcase.AvlCalculation) => Unit): Unit = {
       if (!existsAvlExecutable) {
         logger.log(Level.WARNING, "AVL executable not configured; cannot compute derivatives for export")
         return
@@ -773,21 +773,26 @@ object AvlEditor{
         logger.log(Level.SEVERE, "Model validation failed; fix errors before exporting.")
         return
       }
-      val dirDialog = new org.eclipse.swt.widgets.DirectoryDialog(window.getShell)
-      dirDialog.setText(dialogTitle)
-      Option(dirDialog.open()).foreach { dir =>
-        try {
-          crrcsim.calculate()
-          val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
-          val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
-          writer(new File(dir), name, calc)
-          logger.log(Level.INFO, s"Exported '$name' to $dir")
-        } catch {
-          case ex: Throwable =>
-            logger.log(Level.SEVERE, s"Export failed: ${ex.getMessage}", ex)
-        }
+      try {
+        crrcsim.calculate()
+        val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
+        val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
+        action(name, calc)
+      } catch {
+        case ex: Throwable => logger.log(Level.SEVERE, s"Export failed: ${ex.getMessage}", ex)
       }
     }
+
+    // Runs AVL, prompts for a directory, and hands (dir, name, calculation) to an exporter.
+    private def exportWithAvl(dialogTitle: String)(writer: (File, String, com.abajar.avleditor.avl.runcase.AvlCalculation) => Unit): Unit =
+      withAvlCalculation { (name, calc) =>
+        val dirDialog = new org.eclipse.swt.widgets.DirectoryDialog(window.getShell)
+        dirDialog.setText(dialogTitle)
+        Option(dirDialog.open()).foreach { dir =>
+          writer(new File(dir), name, calc)
+          logger.log(Level.INFO, s"Exported '$name' to $dir")
+        }
+      }
 
     private def exportAsJsbsim: Unit =
       exportWithAvl("Choose JSBSim output directory") { (dir, name, calc) =>
@@ -798,6 +803,44 @@ object AvlEditor{
       exportWithAvl("Choose FlightGear aircraft directory") { (dir, name, calc) =>
         com.abajar.avleditor.jsbsim.FlightGearExporter.export(dir, name, crrcsim, calc)
       }
+
+    // One-click: export the FlightGear package to a fixed location and launch fgfs.
+    private def flyInFlightGear: Unit = withAvlCalculation { (name, calc) =>
+      val root = new File(AvlEditor.CONFIGURATION_ROOT, "flightgear")
+      com.abajar.avleditor.jsbsim.FlightGearExporter.export(root, name, crrcsim, calc)
+      resolveFlightGearExecutable() match {
+        case Some(exe) => launchFlightGear(exe, root, name)
+        case None => logger.log(Level.WARNING,
+          "FlightGear (fgfs) not found. Set it via 'Set FlightGear executable'.")
+      }
+    }
+
+    // Config first, then auto-search; if still missing, ask the user and persist it.
+    private def resolveFlightGearExecutable(): Option[String] =
+      FlightGearManager.findExecutable(configuration).orElse {
+        window.showOpenDialog(configuration.getProperty(FlightGearManager.CONFIG_KEY, "~/"),
+          "FlightGear executable", "*").map { file =>
+          FlightGearManager.setExecutable(configuration, file.getAbsolutePath())
+          file.getAbsolutePath()
+        }
+      }.map { path => persistConfiguration(); path }
+
+    private def launchFlightGear(exe: String, root: File, name: String): Unit = {
+      val log = new File(AvlEditor.CONFIGURATION_ROOT, "flightgear.log")
+      val pb = new ProcessBuilder(exe, s"--fg-aircraft=${root.getAbsolutePath}", s"--aircraft=$name")
+      pb.redirectErrorStream(true)
+      pb.redirectOutput(log)
+      pb.start()
+      logger.log(Level.INFO, s"Launching FlightGear with '$name' (log: ${log.getAbsolutePath})")
+    }
+
+    private def persistConfiguration(): Unit = {
+      try {
+        configuration.storeToXML(new FileOutputStream(CONFIGURATION_PATH), "Configuration file")
+      } catch {
+        case ex: Exception => logger.log(Level.FINE, "Unable to store configuration", ex)
+      }
+    }
 
     def runAvl: Unit = {
       if (!existsAvlExecutable) {
