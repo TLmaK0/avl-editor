@@ -115,6 +115,13 @@ object AvlEditor{
 
     val undoManager = new UndoManager()
 
+    /** Applies a 3D drag to the model as a single undoable step. The viewer reports a drag
+      * once, on mouse release, so one call is one complete gesture. No-op gestures (a click
+      * without movement) are not recorded. */
+    private def pushDrag(obj: AnyRef, description: String, fieldNames: Seq[String])(mutate: => Unit): Unit = {
+      MultiFieldChangeCommand.capture(obj, description, fieldNames)(mutate).foreach(undoManager.push)
+    }
+
     val window = new MainWindow(
         handleClickButton,
         treeSourceHandler,
@@ -417,26 +424,41 @@ object AvlEditor{
 
     private def performUndo(): Unit = {
       if (undoManager.canUndo) {
+        val selected = window.treeNodeSelected
         undoManager.undo()
-        afterUndoRedo()
+        afterUndoRedo(selected)
       }
     }
 
     private def performRedo(): Unit = {
       if (undoManager.canRedo) {
+        val selected = window.treeNodeSelected
         undoManager.redo()
-        afterUndoRedo()
+        afterUndoRedo(selected)
       }
     }
 
-    private def afterUndoRedo(): Unit = {
+    private def afterUndoRedo(selected: Option[Any]): Unit = {
       initSectionParents()
       initBodyParents()
       window.refreshTree
       loadAvlSurfaces()
       loadAvlBodies()
-      // Reload properties for current selection
-      window.treeNodeSelected.foreach(loadPropertiesForTreeItem)
+      // Update 3D selection and properties using saved selection (tree is virtual, selection not yet resolved)
+      selected.foreach { data =>
+        loadPropertiesForTreeItem(data)
+        data match {
+          case section: com.abajar.avleditor.avl.geometry.Section =>
+            selectSectionIn3D(section)
+          case control: com.abajar.avleditor.avl.geometry.Control =>
+            selectControlIn3D(control)
+          case body: com.abajar.avleditor.avl.geometry.Body =>
+            selectBodyIn3D(body)
+          case point: com.abajar.avleditor.avl.geometry.BodyProfilePoint =>
+            selectProfilePointIn3D(point)
+          case _ =>
+        }
+      }
     }
 
     private def initBodyParents(): Unit = {
@@ -682,15 +704,13 @@ object AvlEditor{
 
       val section = sections.get(sectionIdx)
 
-      // Subtract surface offsets to get local coordinates
-      val dX = surface.getdX()
-      val dY = surface.getdY()
-      val dZ = surface.getdZ()
-
-      section.setXle(x - dX)
-      section.setYle(y - dY)
-      section.setZle(z - dZ)
-      section.setChord(chord)
+      pushDrag(section, "Move section", Seq("Xle", "Yle", "Zle", "Chord")) {
+        // Subtract surface offsets to get local coordinates
+        section.setXle(x - surface.getdX)
+        section.setYle(y - surface.getdY)
+        section.setZle(z - surface.getdZ)
+        section.setChord(chord)
+      }
 
       // Refresh properties table if this section is selected
       window.treeNodeSelected.foreach {
@@ -1204,7 +1224,9 @@ object AvlEditor{
           val controls = section.getControls()
           if (controlIdx < controls.size()) {
             val control = controls.get(controlIdx)
-            control.setXhinge(xhinge)
+            pushDrag(control, "Move control", Seq("Xhinge")) {
+              control.setXhinge(xhinge)
+            }
             // Refresh properties table and AVL surfaces
             window.properties.clearAll()
             loadAvlSurfaces()
@@ -1243,9 +1265,11 @@ object AvlEditor{
       val bodies = avl.getGeometry().getBodies()
       if (bodyIdx < bodies.size()) {
         val body = bodies.get(bodyIdx)
-        body.setdX(dX)
-        body.setdY(dY)
-        body.setdZ(dZ)
+        pushDrag(body, "Move body", Seq("dX", "dY", "dZ")) {
+          body.setdX(dX)
+          body.setdY(dY)
+          body.setdZ(dZ)
+        }
         // Refresh properties table and AVL bodies
         window.treeNodeSelected.foreach {
           case b: com.abajar.avleditor.avl.geometry.Body if b eq body =>
@@ -1295,8 +1319,10 @@ object AvlEditor{
         val points = body.getProfilePoints()
         if (pointIdx < points.size()) {
           val point = points.get(pointIdx)
-          point.setX(x)
-          point.setRadius(radius)
+          pushDrag(point, "Move profile point", Seq("x", "radius")) {
+            point.setX(x)
+            point.setRadius(radius)
+          }
           // Refresh properties table and AVL bodies
           window.treeNodeSelected.foreach {
             case p: com.abajar.avleditor.avl.geometry.BodyProfilePoint if p eq point =>

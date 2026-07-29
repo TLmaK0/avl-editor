@@ -119,6 +119,53 @@ class ListSnapshotCommand(
   }
 }
 
+/** Atomic change of several float fields of one object, as produced by a single 3D drag
+  * gesture (press - move - release). The 3D viewer reports a drag once, on release, so the
+  * whole gesture is one command and one undo step. */
+class MultiFieldChangeCommand(
+    instance: AnyRef,
+    fields: Seq[Field],
+    originalValues: Seq[Float],
+    newValues: Seq[Float],
+    val description: String
+) extends UndoCommand {
+
+  private def setValues(values: Seq[Float]): Unit = {
+    fields.zip(values).foreach { case (field, value) =>
+      field.setAccessible(true)
+      field.setFloat(instance, value)
+    }
+  }
+
+  def undo(): Unit = setValues(originalValues)
+
+  def redo(): Unit = setValues(newValues)
+}
+
+object MultiFieldChangeCommand {
+
+  /** Runs `mutate`, capturing `fieldNames` before and after it. Returns None when the
+    * mutation left every field untouched (e.g. a click without movement), so no-op
+    * gestures never reach the undo history. */
+  def capture(
+      instance: AnyRef,
+      description: String,
+      fieldNames: Seq[String]
+  )(mutate: => Unit): Option[MultiFieldChangeCommand] = {
+    val fields = fieldNames.map { name =>
+      val field = instance.getClass.getDeclaredField(name)
+      field.setAccessible(true)
+      field
+    }
+    val originalValues = fields.map(_.getFloat(instance))
+    mutate
+    val newValues = fields.map(_.getFloat(instance))
+
+    if (originalValues == newValues) None
+    else Some(new MultiFieldChangeCommand(instance, fields, originalValues, newValues, description))
+  }
+}
+
 object ListSnapshotCommand {
   /** Take a snapshot of multiple lists. Returns (list, copy) pairs. */
   def snapshot(lists: Seq[JArrayList[Any]]): Seq[(JArrayList[Any], JArrayList[Any])] = {
