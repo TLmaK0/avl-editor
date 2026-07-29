@@ -62,6 +62,13 @@ public class CRRCSimRepository {
                 LoaderOptions loaderOptions = new LoaderOptions();
                 loaderOptions.setTagInspector(tag -> true);
                 Constructor constructor = new Constructor(CRRCSim.class, loaderOptions);
+                // Tolerate keys for fields that no longer exist (e.g. CRRCsim-era
+                // config.aero / aeroModel removed in the JSBSim migration).
+                org.yaml.snakeyaml.introspector.PropertyUtils pu =
+                    new org.yaml.snakeyaml.introspector.PropertyUtils();
+                pu.setSkipMissingProperties(true);
+                pu.setBeanAccess(BeanAccess.FIELD);
+                constructor.setPropertyUtils(pu);
                 Yaml yaml = new Yaml(constructor);
                 yaml.setBeanAccess(BeanAccess.FIELD);
                 FileInputStream fis = new FileInputStream(file);

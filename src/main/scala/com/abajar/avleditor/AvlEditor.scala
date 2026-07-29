@@ -477,6 +477,7 @@ object AvlEditor{
       case SaveAs => saveFile
       case Open => openFile
       case ExportAsAvl => exportAsAVL
+      case ExportAsJsbsim => exportAsJsbsim
       case RunAvl => runAvl
       case SetAvlExecutable => setAvlExecutable
       case ClearAvlConfiguration => clearAvlConfiguration
@@ -754,6 +755,36 @@ object AvlEditor{
         this.configuration.setProperty("crrcsim.save",file.getAbsolutePath())
         exportAsAVL(Paths.get(file.getPath()))
       })
+    }
+
+    private def exportAsJsbsim: Unit = {
+      if (!existsAvlExecutable) {
+        logger.log(Level.WARNING, "AVL executable not configured; cannot compute derivatives for JSBSim export")
+        return
+      }
+      val avl = crrcsim.getAvl()
+      val errors = avl.getGeometry().validate()
+      if (!errors.isEmpty) {
+        import scala.collection.JavaConverters._
+        errors.asScala.foreach(e => logger.log(Level.WARNING, s"Validation error: $e"))
+        logger.log(Level.SEVERE, "Model validation failed; fix errors before exporting to JSBSim.")
+        return
+      }
+      val dirDialog = new org.eclipse.swt.widgets.DirectoryDialog(window.getShell)
+      dirDialog.setText("Choose JSBSim output directory")
+      Option(dirDialog.open()).foreach { dir =>
+        try {
+          crrcsim.calculate()
+          val avlPath = configuration.getProperty("avl.path")
+          val calc = new AvlRunner(avlPath, avl, crrcsim.getOriginPath()).getCalculation()
+          val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
+          com.abajar.avleditor.jsbsim.JsbsimExporter.export(new File(dir), name, crrcsim, calc)
+          logger.log(Level.INFO, s"Exported JSBSim model '$name' to $dir")
+        } catch {
+          case ex: Throwable =>
+            logger.log(Level.SEVERE, s"JSBSim export failed: ${ex.getMessage}", ex)
+        }
+      }
     }
 
     def runAvl: Unit = {

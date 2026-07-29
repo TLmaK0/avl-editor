@@ -1,7 +1,10 @@
 # AVL Editor
 
-This project is an editor for CRRCsim, a radio-controlled aircraft simulator, and integrates with AVL for aerodynamic analysis.
-It allows users to modify aircraft parameters and configurations for simulation.
+This project is an editor for radio-controlled / small-UAV aircraft. It integrates with AVL
+for aerodynamic analysis and exports **JSBSim** flight dynamics models (metric), which run in
+JSBSim standalone, FlightGear and PX4 SITL (px4-jsbsim-bridge). It can also build XFOIL from
+source (CI) to derive viscous data. The legacy CRRCsim export has been removed.
+It allows users to modify aircraft geometry, mass and configuration for simulation.
 Developed in Java and Scala, it provides a GUI for streamlined editing and analysis.
 
 ## Building and Running
