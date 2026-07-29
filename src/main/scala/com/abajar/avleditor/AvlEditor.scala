@@ -54,6 +54,7 @@ import swt.dsl.TableFieldWritable
 import swt.dsl.TableFieldReadOnly
 import swt.dsl.TableFieldFile
 import swt.dsl.TableFieldOptions
+import swt.dsl.TableFieldEmpty
 import com.abajar.avleditor.view.annotations
 import java.lang.reflect.Field
 import com.abajar.avleditor.view.annotations.AvlEditorNode
@@ -444,9 +445,10 @@ object AvlEditor{
       window.refreshTree
       loadAvlSurfaces()
       loadAvlBodies()
-      // Update 3D selection and properties using saved selection (tree is virtual, selection not yet resolved)
+      // Use the selection captured before the undo: the tree is virtual, so after
+      // refreshTree the SWT selection is not resolved yet. 3D selection first, so the
+      // viewer is left consistent with the model regardless of the properties table.
       selected.foreach { data =>
-        loadPropertiesForTreeItem(data)
         data match {
           case section: com.abajar.avleditor.avl.geometry.Section =>
             selectSectionIn3D(section)
@@ -458,6 +460,7 @@ object AvlEditor{
             selectProfilePointIn3D(point)
           case _ =>
         }
+        loadPropertiesForTreeItem(data)
       }
     }
 
@@ -1020,13 +1023,30 @@ object AvlEditor{
       regularFields ++ fileFields ++ readOnlyFields
     }
 
+    /** Object the properties table currently shows. Held explicitly rather than read back
+      * from the tree selection: the tree is virtual, so `treeNodeSelected` is empty while a
+      * refresh is pending, exactly when SWT asks the table to render its rows. */
+    private var propertiesSource: Option[Any] = None
+
     private def loadPropertiesForTreeItem(data: Any) = {
+      propertiesSource = Option(data)
       window.properties.setItemCount(extractProperties(data).length)
       window.properties.clearAll
     }
 
+    private def clearProperties(): Unit = {
+      propertiesSource = None
+      window.properties.setItemCount(0)
+      window.properties.clearAll()
+    }
+
     private def propertiesSourceHandler(index: Integer): TableField = {
-      extractProperties(window.treeNodeSelected.get)(index)
+      propertiesSource match {
+        case Some(data) =>
+          val fields = extractProperties(data)
+          if (index >= 0 && index < fields.length) fields(index) else TableFieldEmpty
+        case None => TableFieldEmpty
+      }
     }
 
     private def treeSourceHandler(parentData: Option[Any], index: Integer): (String, Any, Integer) = {
@@ -1042,8 +1062,7 @@ object AvlEditor{
 
     private def handleTreeEvent(data: Any): Unit = {
       if (data == null) {
-        window.properties.setItemCount(0)
-        window.properties.clearAll()
+        clearProperties()
         window.disableAllButtons
         window.help.setText("No AVL results yet. Run AVL first.")
         window.viewer3D.clearSelectedSection()

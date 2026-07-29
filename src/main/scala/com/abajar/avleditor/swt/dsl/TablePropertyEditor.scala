@@ -25,6 +25,17 @@ trait TableField {
   def editable: Boolean = true
 }
 
+/** Placeholder row for a virtual table that is asked to render data it has no backing
+  * object for — e.g. a repaint that lands while the selection is being rebuilt. Keeps the
+  * SWT SetData callback from throwing, which would tear down the event loop. */
+object TableFieldEmpty extends TableField {
+  def text(): String = ""
+  def help(): String = ""
+  def value: String = ""
+  def value_=(value: String): Unit = ()
+  override def editable: Boolean = false
+}
+
 class TableFieldWritable(val instance: Any, val field: Field, val textArg: String, helpArg: String) extends TableField{
   def text(): String = textArg
   def help(): String = helpArg
