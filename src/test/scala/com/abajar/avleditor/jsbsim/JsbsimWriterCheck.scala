@@ -28,12 +28,34 @@ object JsbsimWriterCheck {
     )
   )
 
+  // CL(alpha) with a stall break, as XFOIL+critical-section would produce (3D).
+  def sampleLiftTable: LiftTable = LiftTable(Seq(
+    (math.toRadians(-5), -0.24), (math.toRadians(0), 0.20), (math.toRadians(5), 0.64),
+    (math.toRadians(10), 1.07), (math.toRadians(14), 1.25), (math.toRadians(16), 1.24),
+    (math.toRadians(18), 1.10)
+  ))
+
+  private def dump(path: String, content: String): Unit = {
+    val f = new java.io.File(path)
+    Option(f.getParentFile).foreach(_.mkdirs())
+    val pw = new java.io.PrintWriter(f)
+    try pw.write(content) finally pw.close()
+    System.err.println(s"Wrote $path (${content.length} chars)")
+  }
+
+  /** args: rootDir name [table]. Writes the full model (aero + optional lift table +
+   *  electric propulsion) plus its engine files into a JSBSim root directory. */
   def main(args: Array[String]): Unit = {
-    val xml = write(sampleAircraft)
-    if (args.nonEmpty) {
-      val pw = new java.io.PrintWriter(args(0))
-      try pw.write(xml) finally pw.close()
-      System.err.println(s"Wrote ${args(0)} (${xml.length} chars)")
-    } else print(xml)
+    if (args.length < 2) { print(write(sampleAircraft)); return }
+    val root = args(0); val name = args(1); val withTable = args.length > 2
+    val base = sampleAircraft.copy(
+      name = name,
+      propulsion = Some(Propulsion(motorKv = 960.0, batteryVolts = 14.63, coilResistanceOhm = 0.117,
+        noLoadCurrentA = 0.45, propDiameterM = 0.24, numBlades = 2, at = Vec3(0.0, 0, 0.0)))
+    )
+    val ac = if (withTable) base.copy(liftTable = Some(sampleLiftTable)) else base
+    val gm = generate(ac)
+    dump(s"$root/aircraft/$name/$name.xml", gm.aircraftXml)
+    gm.engineFiles.foreach { case (fn, content) => dump(s"$root/engine/$fn", content) }
   }
 }

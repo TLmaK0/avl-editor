@@ -56,8 +56,16 @@ object JsbsimWriter {
   /** Optional XFOIL-derived non-linear lift curve (alpha rad -> CL), overrides cl0+cla. */
   final case class LiftTable(alphaRadToCl: Seq[(Double, Double)])
 
-  /** Optional electric propulsion (kept minimal; refined in the propulsion phase). */
-  final case class Propulsion(engineName: String, thrusterName: String)
+  /**
+   * Optional electric propulsion: a brushless DC motor (RC-style: Kv, coil resistance,
+   * no-load current, battery voltage) driving a fixed-pitch tractor propeller. The BLDC
+   * model self-limits RPM via back-EMF, which a bare power model does not.
+   */
+  final case class Propulsion(motorKv: Double, batteryVolts: Double, coilResistanceOhm: Double,
+                              noLoadCurrentA: Double, propDiameterM: Double, numBlades: Int, at: Vec3)
+
+  /** The generated aircraft plus the auxiliary engine/thruster files it references. */
+  final case class GeneratedModel(name: String, aircraftXml: String, engineFiles: Seq[(String, String)])
 
   final case class Aircraft(
     name: String,
@@ -76,7 +84,11 @@ object JsbsimWriter {
 
   // ---- Rendering ----
 
-  def write(ac: Aircraft): String = {
+  private def engineName(ac: Aircraft) = ac.name + "_motor"
+  private def propName(ac: Aircraft) = ac.name + "_prop"
+
+  /** Full export: the aircraft XML plus any engine/thruster files it references. */
+  def generate(ac: Aircraft): GeneratedModel = {
     val sb = new StringBuilder
     sb.append("""<?xml version="1.0"?>""").append("\n")
     sb.append(s"""<fdm_config name="${xml(ac.name)}" version="2.0" release="ALPHA">""").append("\n")
@@ -84,12 +96,23 @@ object JsbsimWriter {
     sb.append(metrics(ac.metrics))
     sb.append(massBalance(ac.mass))
     sb.append(groundReactions(ac.contacts))
-    sb.append(propulsion(ac.propulsion))
+    sb.append(propulsion(ac))
     sb.append(flightControl(ac.controls))
     sb.append(aerodynamics(ac))
     sb.append("</fdm_config>\n")
-    sb.toString
+
+    val engineFiles = ac.propulsion match {
+      case None => Seq.empty
+      case Some(pr) => Seq(
+        engineName(ac) + ".xml" -> brushlessMotorFile(engineName(ac), pr),
+        propName(ac) + ".xml" -> propellerFile(propName(ac), pr.propDiameterM, pr.numBlades)
+      )
+    }
+    GeneratedModel(ac.name, sb.toString, engineFiles)
   }
+
+  /** Convenience: the aircraft XML only (no auxiliary files). */
+  def write(ac: Aircraft): String = generate(ac).aircraftXml
 
   private def f(v: Double): String = {
     if (v == 0.0) "0" else new java.math.BigDecimal(v).round(new java.math.MathContext(8)).toPlainString
@@ -142,16 +165,79 @@ object JsbsimWriter {
     s"  <ground_reactions>\n$body  </ground_reactions>\n"
   }
 
-  private def propulsion(p: Option[Propulsion]): String = p match {
+  private def propulsion(ac: Aircraft): String = ac.propulsion match {
     case None => "  <propulsion/>\n"
     case Some(pr) =>
       s"""  <propulsion>
-      |    <engine file="${xml(pr.engineName)}">
-      |      <thruster file="${xml(pr.thrusterName)}"><location unit="M"><x>0</x><y>0</y><z>0</z></location></thruster>
+      |    <engine file="${engineName(ac)}">
+      |      <thruster file="${propName(ac)}">
+      |        <location unit="M"><x>${f(pr.at.x)}</x><y>${f(pr.at.y)}</y><z>${f(pr.at.z)}</z></location>
+      |        <orient unit="DEG"><roll>0</roll><pitch>0</pitch><yaw>0</yaw></orient>
+      |      </thruster>
       |    </engine>
       |  </propulsion>
       |""".stripMargin
   }
+
+  private def brushlessMotorFile(name: String, pr: Propulsion): String =
+    s"""<?xml version="1.0"?>
+    |<brushless_dc_motor name="${xml(name)}">
+    |  <velocityconstant>${f(pr.motorKv)}</velocityconstant>
+    |  <coilresistance>${f(pr.coilResistanceOhm)}</coilresistance>
+    |  <noloadcurrent>${f(pr.noLoadCurrentA)}</noloadcurrent>
+    |  <maxvolts>${f(pr.batteryVolts)}</maxvolts>
+    |</brushless_dc_motor>
+    |""".stripMargin
+
+  private def propellerFile(name: String, diameterM: Double, numBlades: Int): String = {
+    val ixx = 1.06e-3 * diameterM * diameterM // scaled from the DJI 9450 reference prop
+    s"""<?xml version="1.0"?>
+    |<propeller name="${xml(name)}" version="1.1">
+    |  <ixx unit="KG*M2">${f(ixx)}</ixx>
+    |  <diameter unit="M">${f(diameterM)}</diameter>
+    |  <numblades>$numBlades</numblades>
+    |  <constspeed>0</constspeed>
+    |  <table name="C_THRUST" type="internal">
+    |    <tableData>
+    |$GENERIC_CT
+    |    </tableData>
+    |  </table>
+    |  <table name="C_POWER" type="internal">
+    |    <tableData>
+    |$GENERIC_CP
+    |    </tableData>
+    |  </table>
+    |</propeller>
+    |""".stripMargin
+  }
+
+  // Generic small fixed-pitch propeller coefficients vs advance ratio J
+  // (from the APC 9x4.5e / JSBSim DJI_9450 reference; normalised by J so reusable).
+  private val GENERIC_CT =
+    """      0.0000 0.1288
+      |      0.0730 0.1230
+      |      0.1470 0.1153
+      |      0.2287 0.1053
+      |      0.3022 0.0932
+      |      0.3757 0.0794
+      |      0.4496 0.0644
+      |      0.5296 0.0483
+      |      0.6039 0.0310
+      |      0.6774 0.0128
+      |      0.7291 -0.0001""".stripMargin
+
+  private val GENERIC_CP =
+    """      0.0000 0.0666
+      |      0.0730 0.0611
+      |      0.1470 0.0567
+      |      0.2287 0.0531
+      |      0.3022 0.0498
+      |      0.3757 0.0456
+      |      0.4496 0.0402
+      |      0.5296 0.0332
+      |      0.6039 0.0243
+      |      0.6774 0.0137
+      |      0.7291 0.0061""".stripMargin
 
   private def flightControl(controls: Seq[ControlSurface]): String = {
     val channels = controls.map { c =>
