@@ -31,7 +31,7 @@ import java.io.File;
 
 object MenuOption extends Enumeration {
   type MenuOption = Value
-  val Save, SaveAs, Open, ExportAsAvl, ExportAsJsbsim, ExportForFlightGear, RunAvl, SetAvlExecutable, ClearAvlConfiguration = Value
+  val Save, SaveAs, Open, ExportAsAvl, ExportAsJsbsim, ExportForFlightGear, FlyInFlightGear, RunAvl, SetAvlExecutable, ClearAvlConfiguration = Value
 }
 
 import MenuOption._
@@ -168,6 +168,7 @@ class MainWindow(
           .addItem("Export As Avl", notifyMenuClick(MenuOption.ExportAsAvl))
           .addItem("Export As JSBSim", notifyMenuClick(MenuOption.ExportAsJsbsim))
           .addItem("Export For FlightGear", notifyMenuClick(MenuOption.ExportForFlightGear))
+          .addItem("Fly in FlightGear", notifyMenuClick(MenuOption.FlyInFlightGear))
           .addItem("Run AVL", notifyMenuClick(MenuOption.RunAvl))
 
         menu.addSubmenu("Edit")
