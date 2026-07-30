@@ -50,7 +50,7 @@ object JsbsimExporter {
 
     val aero = buildAero(calc, sref, bref)
     val controls = detectControls(geo)
-    val contacts = buildContacts(crrcsim, cg)
+    val contacts = buildContacts(crrcsim)
 
     Aircraft(name, Metrics(sref, bref, cref, aeroRp), mass, contacts, controls, aero,
       propulsion = buildPropulsion(crrcsim))
@@ -58,18 +58,21 @@ object JsbsimExporter {
 
   /**
    * Landing gear / contact points from the model's collision points (wheels). Each wheel's
-   * position (metric, structural frame) becomes a JSBSim BOGEY contact. Falls back to a single
-   * belly contact under the CG when the model has none.
+   * position (metric, structural frame) becomes a JSBSim BOGEY contact.
+   *
+   * A model without usable collision points yields none: there is deliberately no invented
+   * belly contact, because a single fabricated point cannot support the aircraft in pitch and
+   * roll — JSBSim fails to trim and the aircraft sinks through the runway while the export
+   * still reports success. [[SimulationRequirements]] rejects such a model up front.
    */
-  def buildContacts(crrcsim: CRRCSim, cg: Vec3): Seq[Contact] = {
+  def buildContacts(crrcsim: CRRCSim): Seq[Contact] = {
     val wheels = Option(crrcsim.getWheels).map(_.asScala).getOrElse(Nil)
-    val contacts = wheels.zipWithIndex.flatMap { case (w, i) =>
+    wheels.zipWithIndex.flatMap { case (w, i) =>
       Option(w.getPos).map { p =>
         val name = Option(w.getName).filter(_.nonEmpty).getOrElse(s"GEAR$i")
         Contact(name.replaceAll("\\s+", "_"), Vec3(p.getX.toDouble, p.getY.toDouble, p.getZ.toDouble))
       }
     }
-    if (contacts.nonEmpty) contacts else Seq(Contact("BELLY", Vec3(cg.x, cg.y, cg.z - 0.1)))
   }
 
   /**

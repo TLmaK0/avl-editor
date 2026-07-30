@@ -55,6 +55,7 @@ import swt.dsl.TableFieldReadOnly
 import swt.dsl.TableFieldFile
 import swt.dsl.TableFieldOptions
 import swt.dsl.TableFieldEmpty
+import com.abajar.avleditor.jsbsim.SimulationRequirements
 import com.abajar.avleditor.view.annotations
 import java.lang.reflect.Field
 import com.abajar.avleditor.view.annotations.AvlEditorNode
@@ -208,6 +209,15 @@ object AvlEditor{
       window.display.asyncExec(new Runnable {
         override def run(): Unit = {
           updateProfilePointFromViewer(bodyIdx, pointIdx, x, radius)
+        }
+      })
+    })
+
+    // Set up collision point update callback for 3D editing
+    window.viewer3D.setCollisionPointUpdateCallback((pointIdx: Int, x: Float, y: Float, z: Float) => {
+      window.display.asyncExec(new Runnable {
+        override def run(): Unit = {
+          updateCollisionPointFromViewer(pointIdx, x, y, z)
         }
       })
     })
@@ -458,6 +468,8 @@ object AvlEditor{
             selectBodyIn3D(body)
           case point: com.abajar.avleditor.avl.geometry.BodyProfilePoint =>
             selectProfilePointIn3D(point)
+          case wheel: com.abajar.avleditor.crrcsim.Wheel =>
+            selectCollisionPointIn3D(wheel)
           case _ =>
         }
         loadPropertiesForTreeItem(data)
@@ -632,6 +644,52 @@ object AvlEditor{
         case e: Exception =>
           logger.log(Level.WARNING, "Error loading AVL bodies", e)
       }
+      // Every geometry refresh goes through here, so the markers follow the model.
+      loadCollisionPoints()
+    }
+
+    /** Push the model's collision points to the 3D view so they can be seen and placed. */
+    private def loadCollisionPoints(): Unit = {
+      import scala.collection.JavaConverters._
+      try {
+        val points = Option(crrcsim.getWheels).map(_.asScala).getOrElse(Nil)
+          .flatMap(w => Option(w.getPos))
+          .map(p => (p.getX, p.getY, p.getZ))
+          .toArray
+        window.viewer3D.setCollisionPoints(points)
+      } catch {
+        case e: Exception =>
+          logger.log(Level.WARNING, "Error loading collision points", e)
+      }
+    }
+
+    /** Applies a collision-point drag from the 3D view as one undoable step. */
+    private def updateCollisionPointFromViewer(pointIdx: Int, x: Float, y: Float, z: Float): Unit = {
+      val wheels = Option(crrcsim.getWheels).getOrElse(return)
+      if (pointIdx < 0 || pointIdx >= wheels.size) return
+      val wheel = wheels.get(pointIdx)
+      val pos = Option(wheel.getPos).getOrElse(return)
+
+      pushDrag(pos, "Move collision point", Seq("x", "y", "z")) {
+        pos.setX(x)
+        pos.setY(y)
+        pos.setZ(z)
+      }
+
+      window.treeNodeSelected.foreach {
+        case w: com.abajar.avleditor.crrcsim.Wheel if w eq wheel => loadPropertiesForTreeItem(wheel)
+        case _ =>
+      }
+      loadCollisionPoints()
+    }
+
+    private def selectCollisionPointIn3D(wheel: com.abajar.avleditor.crrcsim.Wheel): Unit = {
+      import scala.collection.JavaConverters._
+      val wheels = Option(crrcsim.getWheels).map(_.asScala.toIndexedSeq).getOrElse(IndexedSeq.empty)
+      wheels.indexWhere(_ eq wheel) match {
+        case -1 => window.viewer3D.clearSelectedCollisionPoint()
+        case index => window.viewer3D.setSelectedCollisionPoint(index)
+      }
     }
 
     // Default body profile - a simple tapered fuselage (scaled to typical aircraft proportions)
@@ -785,25 +843,41 @@ object AvlEditor{
     // Runs AVL for the current model and hands (name, calculation) to a callback.
     private def withAvlCalculation(action: (String, com.abajar.avleditor.avl.runcase.AvlCalculation) => Unit): Unit = {
       if (!existsAvlExecutable) {
-        logger.log(Level.WARNING, "AVL executable not configured; cannot compute derivatives for export")
+        window.showError("AVL not configured",
+          "The AVL executable is not configured, so the aerodynamic derivatives cannot be computed.")
         return
       }
       val avl = crrcsim.getAvl()
-      val errors = avl.getGeometry().validate()
-      if (!errors.isEmpty) {
-        import scala.collection.JavaConverters._
-        errors.asScala.foreach(e => logger.log(Level.WARNING, s"Validation error: $e"))
-        logger.log(Level.SEVERE, "Model validation failed; fix errors before exporting.")
-        return
-      }
+      // Mass and inertias are derived from the model's mass objects, so refresh them before
+      // checking the requirements or they read as zero.
+      crrcsim.calculate()
+      if (!reportModelProblems("simulated", geometryProblems(avl) ++ SimulationRequirements.validate(crrcsim))) return
       try {
-        crrcsim.calculate()
         val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
         val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
         action(name, calc)
       } catch {
         case ex: Throwable => logger.log(Level.SEVERE, s"Export failed: ${ex.getMessage}", ex)
       }
+    }
+
+    private def geometryProblems(avl: com.abajar.avleditor.avl.AVL): Seq[String] = {
+      import scala.collection.JavaConverters._
+      avl.getGeometry().validate().asScala.map(_.toString).toSeq
+    }
+
+    /**
+     * Shows the problems that stop the model from being handed to `target` and returns false,
+     * or returns true when there are none. The alert has to be visible: a refusal that only
+     * reaches the log is indistinguishable from a successful run.
+     */
+    private def reportModelProblems(target: String, problems: Seq[String]): Boolean = {
+      if (problems.isEmpty) return true
+      problems.foreach(p => logger.log(Level.WARNING, s"Model problem: $p"))
+      window.showError(s"This model cannot be $target",
+        problems.map("• " + _).mkString(
+          s"The model does not meet the requirements to be $target:\n\n", "\n\n", ""))
+      false
     }
 
     // Runs AVL, prompts for a directory, and hands (dir, name, calculation) to an exporter.
@@ -867,22 +941,12 @@ object AvlEditor{
 
     def runAvl: Unit = {
       if (!existsAvlExecutable) {
-        logger.log(Level.WARNING, "AVL executable not configured")
+        window.showError("AVL not configured", "The AVL executable is not configured.")
         return
       }
 
       val avl = this.crrcsim.getAvl()
-      val geometry = avl.getGeometry()
-      val errors = geometry.validate()
-
-      if (!errors.isEmpty) {
-        import scala.collection.JavaConverters._
-        for (error <- errors.asScala) {
-          logger.log(Level.WARNING, s"Validation error: $error")
-        }
-        logger.log(Level.SEVERE, "Model validation failed. Please fix the errors above before running AVL.")
-        return
-      }
+      if (!reportModelProblems("analysed with AVL", geometryProblems(avl))) return
 
       logger.log(Level.INFO, "Running AVL analysis...")
       val avlPath = this.configuration.getProperty("avl.path")
@@ -1113,34 +1177,46 @@ object AvlEditor{
           window.viewer3D.clearSelectedSection()
           window.viewer3D.clearSelectedControl()
           window.viewer3D.clearSelectedBody()
+          window.viewer3D.clearSelectedCollisionPoint()
         case section: com.abajar.avleditor.avl.geometry.Section =>
           // Find the parent surface and section index
           selectSectionIn3D(section)
           window.viewer3D.clearSelectedControl()
           window.viewer3D.clearSelectedBody()
+          window.viewer3D.clearSelectedCollisionPoint()
         case control: com.abajar.avleditor.avl.geometry.Control =>
           // Find the parent surface, section and control index
           selectControlIn3D(control)
           window.viewer3D.clearSelectedSection()
           window.viewer3D.clearSelectedBody()
+          window.viewer3D.clearSelectedCollisionPoint()
         case body: com.abajar.avleditor.avl.geometry.Body =>
           // Find the body index and select it
           selectBodyIn3D(body)
           window.viewer3D.clearSelectedSection()
           window.viewer3D.clearSelectedControl()
           window.viewer3D.clearSelectedProfilePoint()
+          window.viewer3D.clearSelectedCollisionPoint()
         case profilePoint: com.abajar.avleditor.avl.geometry.BodyProfilePoint =>
           // Find the body and point index, select it in 3D
           selectProfilePointIn3D(profilePoint)
           window.viewer3D.clearSelectedSection()
           window.viewer3D.clearSelectedControl()
           window.viewer3D.clearSelectedBody()
+          window.viewer3D.clearSelectedCollisionPoint()
+        case wheel: com.abajar.avleditor.crrcsim.Wheel =>
+          selectCollisionPointIn3D(wheel)
+          window.viewer3D.clearSelectedSection()
+          window.viewer3D.clearSelectedControl()
+          window.viewer3D.clearSelectedBody()
+          window.viewer3D.clearSelectedProfilePoint()
         case _ =>
           // Clear selections for other nodes
           window.viewer3D.clearSelectedSection()
           window.viewer3D.clearSelectedControl()
           window.viewer3D.clearSelectedBody()
           window.viewer3D.clearSelectedProfilePoint()
+          window.viewer3D.clearSelectedCollisionPoint()
       }
     }
 

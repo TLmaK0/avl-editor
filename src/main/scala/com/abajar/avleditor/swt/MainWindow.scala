@@ -320,6 +320,18 @@ class MainWindow(
     }
   }
 
+  /**
+   * Blocking error dialog. Used when an action the user asked for cannot be carried out — a
+   * refusal has to be visible: writing it to the log only makes a failed export look like a
+   * successful one.
+   */
+  def showError(title: String, message: String): Unit = {
+    val box = new MessageBox(shell, SWT.ICON_ERROR | SWT.OK)
+    box.setText(title)
+    box.setMessage(message)
+    box.open()
+  }
+
   def getShell: org.eclipse.swt.widgets.Shell = shell
 
   def show: Unit = shell.start

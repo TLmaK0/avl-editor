@@ -28,7 +28,7 @@ object GearAndControlsCheck {
     val w = new Wheel(); w.setName("main gear")
     w.getPos.setX(0.1f); w.getPos.setY(0.3f); w.getPos.setZ(-0.2f)
     c.getWheels.add(w)
-    val contacts = JsbsimExporter.buildContacts(c, Vec3(0, 0, 0))
+    val contacts = JsbsimExporter.buildContacts(c)
     println("contacts=" + contacts)
     val gearOk = contacts.exists(ct =>
       ct.name == "main_gear" && math.abs(ct.at.y - 0.3) < 1e-4 && math.abs(ct.at.z + 0.2) < 1e-4)

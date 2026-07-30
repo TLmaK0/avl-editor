@@ -1,0 +1,101 @@
+/*
+ * Verifies the requirements a model must meet before it is handed to a simulator, and that
+ * no invented data is substituted for what is missing.
+ * Run with:  sbt "test:runMain com.abajar.avleditor.jsbsim.SimulationRequirementsCheck"
+ */
+package com.abajar.avleditor.jsbsim
+
+import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, Wheel}
+import com.abajar.avleditor.avl.geometry.Control
+
+object SimulationRequirementsCheck {
+
+  private var ok = true
+
+  private def check(name: String, cond: Boolean): Unit = {
+    println((if (cond) "  PASS " else "  FAIL ") + name); ok &= cond
+  }
+
+  private def mentions(problems: Seq[String], fragment: String): Boolean =
+    problems.exists(_.toLowerCase.contains(fragment.toLowerCase))
+
+  /** A model that meets every requirement: mass, inertias, references, gear and a control. */
+  private def flyableModel(): CRRCSim = {
+    val crrcsim = new CRRCSimFactory().create()
+    val mi = crrcsim.getConfig.getMass_inertia
+    mi.setMass(2.5f); mi.setI_xx(0.05f); mi.setI_yy(0.08f); mi.setI_zz(0.12f)
+
+    val geo = crrcsim.getAvl.getGeometry
+    geo.setSref(0.4f); geo.setBref(1.1f); geo.setCref(0.37f)
+
+    // One elevator control, on an isolated surface (the factory ships a default aircraft).
+    geo.getSurfaces.clear()
+    val section = geo.createSurface().createSection()
+    section.getControls.clear()
+    val control = new Control
+    control.setType(1) // elevator
+    control.setMaxDeflection(20f)
+    section.getControls.add(control)
+
+    addWheels(crrcsim, Seq((0.2f, 0.0f), (0.8f, -0.3f), (0.8f, 0.3f)))
+    crrcsim
+  }
+
+  private def addWheels(crrcsim: CRRCSim, at: Seq[(Float, Float)]): Unit = {
+    crrcsim.getWheels.clear()
+    at.zipWithIndex.foreach { case ((x, y), i) =>
+      val w = new Wheel
+      w.setName(s"GEAR$i")
+      w.getPos.setX(x); w.getPos.setY(y); w.getPos.setZ(-0.05f)
+      crrcsim.getWheels.add(w)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    println("a model meeting every requirement")
+    val good = flyableModel()
+    val noProblems = SimulationRequirements.validate(good)
+    if (noProblems.nonEmpty) noProblems.foreach(p => println(s"    unexpected: $p"))
+    check("validates clean", noProblems.isEmpty)
+    check("its contacts are the model's own collision points", JsbsimExporter.buildContacts(good).length == 3)
+
+    println("missing collision points")
+    val noGear = flyableModel()
+    noGear.getWheels.clear()
+    val gearProblems = SimulationRequirements.validate(noGear)
+    check("is reported", mentions(gearProblems, "collision points"))
+    check("no belly contact is invented", JsbsimExporter.buildContacts(noGear).isEmpty)
+
+    println("too few collision points")
+    val twoWheels = flyableModel()
+    addWheels(twoWheels, Seq((0.2f, 0.0f), (0.8f, 0.3f)))
+    check("is reported", mentions(SimulationRequirements.validate(twoWheels), "at least 3"))
+
+    println("collinear collision points")
+    val aligned = flyableModel()
+    addWheels(aligned, Seq((0.2f, 0.0f), (0.5f, 0.0f), (0.9f, 0.0f)))
+    check("is reported as aligned", mentions(SimulationRequirements.validate(aligned), "aligned"))
+
+    println("mass and inertia")
+    val noMass = flyableModel()
+    noMass.getConfig.getMass_inertia.setMass(0f)
+    check("zero mass is reported", mentions(SimulationRequirements.validate(noMass), "mass"))
+    val noInertia = flyableModel()
+    noInertia.getConfig.getMass_inertia.setI_yy(0f)
+    check("zero Iyy is reported", mentions(SimulationRequirements.validate(noInertia), "Iyy"))
+
+    println("reference geometry")
+    val noSref = flyableModel()
+    noSref.getAvl.getGeometry.setSref(0f)
+    check("zero Sref is reported", mentions(SimulationRequirements.validate(noSref), "reference area"))
+
+    println("controls")
+    val noControls = flyableModel()
+    val sections = noControls.getAvl.getGeometry.getSurfaces.get(0).getSections
+    for (i <- 0 until sections.size) sections.get(i).getControls.clear()
+    check("absent control surfaces are reported", mentions(SimulationRequirements.validate(noControls), "control surface"))
+
+    println(if (ok) "SIM_REQ_OK" else "SIM_REQ_FAIL")
+    if (!ok) sys.exit(1)
+  }
+}

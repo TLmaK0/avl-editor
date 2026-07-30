@@ -69,3 +69,40 @@ The project uses a local `PLAN.md` file (not tracked in git) to maintain context
 - Always solve the root cause, even if the implementation takes longer.
 - If a temporary workaround is unavoidable, label it explicitly as temporary, explain the risk, and propose the permanent fix immediately.
 - Prefer robust, evidence-based behavior over UI heuristics that can misclassify results.
+
+### No silent fallbacks
+
+**Never invent data for a model that does not provide it.** If a model cannot be handed to a
+simulator (AVL, JSBSim, FlightGear, PX4 SITL), the attempt must **stop and raise a visible
+alert** listing what is missing — never substitute a default and carry on.
+
+Why: a fabricated value produces an aircraft that loads, looks plausible and behaves wrongly.
+That is far harder to diagnose than a refusal, and the user cannot tell a good export from a
+broken one. Every FlightGear bug in this project so far came from a hardcoded value, not from
+missing code:
+
+- `<flight-model>jsbsim</flight-model>` instead of `jsb` — FlightGear silently fell back to
+  `glider.ac` and drew the wrong aircraft.
+- An invented single `BELLY` contact when the model had no collision points — one point cannot
+  support pitch or roll, so JSBSim never trimmed.
+- A fixed `spring_coeff` of 100 N/M regardless of weight — a 2.8 kg model compressed 9 cm on
+  18 cm of gear and sat under the runway with only its fin showing.
+
+Rules:
+
+- Requirements live in `jsbsim/SimulationRequirements`, one rule per observed failure. Add a rule
+  when a missing input breaks a simulation; do not paper over it with a default.
+- Validation runs in `AvlEditor.withAvlCalculation` (the funnel for every export and launch) and
+  in `runAvl`. Refusals go through `MainWindow.showError` — **a refusal that only reaches the log
+  is indistinguishable from success**.
+- Derived quantities must be derived: `crrcsim.calculate()` populates mass and inertias from the
+  mass objects, so validate *after* it or every model reports zero mass.
+- When a physical constant is unavoidable, take it from a reference that demonstrably works and
+  record the derivation in a comment. Gear stiffness, for instance, comes from FlightGear's stock
+  c172p: total spring ≈ 32 × weight per metre (~3 cm static compression), damping = spring / 3.
+- Pin the rule with a `*Check.scala` and assert the property, not the number, so it survives
+  rescaling (see `GearStiffnessCheck`, which checks compression at 2.8 kg and 25 kg).
+
+Known remaining fallbacks, to be converted as they are confirmed: `JsbsimExporter.buildPropulsion`
+(battery volts, propeller diameter, blade count, motor Kv/R/I0), `detectControls` (25° default
+deflection) and `buildAero` (span efficiency 0.85, aspect ratio 5.0).
