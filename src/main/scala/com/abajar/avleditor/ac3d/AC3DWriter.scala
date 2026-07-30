@@ -19,18 +19,44 @@ import scala.collection.JavaConverters._
  * surface is symmetric). Enough for a recognisable shape in FlightGear; the same
  * format the app's [[AC3DLoader]] reads, so output can be round-tripped to validate.
  *
- * Coordinates are passed through in the AVL frame (x aft, y right, z up). If the
- * model appears mis-oriented in FlightGear, adjust the model rotation in the
- * `-set.xml`; the mesh topology is independent of that.
+ * Panels are built in the AVL frame (x aft, y right, z up) and converted to the
+ * FlightGear model frame on output — see [[toFlightGearFrame]].
  */
 object AC3DWriter {
+
+  /**
+   * AVL frame (x aft, y right, z up) to the FlightGear model frame, where +x is right,
+   * +y is up and +z is aft, so the nose points at -z. Emitting AVL coordinates directly
+   * puts the fuselage across the model and stands the wings on edge.
+   *
+   * The mapping is a cyclic permutation, so its determinant is +1: handedness is
+   * preserved and the quad winding computed in the AVL frame still faces outward.
+   */
+  private[ac3d] def toFlightGearFrame(v: (Float, Float, Float)): (Float, Float, Float) =
+    (v._2, v._3, v._1)
 
   private case class Quad(v: Array[(Float, Float, Float)]) // 4 vertices, CCW
 
   private val RadialSegments = 12
 
   def fromGeometry(geo: AVLGeometry): String =
-    render(collectQuads(geo) ++ collectBodyQuads(geo))
+    render(collect(geo))
+
+  private def collect(geo: AVLGeometry): Seq[Quad] = collectQuads(geo) ++ collectBodyQuads(geo)
+
+  /**
+   * Bounding box of the emitted mesh, in the FlightGear model frame, as (min, max). Callers use
+   * it to size things that depend on how big the aircraft actually is — view offsets, chase
+   * distance — instead of guessing. None when the geometry produces no panels.
+   */
+  def boundsFromGeometry(geo: AVLGeometry): Option[((Float, Float, Float), (Float, Float, Float))] = {
+    val verts = collect(geo).flatMap(_.v).map(toFlightGearFrame)
+    if (verts.isEmpty) None
+    else Some((
+      (verts.map(_._1).min, verts.map(_._2).min, verts.map(_._3).min),
+      (verts.map(_._1).max, verts.map(_._2).max, verts.map(_._3).max)
+    ))
+  }
 
   /** Fuselage/bodies as surfaces of revolution from their profile points. */
   private def collectBodyQuads(geo: AVLGeometry): Seq[Quad] = {
@@ -84,7 +110,7 @@ object AC3DWriter {
     sb.append("OBJECT poly\n")
     sb.append("name \"aircraft\"\n")
 
-    val verts = quads.flatMap(_.v)
+    val verts = quads.flatMap(_.v).map(toFlightGearFrame)
     sb.append(s"numvert ${verts.length}\n")
     verts.foreach { case (x, y, z) => sb.append(s"$x $y $z\n") }
 
