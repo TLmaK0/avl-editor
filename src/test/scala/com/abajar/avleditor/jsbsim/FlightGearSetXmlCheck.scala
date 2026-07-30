@@ -40,6 +40,10 @@ object FlightGearSetXmlCheck {
     check("FlightModel constant matches the emitted value", FlightGearExporter.FlightModel == fdm)
 
     check("aero points at the JSBSim model name", textOf(xml, "aero").exists(_ == name))
+
+    // Generated models have no cockpit interior: starting in view 0 shows an empty scene.
+    check("starts in an external view",
+      textOf(xml, "view-number").exists(_.trim == FlightGearExporter.ChaseView.toString))
     // FlightGear resolves this relative to the aircraft's own directory; prefixing it with
     // the package name makes it fall back to glider.ac.
     check("model path is relative to the aircraft directory",
