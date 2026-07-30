@@ -31,6 +31,7 @@ object UndoDragCheck {
     noOpGestureIsNotRecorded()
     twoDragsOnDifferentSections()
     dragThenPropertyEditUndoOrder()
+    collisionPointDrag()
 
     println(if (ok) "UNDO_DRAG_OK" else "UNDO_DRAG_FAIL")
     if (!ok) sys.exit(1)
@@ -91,6 +92,29 @@ object UndoDragCheck {
     um.undo()
     check("second undo reverts section A", a.getXle == 1.0f)
     check("both gestures were recorded", !um.canUndo)
+  }
+
+  /**
+   * Dragging a collision point in the 3D view, undone in one step. Pins the field names the
+   * editor passes to reflection ("x", "y", "z" on Pos): a typo there compiles fine and only
+   * fails when the user drags.
+   */
+  private def collisionPointDrag(): Unit = {
+    println("collisionPointDrag")
+    val um = new UndoManager
+    val pos = new com.abajar.avleditor.crrcsim.Pos
+    pos.setX(0.1f); pos.setY(0.0f); pos.setZ(-0.05f)
+
+    drag(um, pos, "Move collision point", Seq("x", "y", "z")) {
+      pos.setX(0.6f); pos.setZ(-0.12f)
+    }
+
+    check("the gesture is recorded", um.canUndo)
+    um.undo()
+    check("undo restores x", pos.getX == 0.1f)
+    check("undo restores z", pos.getZ == -0.05f)
+    um.redo()
+    check("redo reapplies the drag", pos.getX == 0.6f && pos.getZ == -0.12f)
   }
 
   /** A drag followed by a property edit must undo in reverse order (edit first, then drag). */

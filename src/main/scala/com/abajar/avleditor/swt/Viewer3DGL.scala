@@ -82,6 +82,12 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   type BodyData = (String, Array[(Float, Float)], Float, Float, Float, Float, Option[Float])  // (name, profile[(x,radius)], dX, dY, dZ, length, ydupl)
   @volatile private var avlBodies: Array[BodyData] = Array()
 
+  // Collision points (wheels) in AVL coordinates, and which one the tree has selected
+  @volatile private var collisionPoints: Array[(Float, Float, Float)] = Array()
+  @volatile private var selectedCollisionPoint: Option[Int] = None
+  @volatile private var isDraggingCollisionPoint: Boolean = false
+  private var collisionPointUpdateCallback: Option[(Int, Float, Float, Float) => Unit] = None
+
   // Selected section for editing (surfaceIndex, sectionIndex, x, y, z, chord)
   @volatile private var selectedSection: Option[(Int, Int, Float, Float, Float, Float)] = None
   @volatile private var isDraggingSection: Boolean = false
@@ -213,8 +219,11 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       lastMouseX = e.getX
       lastMouseY = e.getY
       if (e.getButton == java.awt.event.MouseEvent.BUTTON1) {
-        // Left click to drag section, control, body, or profile point when one is selected
-        if (selectedProfilePoint.isDefined) {
+        // Left click to drag section, control, body, profile point or collision point when
+        // one is selected
+        if (selectedCollisionPoint.isDefined) {
+          isDraggingCollisionPoint = true
+        } else if (selectedProfilePoint.isDefined) {
           // Check which handle is closer (X position or radius)
           val clickedHandle = getClosestProfilePointHandle(e.getX, e.getY)
           if (clickedHandle == "radius") {
@@ -251,7 +260,15 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     }
 
     override def mouseReleased(e: java.awt.event.MouseEvent): Unit = {
-      if (isDraggingProfilePointX || isDraggingProfilePointRadius) {
+      if (isDraggingCollisionPoint) {
+        isDraggingCollisionPoint = false
+        selectedCollisionPoint.foreach { index =>
+          if (index < collisionPoints.length) {
+            val (x, y, z) = collisionPoints(index)
+            collisionPointUpdateCallback.foreach(_(index, x, y, z))
+          }
+        }
+      } else if (isDraggingProfilePointX || isDraggingProfilePointRadius) {
         isDraggingProfilePointX = false
         isDraggingProfilePointRadius = false
         // Notify callback with updated x and radius
@@ -292,7 +309,29 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
   glCanvas.addMouseMotionListener(new java.awt.event.MouseMotionAdapter {
     override def mouseDragged(e: java.awt.event.MouseEvent): Unit = {
-      if (isDraggingProfilePointX) {
+      if (isDraggingCollisionPoint) {
+        // Horizontal mouse moves along the fuselage (AVL x), vertical moves in height (AVL z),
+        // which is what placing a wheel under the aircraft needs. Snapping to a mesh vertex
+        // sets all three coordinates at once, for putting the contact exactly on the model.
+        val sensitivity = 0.1f / zoom / displayScale
+        val deltaScreenX = (e.getX - lastMouseX) * sensitivity
+        val deltaScreenY = (e.getY - lastMouseY) * sensitivity
+        selectedCollisionPoint.foreach { index =>
+          if (index < collisionPoints.length) {
+            val (x, y, z) = collisionPoints(index)
+            var (newX, newY, newZ) = (x + deltaScreenX, y, z - deltaScreenY)
+            findNearestVertexByScreenPos(e.getX, e.getY).foreach { case (vx, vy, vz) =>
+              val (avlX, avlY, avlZ) = modelToAvl(vx / displayScale, vy / displayScale, vz / displayScale)
+              newX = avlX; newY = avlY; newZ = avlZ
+            }
+            val updated = collisionPoints.clone()
+            updated(index) = (newX, newY, newZ)
+            collisionPoints = updated
+          }
+        }
+        lastMouseX = e.getX
+        lastMouseY = e.getY
+      } else if (isDraggingProfilePointX) {
         // Dragging X position handle - try to snap to vertices
         selectedProfilePoint.foreach { case (bodyIdx, pointIdx, x, radius) =>
           if (bodyIdx < avlBodies.length) {
@@ -605,6 +644,25 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
   def setAvlBodies(bodies: Array[BodyData]): Unit = {
     avlBodies = bodies
+  }
+
+  /** Collision points (wheels) in AVL coordinates, drawn as markers so they can be placed
+    * visually instead of by typing coordinates into the properties table. */
+  def setCollisionPoints(points: Array[(Float, Float, Float)]): Unit = {
+    collisionPoints = points
+  }
+
+  def setSelectedCollisionPoint(index: Int): Unit = {
+    selectedCollisionPoint = Some(index)
+  }
+
+  def clearSelectedCollisionPoint(): Unit = {
+    selectedCollisionPoint = None
+  }
+
+  /** Called on mouse release with the dragged point's index and its new AVL coordinates. */
+  def setCollisionPointUpdateCallback(callback: (Int, Float, Float, Float) => Unit): Unit = {
+    collisionPointUpdateCallback = Some(callback)
   }
 
   def setScale(scale: Float): Unit = {
@@ -1104,6 +1162,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       if (selectedControl.isDefined) drawSelectedControlHandle(gl)
       if (selectedBody.isDefined) drawSelectedBodyHandle(gl)
       if (selectedProfilePoint.isDefined) drawSelectedProfilePointHandle(gl)
+      if (collisionPoints.nonEmpty) drawCollisionPoints(gl)
     }
 
     gl.glFlush()
@@ -1665,6 +1724,41 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     gl.glVertex3f(mx * displayScale, my * displayScale, mz * displayScale)
     gl.glVertex3f(hzX * displayScale, hzY * displayScale, hzZ * displayScale)
     gl.glEnd()
+  }
+
+  /**
+   * Collision points as markers. Point size is in pixels, like every other handle in this
+   * viewer, so the markers stay legible at any zoom and no assumption is made about the
+   * model's length unit. Depth testing is off, as for the other overlays, so a point inside
+   * the fuselage is still visible.
+   */
+  private def drawCollisionPoints(gl: GL2): Unit = {
+    gl.glDisable(GLLightingFunc.GL_LIGHTING)
+    gl.glDisable(GL.GL_DEPTH_TEST)
+
+    gl.glPushMatrix()
+    gl.glScalef(modelScale, modelScale, modelScale)
+    gl.glTranslatef(-centerX, -centerY, -centerZ)
+
+    collisionPoints.zipWithIndex.foreach { case ((x, y, z), index) =>
+      val selected = selectedCollisionPoint.exists(_ == index)
+      val (mx, my, mz) = avlToModel(x, y, z)
+
+      if (selected) {
+        gl.glColor3f(1.0f, 0.4f, 0.0f) // orange, matching the other selected handles
+        gl.glPointSize(16.0f)
+      } else {
+        gl.glColor3f(1.0f, 0.9f, 0.2f) // yellow
+        gl.glPointSize(11.0f)
+      }
+      gl.glBegin(GL.GL_POINTS)
+      gl.glVertex3f(mx * displayScale, my * displayScale, mz * displayScale)
+      gl.glEnd()
+    }
+
+    gl.glPopMatrix()
+    gl.glEnable(GL.GL_DEPTH_TEST)
+    if (!wireframeMode) gl.glEnable(GLLightingFunc.GL_LIGHTING)
   }
 
   private def drawSelectedProfilePointHandle(gl: GL2): Unit = {
