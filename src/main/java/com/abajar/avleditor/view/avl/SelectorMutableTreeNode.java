@@ -145,6 +145,8 @@ public class SelectorMutableTreeNode  extends DefaultMutableTreeNode{
     private static final TreeModificator addBattery = new AddBattery();
     private static final TreeModificator addShaft = new AddShaft();
     private static final TreeModificator addEngine = new AddEngine();
+    private static final TreeModificator addCombustionEngine = new AddCombustionEngine();
+    private static final TreeModificator addFuelTank = new AddFuelTank();
     private static final TreeModificator addPropeller = new AddPropeller();
     private static final TreeModificator addData = new AddData();
     private static final TreeModificator addDataIdle = new AddDataIdle();
@@ -169,6 +171,8 @@ public class SelectorMutableTreeNode  extends DefaultMutableTreeNode{
         ADD_BATTERY         (addBattery),
         ADD_SHAFT           (addShaft),
         ADD_ENGINE          (addEngine),
+        ADD_COMBUSTION_ENGINE (addCombustionEngine),
+        ADD_FUEL_TANK       (addFuelTank),
         ADD_PROPELLER       (addPropeller),
         ADD_DATA            (addData),
         ADD_DATA_IDLE       (addDataIdle),

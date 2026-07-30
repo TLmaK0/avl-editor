@@ -24,13 +24,35 @@ import javax.xml.bind.annotation.XmlRootElement;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_BATTERY})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_BATTERY, ENABLE_BUTTONS.ADD_FUEL_TANK})
 public class Power implements Serializable {
 
     public Battery createBattery() {
         Battery battery = new Battery();
         this.getBateries().add(battery);
         return battery;
+    }
+
+    public FuelTank createFuelTank() {
+        FuelTank tank = new FuelTank();
+        this.getFuelTanks().add(tank);
+        return tank;
+    }
+
+    /**
+     * @return the fuel tanks
+     */
+    @AvlEditorNode(name="Fuel tanks")
+    @XmlElement(name="fueltank")
+    public ArrayList<FuelTank> getFuelTanks() {
+        return fuelTanks;
+    }
+
+    /**
+     * @param fuelTanks the fuel tanks to set
+     */
+    public void setFuelTanks(ArrayList<FuelTank> fuelTanks) {
+        this.fuelTanks = fuelTanks;
     }
 
     /**
@@ -52,6 +74,7 @@ public class Power implements Serializable {
     
 
     
+    private ArrayList<FuelTank> fuelTanks = new ArrayList<FuelTank>();
     private ArrayList<Battery> bateries = new ArrayList<Battery>();
     public Power() {
     }

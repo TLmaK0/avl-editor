@@ -23,7 +23,8 @@ import javax.xml.bind.annotation.XmlElement;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_ENGINE, ENABLE_BUTTONS.ADD_PROPELLER, ENABLE_BUTTONS.ADD_SYMPLE_TRUST})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_ENGINE, ENABLE_BUTTONS.ADD_COMBUSTION_ENGINE,
+    ENABLE_BUTTONS.ADD_PROPELLER, ENABLE_BUTTONS.ADD_SYMPLE_TRUST})
 public class Shaft implements Serializable {
     static final long serialVersionUID = -4669977187731929600L;
     @Override
@@ -42,6 +43,7 @@ public class Shaft implements Serializable {
     private int brake;
 
     private ArrayList<Engine> engines = new ArrayList<Engine>();
+    private ArrayList<CombustionEngine> combustionEngines = new ArrayList<CombustionEngine>();
     private ArrayList<Propeller> propellers = new ArrayList<Propeller>();
     private ArrayList<SimpleTrust> simpleTrusts = new ArrayList<SimpleTrust>();
 
@@ -98,6 +100,28 @@ public class Shaft implements Serializable {
     public Engine createEngine() {
         Engine engine = new Engine();
         this.getEngines().add(engine);
+        return engine;
+    }
+
+    /**
+     * @return the combustion engines
+     */
+    @AvlEditorNode(name="Combustion engines")
+    @XmlElement(name="combustionengine")
+    public ArrayList<CombustionEngine> getCombustionEngines() {
+        return combustionEngines;
+    }
+
+    /**
+     * @param combustionEngines the combustion engines to set
+     */
+    public void setCombustionEngines(ArrayList<CombustionEngine> combustionEngines) {
+        this.combustionEngines = combustionEngines;
+    }
+
+    public CombustionEngine createCombustionEngine() {
+        CombustionEngine engine = new CombustionEngine();
+        this.getCombustionEngines().add(engine);
         return engine;
     }
 

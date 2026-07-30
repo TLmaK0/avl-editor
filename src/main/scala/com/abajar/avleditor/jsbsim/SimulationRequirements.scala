@@ -10,7 +10,7 @@
 
 package com.abajar.avleditor.jsbsim
 
-import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, MassInertia, Propeller}
+import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, CombustionEngine, FuelTank, MassInertia, Propeller, Power}
 import com.abajar.avleditor.avl.AVLGeometry
 import com.abajar.avleditor.view.annotations.AvlEditorField
 import scala.collection.JavaConverters._
@@ -86,9 +86,18 @@ object SimulationRequirements {
               s"smaller than the wingspan 'Bref' ($span); check the units.")
           diameter ++ blades ++ oversized
       }
-      val engineProblems = engine match {
-        case None => Seq("The shaft has no engine. Add one with '+ Engine'.")
-        case Some(e) =>
+      val piston = shaft.flatMap(sh =>
+        Option(sh.getCombustionEngines).map(_.asScala).getOrElse(Nil).headOption)
+
+      val engineProblems = (engine, piston) match {
+        case (Some(_), Some(_)) =>
+          Seq("The shaft carries both an electric and a combustion engine; keep one, since only " +
+            "one can drive the propeller.")
+        case (None, Some(p)) => combustionProblems(p, crrcsim)
+        case (None, None) =>
+          Seq("The shaft has no engine. Add an electric one with '+ Engine' or a combustion one " +
+            "with '+ Piston'.")
+        case (Some(e), None) =>
           // The exporter derives the motor's power from voltage x current, so a point with a
           // zero current yields no power: requiring the same thing here keeps the validation
           // from passing a model the export then quietly turns back into a glider.
@@ -103,6 +112,51 @@ object SimulationRequirements {
           s"(found ${b.getU_0} V).").toSeq
 
       voltage ++ propellerProblems ++ engineProblems
+    }
+  }
+
+  /**
+   * A combustion engine is described by figures JSBSim's piston model needs, plus the fuel it
+   * burns. None of them can be guessed: an invented displacement or consumption gives an engine
+   * that runs and lies about its performance and endurance.
+   */
+  private def combustionProblems(e: CombustionEngine, crrcsim: CRRCSim): Seq[String] = {
+    def positive(field: String, value: Double): Seq[String] =
+      if (value > 0) Nil
+      else Seq(s"'${label(classOf[CombustionEngine], field)}' on the Combustion engine must be " +
+        s"greater than zero (found $value).")
+
+    val revs =
+      if (e.getMaxRpm > e.getIdleRpm) Nil
+      else Seq(s"'${label(classOf[CombustionEngine], "maxRpm")}' (${e.getMaxRpm}) must be above " +
+        s"'${label(classOf[CombustionEngine], "idleRpm")}' (${e.getIdleRpm}).")
+
+    val cycles =
+      if (e.getCycles == 2 || e.getCycles == 4) Nil
+      else Seq(s"'${label(classOf[CombustionEngine], "cycles")}' must be 2 or 4 (found ${e.getCycles}).")
+
+    positive("displacement", e.getDisplacement) ++
+      positive("maxPower", e.getMaxPower) ++
+      positive("idleRpm", e.getIdleRpm) ++
+      revs ++ cycles ++
+      positive("fuelConsumption", e.getFuelConsumption) ++
+      fuelProblems(crrcsim)
+  }
+
+  /** A combustion engine with no fuel cannot run, and JSBSim needs the tank's mass and position. */
+  private def fuelProblems(crrcsim: CRRCSim): Seq[String] = {
+    val tanks = Option(crrcsim.getConfig.getPower)
+      .map(p => Option(p.getFuelTanks).map(_.asScala).getOrElse(Nil)).getOrElse(Nil)
+    if (tanks.isEmpty)
+      Seq("A combustion engine needs a fuel tank under Power. Add one with '+ Fuel tank'.")
+    else {
+      val capacity = tanks.filter(_.getCapacity <= 0).map(t =>
+        s"'${label(classOf[FuelTank], "capacity")}' on a Fuel tank must be greater than zero " +
+          s"(found ${t.getCapacity} kg).")
+      val overfilled = tanks.filter(t => t.getCapacity > 0 && t.getContents > t.getCapacity).map(t =>
+        s"'${label(classOf[FuelTank], "contents")}' (${t.getContents} kg) cannot exceed " +
+          s"'${label(classOf[FuelTank], "capacity")}' (${t.getCapacity} kg).")
+      (capacity ++ overfilled).toSeq
     }
   }
 

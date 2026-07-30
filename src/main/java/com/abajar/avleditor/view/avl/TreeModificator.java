@@ -106,6 +106,18 @@ class AddEngine implements TreeModificator{
   }
 }
 
+class AddCombustionEngine implements TreeModificator{
+  public void modify(Object node, Object parent){
+    ((Shaft)node).createCombustionEngine();
+  }
+}
+
+class AddFuelTank implements TreeModificator{
+  public void modify(Object node, Object parent){
+    ((Power)node).createFuelTank();
+  }
+}
+
 class AddPropeller implements TreeModificator{
   public void modify(Object node, Object parent){
     ((Shaft)node).createPropeller();

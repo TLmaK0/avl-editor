@@ -30,7 +30,10 @@ object PropulsionMappingCheck {
     val ok = p.exists { pr =>
       math.abs(pr.propDiameterM - 0.25) < 0.001 &&
       pr.numBlades == 3 &&                                  // the blade count, not n_fold
-      math.abs(pr.maxPowerWatts - 14.0 * 20.0) < 0.5        // strongest point of the curve
+      (pr.motor match {                                     // strongest point of the curve
+        case JsbsimWriter.ElectricMotor(w) => math.abs(w - 14.0 * 20.0) < 0.5
+        case _ => false
+      })
     }
     println(if (ok) "PROP_MAP_OK" else "PROP_MAP_FAIL")
     if (!ok) sys.exit(1)

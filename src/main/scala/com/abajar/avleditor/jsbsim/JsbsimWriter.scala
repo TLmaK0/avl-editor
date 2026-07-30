@@ -57,14 +57,27 @@ object JsbsimWriter {
   final case class LiftTable(alphaRadToCl: Seq[(Double, Double)])
 
   /**
-   * Optional electric propulsion: a motor of a given shaft power driving a fixed-pitch tractor
-   * propeller. JSBSim's electric engine is rated by power, so that is what is carried here.
+   * What drives the propeller. Kept as a sum type so the two are never conflated: an electric
+   * motor is rated by power alone, while a combustion engine needs its displacement, rev range
+   * and fuel consumption, and burns fuel from a tank.
    *
-   * Do not emit a `brushless_dc_motor` instead: that element exists in newer JSBSim only, and
-   * the JSBSim inside FlightGear 2020.3 rejects the whole aircraft with "Unknown engine type"
-   * and aborts on load.
+   * Do not emit a `brushless_dc_motor` for the electric case: that element exists in newer JSBSim
+   * only, and the JSBSim inside FlightGear 2020.3 rejects the whole aircraft with "Unknown engine
+   * type" and aborts on load.
    */
-  final case class Propulsion(maxPowerWatts: Double, propDiameterM: Double, numBlades: Int, at: Vec3)
+  sealed trait Motor
+
+  final case class ElectricMotor(maxPowerWatts: Double) extends Motor
+
+  /** Combustion engine, metric; the writer converts to the units JSBSim's piston model wants. */
+  final case class PistonEngine(displacementCm3: Double, maxPowerWatts: Double, idleRpm: Double,
+                                maxRpm: Double, cycles: Int, fuelConsumptionGPerKWh: Double) extends Motor
+
+  /** A fuel tank. Its contents are mass that leaves the aircraft as it burns. */
+  final case class FuelTank(capacityKg: Double, contentsKg: Double, at: Vec3)
+
+  final case class Propulsion(motor: Motor, propDiameterM: Double, numBlades: Int, at: Vec3,
+                              tanks: Seq[FuelTank] = Nil)
 
   /** The generated aircraft plus the auxiliary engine/thruster files it references. */
   final case class GeneratedModel(name: String, aircraftXml: String, engineFiles: Seq[(String, String)])
@@ -106,7 +119,7 @@ object JsbsimWriter {
     val engineFiles = ac.propulsion match {
       case None => Seq.empty
       case Some(pr) => Seq(
-        engineName(ac) + ".xml" -> electricEngineFile(engineName(ac), pr),
+        engineName(ac) + ".xml" -> engineFile(engineName(ac), pr.motor),
         propName(ac) + ".xml" -> propellerFile(propName(ac), pr.propDiameterM, pr.numBlades)
       )
     }
@@ -194,15 +207,43 @@ object JsbsimWriter {
       |        <orient unit="DEG"><roll>0</roll><pitch>0</pitch><yaw>0</yaw></orient>
       |      </thruster>
       |    </engine>
-      |  </propulsion>
+      |${pr.tanks.map(fuelTank).mkString}  </propulsion>
       |""".stripMargin
   }
 
-  private def electricEngineFile(name: String, pr: Propulsion): String =
+  private def engineFile(name: String, motor: Motor): String = motor match {
+    case ElectricMotor(watts) =>
+      s"""<?xml version="1.0"?>
+      |<electric_engine name="${xml(name)}">
+      |  <power unit="WATTS">${f(watts)}</power>
+      |</electric_engine>
+      |""".stripMargin
+    case pe: PistonEngine => pistonEngineFile(name, pe)
+  }
+
+  private val WattsPerHp = 745.699872
+  private val Cm3PerIn3 = 16.387064
+  /** JSBSim wants brake specific fuel consumption in lb/(hp*h); the model states g/kWh. */
+  private val GPerKWhPerLbPerHpH = 608.277
+
+  private def pistonEngineFile(name: String, pe: PistonEngine): String =
     s"""<?xml version="1.0"?>
-    |<electric_engine name="${xml(name)}">
-    |  <power unit="WATTS">${f(pr.maxPowerWatts)}</power>
-    |</electric_engine>
+    |<piston_engine name="${xml(name)}">
+    |  <displacement unit="IN3">${f(pe.displacementCm3 / Cm3PerIn3)}</displacement>
+    |  <maxhp>${f(pe.maxPowerWatts / WattsPerHp)}</maxhp>
+    |  <cycles>${pe.cycles}</cycles>
+    |  <idlerpm>${f(pe.idleRpm)}</idlerpm>
+    |  <maxrpm>${f(pe.maxRpm)}</maxrpm>
+    |  <bsfc>${f(pe.fuelConsumptionGPerKWh / GPerKWhPerLbPerHpH)}</bsfc>
+    |</piston_engine>
+    |""".stripMargin
+
+  private def fuelTank(tank: FuelTank): String =
+    s"""    <tank type="FUEL">
+    |      <location unit="M"><x>${f(tank.at.x)}</x><y>${f(tank.at.y)}</y><z>${f(tank.at.z)}</z></location>
+    |      <capacity unit="KG">${f(tank.capacityKg)}</capacity>
+    |      <contents unit="KG">${f(tank.contentsKg)}</contents>
+    |    </tank>
     |""".stripMargin
 
   private def propellerFile(name: String, diameterM: Double, numBlades: Int): String = {

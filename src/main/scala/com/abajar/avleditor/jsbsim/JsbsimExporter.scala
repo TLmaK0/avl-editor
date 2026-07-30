@@ -89,10 +89,34 @@ object JsbsimExporter {
       battery <- power.getBateries.asScala.headOption
       shaft <- Option(battery.getShafts).map(_.asScala).getOrElse(Nil).headOption
       prop <- Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
-      engine <- Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
-      watts <- maxPowerWatts(engine)
-    } yield Propulsion(watts, prop.getD.toDouble, prop.getBlades, Vec3(0, 0, 0))
+      motor <- buildMotor(shaft)
+    } yield Propulsion(motor, prop.getD.toDouble, prop.getBlades, Vec3(0, 0, 0),
+      buildFuelTanks(power))
   }
+
+  /**
+   * The shaft's motor: a combustion engine when present, else the electric one. A shaft carrying
+   * both is rejected by [[SimulationRequirements]] rather than silently resolved here.
+   */
+  private def buildMotor(shaft: com.abajar.avleditor.crrcsim.Shaft): Option[Motor] = {
+    val piston = Option(shaft.getCombustionEngines).map(_.asScala).getOrElse(Nil).headOption
+      .map(e => PistonEngine(e.getDisplacement.toDouble, e.getMaxPower.toDouble,
+        e.getIdleRpm.toDouble, e.getMaxRpm.toDouble, e.getCycles, e.getFuelConsumption.toDouble))
+    piston.orElse {
+      for {
+        engine <- Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
+        watts <- maxPowerWatts(engine)
+      } yield ElectricMotor(watts)
+    }
+  }
+
+  /** Fuel tanks, with the mass the model states; a combustion engine burns from them. */
+  private def buildFuelTanks(power: com.abajar.avleditor.crrcsim.Power): Seq[FuelTank] =
+    Option(power.getFuelTanks).map(_.asScala).getOrElse(Nil).flatMap { t =>
+      Option(t.getPos).map(p =>
+        FuelTank(t.getCapacity.toDouble, t.getContents.toDouble,
+          Vec3(p.getX.toDouble, p.getY.toDouble, p.getZ.toDouble)))
+    }.toSeq
 
   /**
    * Motor power from the CRRCsim data curve: the largest electrical input power over its points
