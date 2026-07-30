@@ -95,7 +95,7 @@ object JsbsimWriter {
     sb.append(fileHeader(ac))
     sb.append(metrics(ac.metrics))
     sb.append(massBalance(ac.mass))
-    sb.append(groundReactions(ac.contacts))
+    sb.append(groundReactions(ac.contacts, ac.mass.massKg))
     sb.append(propulsion(ac))
     sb.append(flightControl(ac.controls))
     sb.append(aerodynamics(ac))
@@ -148,7 +148,24 @@ object JsbsimWriter {
     |  </mass_balance>
     |""".stripMargin
 
-  private def groundReactions(contacts: Seq[Contact]): String = {
+  /**
+   * Gear stiffness scaled to the aircraft's weight, so the struts compress by a fixed small
+   * fraction of their travel whatever the model weighs. A fixed spring rate does not survive
+   * scaling: 100 N/M under a 2.8 kg model gives ~9 cm of static compression, more than the gear
+   * length, so the airframe ends up under the runway with only the fin showing.
+   *
+   * The ratios come from FlightGear's stock c172p, which sits correctly on the ground:
+   * 1467 lb over 14400 LBS/FT of total spring is ~32 times its weight per metre, i.e. ~3 cm of
+   * static compression, with damping at a third of the spring rate.
+   */
+  private val SpringPerWeight = 32.0
+  private val DampingFraction = 1.0 / 3.0
+  private val Gravity = 9.80665
+
+  private def groundReactions(contacts: Seq[Contact], massKg: Double): String = {
+    val weight = math.max(massKg, 0.001) * Gravity
+    val spring = math.max(SpringPerWeight * weight / math.max(contacts.length, 1), 1.0)
+    val damping = spring * DampingFraction
     val body =
       if (contacts.isEmpty) ""
       else contacts.map { c =>
@@ -157,8 +174,8 @@ object JsbsimWriter {
       |      <static_friction>0.8</static_friction>
       |      <dynamic_friction>0.5</dynamic_friction>
       |      <rolling_friction>0.02</rolling_friction>
-      |      <spring_coeff unit="N/M">100.0</spring_coeff>
-      |      <damping_coeff unit="N/M/SEC">20.0</damping_coeff>
+      |      <spring_coeff unit="N/M">${f(spring)}</spring_coeff>
+      |      <damping_coeff unit="N/M/SEC">${f(damping)}</damping_coeff>
       |    </contact>
       |""".stripMargin
       }.mkString
