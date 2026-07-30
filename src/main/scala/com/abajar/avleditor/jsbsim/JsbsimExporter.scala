@@ -90,33 +90,24 @@ object JsbsimExporter {
       shaft <- Option(battery.getShafts).map(_.asScala).getOrElse(Nil).headOption
       prop <- Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
       engine <- Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
-      (kv, r, i0) <- deriveMotorParams(engine)
-    } yield Propulsion(kv, battery.getU_0.toDouble, r, i0, prop.getD.toDouble, prop.getBlades, Vec3(0, 0, 0))
+      watts <- maxPowerWatts(engine)
+    } yield Propulsion(watts, prop.getD.toDouble, prop.getBlades, Vec3(0, 0, 0))
   }
 
   /**
-   * Brushless-motor (Kv, coil resistance, no-load current) from the CRRCsim motor data curve
-   * (points of terminal voltage U_K, current I_M, rpm). Kv ≈ rpm/back-EMF; the no-load current
-   * is the lowest-current point. None when the curve has no usable point — the caller must not
-   * invent one, and [[SimulationRequirements]] rejects such a model up front.
+   * Motor power from the CRRCsim data curve: the largest electrical input power over its points
+   * (terminal voltage x current). Nothing is assumed about efficiency — JSBSim's electric engine
+   * is rated by shaft power, and using the electrical input overstates it slightly, which is
+   * stated here rather than hidden behind a fudge factor.
    *
-   * The coil resistance is the one stated assumption here: it is not derivable from these three
-   * columns without a load model, and 0.1 Ω is representative of an RC outrunner in this class.
+   * None when no point carries both a voltage and an rpm; the caller must not invent one, and
+   * [[SimulationRequirements]] rejects such a model up front.
    */
-  private val CoilResistanceOhm = 0.1
-
-  private def deriveMotorParams(
-      engine: com.abajar.avleditor.crrcsim.Engine): Option[(Double, Double, Double)] = {
+  private def maxPowerWatts(engine: com.abajar.avleditor.crrcsim.Engine): Option[Double] = {
     val data = Option(engine.getData).map(_.asScala.toSeq).getOrElse(Nil)
       .filter(d => d.getU_K > 0 && d.getRpms > 0)
-    if (data.isEmpty) None
-    else {
-      val i0 = data.map(_.getI_M.toDouble).min.max(0.1)
-      // Kv from the most-unloaded (highest-rpm) point; back-EMF ≈ U_K (IR drop ignored).
-      val fastest = data.maxBy(_.getRpms)
-      val kv = (fastest.getRpms.toDouble / fastest.getU_K.toDouble).max(1.0)
-      Some((kv, CoilResistanceOhm, i0))
-    }
+    val watts = data.map(d => d.getU_K.toDouble * d.getI_M.toDouble).filter(_ > 0)
+    if (watts.isEmpty) None else Some(watts.max)
   }
 
   private def buildAero(calc: AvlCalculation, sref: Double, bref: Double): AeroDerivatives = {

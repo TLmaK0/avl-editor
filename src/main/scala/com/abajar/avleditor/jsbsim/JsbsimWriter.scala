@@ -57,12 +57,14 @@ object JsbsimWriter {
   final case class LiftTable(alphaRadToCl: Seq[(Double, Double)])
 
   /**
-   * Optional electric propulsion: a brushless DC motor (RC-style: Kv, coil resistance,
-   * no-load current, battery voltage) driving a fixed-pitch tractor propeller. The BLDC
-   * model self-limits RPM via back-EMF, which a bare power model does not.
+   * Optional electric propulsion: a motor of a given shaft power driving a fixed-pitch tractor
+   * propeller. JSBSim's electric engine is rated by power, so that is what is carried here.
+   *
+   * Do not emit a `brushless_dc_motor` instead: that element exists in newer JSBSim only, and
+   * the JSBSim inside FlightGear 2020.3 rejects the whole aircraft with "Unknown engine type"
+   * and aborts on load.
    */
-  final case class Propulsion(motorKv: Double, batteryVolts: Double, coilResistanceOhm: Double,
-                              noLoadCurrentA: Double, propDiameterM: Double, numBlades: Int, at: Vec3)
+  final case class Propulsion(maxPowerWatts: Double, propDiameterM: Double, numBlades: Int, at: Vec3)
 
   /** The generated aircraft plus the auxiliary engine/thruster files it references. */
   final case class GeneratedModel(name: String, aircraftXml: String, engineFiles: Seq[(String, String)])
@@ -104,7 +106,7 @@ object JsbsimWriter {
     val engineFiles = ac.propulsion match {
       case None => Seq.empty
       case Some(pr) => Seq(
-        engineName(ac) + ".xml" -> brushlessMotorFile(engineName(ac), pr),
+        engineName(ac) + ".xml" -> electricEngineFile(engineName(ac), pr),
         propName(ac) + ".xml" -> propellerFile(propName(ac), pr.propDiameterM, pr.numBlades)
       )
     }
@@ -196,14 +198,11 @@ object JsbsimWriter {
       |""".stripMargin
   }
 
-  private def brushlessMotorFile(name: String, pr: Propulsion): String =
+  private def electricEngineFile(name: String, pr: Propulsion): String =
     s"""<?xml version="1.0"?>
-    |<brushless_dc_motor name="${xml(name)}">
-    |  <velocityconstant>${f(pr.motorKv)}</velocityconstant>
-    |  <coilresistance>${f(pr.coilResistanceOhm)}</coilresistance>
-    |  <noloadcurrent>${f(pr.noLoadCurrentA)}</noloadcurrent>
-    |  <maxvolts>${f(pr.batteryVolts)}</maxvolts>
-    |</brushless_dc_motor>
+    |<electric_engine name="${xml(name)}">
+    |  <power unit="WATTS">${f(pr.maxPowerWatts)}</power>
+    |</electric_engine>
     |""".stripMargin
 
   private def propellerFile(name: String, diameterM: Double, numBlades: Int): String = {

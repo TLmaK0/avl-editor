@@ -77,16 +77,26 @@ object SimulationRequirements {
             if (p.getBlades >= 2) Nil
             else Seq(s"'${label(classOf[Propeller], "blades")}' on the Propeller must be at least 2 " +
               s"(found ${p.getBlades}).")
-          diameter ++ blades
+          // A propeller wider than the wingspan is a units mistake (inches typed as metres),
+          // not a design: JSBSim would compute thrust from a rotor the size of the aircraft.
+          val span = Option(crrcsim.getAvl).map(_.getGeometry.getBref.toDouble).getOrElse(0.0)
+          val oversized =
+            if (span <= 0 || p.getD <= 0 || p.getD < span) Nil
+            else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller (${p.getD} m) is not " +
+              s"smaller than the wingspan 'Bref' ($span); check the units.")
+          diameter ++ blades ++ oversized
       }
       val engineProblems = engine match {
         case None => Seq("The shaft has no engine. Add one with '+ Engine'.")
         case Some(e) =>
+          // The exporter derives the motor's power from voltage x current, so a point with a
+          // zero current yields no power: requiring the same thing here keeps the validation
+          // from passing a model the export then quietly turns back into a glider.
           val usable = Option(e.getData).map(_.asScala).getOrElse(Nil)
-            .count(d => d.getU_K > 0 && d.getRpms > 0)
+            .count(d => d.getU_K > 0 && d.getI_M > 0 && d.getRpms > 0)
           if (usable > 0) Nil
-          else Seq("The engine has no usable data points ('Voltage' and 'Rpms' above zero on a " +
-            "Data row); the motor's Kv is derived from them. Add them with '+ Data'.")
+          else Seq("The engine needs a Data row with 'Voltage', 'Current' and 'Rpms' all above " +
+            "zero; the motor's power is derived from them. Add it with '+ Data'.")
       }
       val voltage = battery.filter(_.getU_0 <= 0).map(b =>
         s"'${label(classOf[Battery], "U_0")}' on the Battery must be greater than zero " +

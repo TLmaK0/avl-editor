@@ -50,8 +50,8 @@ object JsbsimWriterCheck {
     val root = args(0); val name = args(1); val withTable = args.length > 2
     val base = sampleAircraft.copy(
       name = name,
-      propulsion = Some(Propulsion(motorKv = 960.0, batteryVolts = 14.63, coilResistanceOhm = 0.117,
-        noLoadCurrentA = 0.45, propDiameterM = 0.24, numBlades = 2, at = Vec3(0.0, 0, 0.0)))
+      propulsion = Some(Propulsion(maxPowerWatts = 290.0, propDiameterM = 0.24, numBlades = 2,
+        at = Vec3(0.0, 0, 0.0)))
     )
     val ac = if (withTable) base.copy(liftTable = Some(sampleLiftTable)) else base
     val gm = generate(ac)

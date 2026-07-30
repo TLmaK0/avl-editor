@@ -141,7 +141,24 @@ object SimulationRequirementsCheck {
     val noCurve = flyableModel()
     noCurve.getConfig.getPower.getBateries.get(0).getShafts.get(0).getEngines.get(0).getData.clear()
     check("an engine with no data points is reported",
-      mentions(SimulationRequirements.validate(noCurve), "no usable data points"))
+      mentions(SimulationRequirements.validate(noCurve), "needs a Data row"))
+
+    // A row with zero current yields no power, which the export needs: the two must agree.
+    val zeroCurrent = flyableModel()
+    val curve = zeroCurrent.getConfig.getPower.getBateries.get(0).getShafts.get(0)
+      .getEngines.get(0).getData
+    curve.get(0).setI_M(0f)
+    check("a data row with no current is reported",
+      mentions(SimulationRequirements.validate(zeroCurrent), "'Current'"))
+    check("and no propulsion is exported for it",
+      JsbsimExporter.buildPropulsion(zeroCurrent).isEmpty)
+
+    // A propeller wider than the wingspan is a units mistake.
+    val hugeProp = flyableModel()
+    hugeProp.getConfig.getPower.getBateries.get(0).getShafts.get(0)
+      .getPropellers.get(0).setD(10.0f)
+    check("a propeller wider than the wingspan is reported",
+      mentions(SimulationRequirements.validate(hugeProp), "check the units"))
     check("no motor parameters are invented", JsbsimExporter.buildPropulsion(noCurve).isEmpty)
 
     val zeroVolts = flyableModel()
