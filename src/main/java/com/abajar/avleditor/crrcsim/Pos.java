@@ -26,17 +26,17 @@ public class Pos implements Serializable{
         return "Position";
     }
 
-    @AvlEditorField(text="X",
+    @AvlEditorField(text="X position",
         help="X position\r\n"
     )
     private float x;
 
-    @AvlEditorField(text="Y",
+    @AvlEditorField(text="Y position",
         help="Y position\r\n"
     )
     private float y;
 
-    @AvlEditorField(text="Z",
+    @AvlEditorField(text="Z position",
         help="Z position\r\n"
     )
     private float z;

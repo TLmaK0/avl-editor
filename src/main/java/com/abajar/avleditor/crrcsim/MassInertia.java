@@ -27,27 +27,27 @@ public class MassInertia implements Serializable {
         return "mass";
     }
 
-    @AvlEditorField(text="mass",
+    @AvlEditorField(text="Mass",
         help="total aireplane mass"
     )
     private float Mass;
 
-    @AvlEditorField(text="I_xx",
+    @AvlEditorField(text="Roll inertia (I_xx)",
         help="Moment of Inertia xx"
     )
     private float I_xx;
 
-    @AvlEditorField(text="I_yy",
+    @AvlEditorField(text="Pitch inertia (I_yy)",
         help="Moment of Inertia yy"
     )
     private float I_yy;
 
-    @AvlEditorField(text="I_zz",
+    @AvlEditorField(text="Yaw inertia (I_zz)",
         help="Moment of Inertia zz"
     )
     private float I_zz;
 
-    @AvlEditorField(text="I_xz",
+    @AvlEditorField(text="Roll-yaw product (I_xz)",
         help="Product of Inertia xz"
     )
     private float I_xz;

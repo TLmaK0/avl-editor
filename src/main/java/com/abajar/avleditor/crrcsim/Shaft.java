@@ -31,12 +31,12 @@ public class Shaft implements Serializable {
         return "Shaft";
     }
 
-    @AvlEditorField(text="J",
+    @AvlEditorField(text="Inertia (J)",
         help="Inertia in kg m^2"
     )
     private float J;
 
-    @AvlEditorField(text="brake",
+    @AvlEditorField(text="Brake when throttle at zero (brake)",
         help="if brake is not zero, this shaft will stop rotating as soon as the throttle command is zero. This is needed for folding props."
     )
     private int brake;
@@ -119,12 +119,11 @@ public class Shaft implements Serializable {
 
     /**
      * The JSBSim export drives a fixed-pitch propeller from the motor, so it needs the
-     * propeller's diameter and blade count. Two blades is the only default: a diameter cannot be
-     * guessed, and SimulationRequirements asks for it rather than inventing one.
+     * propeller's diameter and blade count. The blade count starts at the usual two (see
+     * Propeller); a diameter cannot be guessed, so SimulationRequirements asks for it.
      */
     public Propeller createPropeller() {
         Propeller propeller = new Propeller();
-        propeller.setN_fold(2);
         this.getPropellers().add(propeller);
         return propeller;
     }

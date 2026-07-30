@@ -25,28 +25,50 @@ public class Propeller implements Serializable {
         return "Propeller";
     }
 
-    @AvlEditorField(text="D",
+    @AvlEditorField(text="Diameter (D)",
         help="Diameter in meters"
     )
     private float D;
 
-    @AvlEditorField(text="H",
+    @AvlEditorField(text="Pitch (H)",
         help="Pitch in meters"
     )
     private float H;
 
-    @AvlEditorField(text="J",
+    @AvlEditorField(text="Inertia (J)",
         help="Inertia"
     )
     private float J;
 
-    @AvlEditorField(text="n_fold",
+    @AvlEditorField(text="Folding threshold (n_fold)",
         help="The Propeller can be configured to be a folding prop, which folds as soon as it rotates slower than omega_fold."
         + " From the xml config, n_fold is read and converted using (omega_fold = n_fold * 2 * pi)"
     )
     private int n_fold;
 
+    @AvlEditorField(text="Number of blades",
+        help="Blade count of the propeller. Used by the JSBSim export, which models a fixed-pitch"
+        + " propeller driven by the motor. Two is the usual RC configuration and the initial value;"
+        + " it is shown here so it can be corrected rather than assumed."
+    )
+    private int blades = 2;
+
     public Propeller() {
+    }
+
+    /**
+     * @return the blade count
+     */
+    @XmlAttribute(name="blades")
+    public int getBlades() {
+        return blades;
+    }
+
+    /**
+     * @param blades the blade count to set
+     */
+    public void setBlades(int blades) {
+        this.blades = blades;
     }
 
     /**

@@ -27,7 +27,7 @@ public class SimpleTrust implements Serializable{
         return "SimpleTrust";
     }
 
-    @AvlEditorField(text="k_F",
+    @AvlEditorField(text="Thrust constant (k_F)",
         help="Trust = k_F * omega_p\n"
         + "omega_p = i * omega\n"
         + "omega is the speed of the shaft\n"
@@ -35,7 +35,7 @@ public class SimpleTrust implements Serializable{
     )
     private float k_F;
 
-    @AvlEditorField(text="k_M",
+    @AvlEditorField(text="Torque constant (k_M)",
         help="Torque = -1 * k_M * omega_p * i\n"
         + "omega_p = i * omega\n"
         + "omega is the speed of the shaft\n"

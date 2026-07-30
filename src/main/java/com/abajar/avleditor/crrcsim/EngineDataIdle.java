@@ -25,12 +25,12 @@ public class EngineDataIdle implements Serializable {
             return "DataIdle";
         }
 
-        @AvlEditorField(text="Voltage",
+        @AvlEditorField(text="Voltage at idle",
             help="Voltage at idle"
         )
         private float U_K;
 
-        @AvlEditorField(text="Current",
+        @AvlEditorField(text="Current at idle",
             help="current at idle"
         )
         private float I_M;

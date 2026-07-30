@@ -48,7 +48,7 @@ public class Wheel implements Serializable {
     )
     private float percent_brake = 1f;
 
-    @AvlEditorField(text="Caster angle",
+    @AvlEditorField(text="Caster angle (rad)",
         help="Rads. The caster angle is specified with respect to the plane body's z-axis, a value of zero means that the wheel is oriented straight ahead (which should be the case for most gears)."
     )
     private float caster_angle_rad = 0;

@@ -25,17 +25,17 @@ public class Spring implements Serializable {
         return "Spring";
     }
 
-    @AvlEditorField(text="constant",
+    @AvlEditorField(text="Spring constant",
         help="Spring constant, has to be positive.\r\n"
     )
     private float constant=1;
 
-    @AvlEditorField(text="damping",
+    @AvlEditorField(text="Damping",
         help="damping, has to be positive.\r\n"
     )
     private float damping;
 
-    @AvlEditorField(text="max_force",
+    @AvlEditorField(text="Max force",
         help="The flight dynamics model calculates the forces on "
         + " each hardpoint resulting from interaction with the ground"
         + " or solid objects. If this value exceeds the specified max_force,"

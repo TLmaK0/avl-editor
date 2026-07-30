@@ -25,12 +25,12 @@ public class Gearing implements Serializable{
         return "Gearing";
     }
 
-    @AvlEditorField(text="J",
+    @AvlEditorField(text="Inertia (J)",
         help="Inertia"
     )
     private float J=0;
 
-    @AvlEditorField(text="i",
+    @AvlEditorField(text="Gear ratio (i)",
         help="Given omega is the speed of the shaft, i*omega is the speed of the device which is connected to the shaft using this gearing. "
     )
     private float i=1;

@@ -32,7 +32,7 @@ public class Engine implements Serializable{
         return "Engine";
     }
 
-    @AvlEditorField(text="J_M",
+    @AvlEditorField(text="Rotor inertia (J_M)",
         help="J_M, the engine's rotor's inertia, can be found in the manufacturer's data sheet,\r\n" +
             "or it has to be guessed. You can estimate it by regarding\r\n" +
             "the rotor as a solid iron cylinder of mass m (in kg) and diameter d (in m) using the formula:\r\n" +

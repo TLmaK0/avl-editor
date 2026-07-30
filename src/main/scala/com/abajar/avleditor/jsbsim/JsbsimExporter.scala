@@ -25,8 +25,6 @@ import JsbsimWriter._
  * Assumptions (documented for later refinement):
  *  - `MassInertia` is SI (kg, kg·m²); CG and AERORP share the geometry frame (converted
  *    to metres). Control max deflections default per surface (AVL carries no limit).
- *  - Propulsion is not mapped yet from the electric power model; a glider is exported.
- *    JsbsimWriter already supports BLDC propulsion once that mapping is wired.
  */
 object JsbsimExporter {
 
@@ -93,7 +91,7 @@ object JsbsimExporter {
       prop <- Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
       engine <- Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
       (kv, r, i0) <- deriveMotorParams(engine)
-    } yield Propulsion(kv, battery.getU_0.toDouble, r, i0, prop.getD.toDouble, prop.getN_fold, Vec3(0, 0, 0))
+    } yield Propulsion(kv, battery.getU_0.toDouble, r, i0, prop.getD.toDouble, prop.getBlades, Vec3(0, 0, 0))
   }
 
   /**

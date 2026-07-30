@@ -160,7 +160,8 @@ object SimulationRequirementsCheck {
     freshShaft.createPropeller()
     val freshProblems = SimulationRequirements.validate(freshProp)
     check("a newly added propeller comes with 2 blades",
-      freshShaft.getPropellers.get(0).getN_fold == 2 && !mentions(freshProblems, "blades"))
+      freshShaft.getPropellers.get(0).getBlades == 2 &&
+        !mentions(freshProblems, uiLabel(classOf[Propeller], "blades")))
     check("its diameter is asked for",
       mentions(freshProblems, uiLabel(classOf[Propeller], "D")))
 

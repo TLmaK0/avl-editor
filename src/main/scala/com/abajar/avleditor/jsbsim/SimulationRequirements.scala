@@ -71,10 +71,12 @@ object SimulationRequirements {
             if (p.getD > 0) Nil
             else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller must be greater than " +
               s"zero (found ${p.getD} m).")
+          // n_fold is the folding-prop threshold, not a blade count: the export used to feed it
+          // to JSBSim as the number of blades.
           val blades =
-            if (p.getN_fold >= 2) Nil
-            else Seq(s"The propeller needs at least 2 blades " +
-              s"('${label(classOf[Propeller], "n_fold")}', found ${p.getN_fold}).")
+            if (p.getBlades >= 2) Nil
+            else Seq(s"'${label(classOf[Propeller], "blades")}' on the Propeller must be at least 2 " +
+              s"(found ${p.getBlades}).")
           diameter ++ blades
       }
       val engineProblems = engine match {
