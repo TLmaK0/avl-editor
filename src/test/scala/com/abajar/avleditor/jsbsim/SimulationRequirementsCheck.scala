@@ -5,7 +5,7 @@
  */
 package com.abajar.avleditor.jsbsim
 
-import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, Wheel}
+import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, EngineData, Propeller, Wheel}
 import com.abajar.avleditor.avl.geometry.Control
 
 object SimulationRequirementsCheck {
@@ -38,7 +38,27 @@ object SimulationRequirementsCheck {
     section.getControls.add(control)
 
     addWheels(crrcsim, Seq((0.2f, 0.0f), (0.8f, -0.3f), (0.8f, 0.3f)))
+    addPropulsion(crrcsim)
     crrcsim
+  }
+
+  /** Battery → shaft → propeller + engine with a usable data curve. */
+  private def addPropulsion(crrcsim: CRRCSim): Unit = {
+    val power = crrcsim.getConfig.getPower
+    power.getBateries.clear()
+    val battery = power.createBattery()
+    battery.setU_0(11.1f)
+    battery.createShaft()
+    val shaft = battery.getShafts.get(0)
+
+    val propeller = new Propeller
+    propeller.setD(0.25f); propeller.setN_fold(2)
+    shaft.getPropellers.add(propeller)
+
+    val engine = shaft.createEngine()
+    val point = new EngineData
+    point.setU_K(11.1f); point.setI_M(0.45f); point.setRpms(10000f)
+    engine.getData.add(point)
   }
 
   private def addWheels(crrcsim: CRRCSim, at: Seq[(Float, Float)]): Unit = {
@@ -94,6 +114,39 @@ object SimulationRequirementsCheck {
     val sections = noControls.getAvl.getGeometry.getSurfaces.get(0).getSections
     for (i <- 0 until sections.size) sections.get(i).getControls.clear()
     check("absent control surfaces are reported", mentions(SimulationRequirements.validate(noControls), "control surface"))
+
+    println("propulsion")
+    val noPower = flyableModel()
+    noPower.getConfig.getPower.getBateries.clear()
+    check("a model with no battery is reported",
+      mentions(SimulationRequirements.validate(noPower), "no propulsion"))
+    check("no propulsion is invented for it", JsbsimExporter.buildPropulsion(noPower).isEmpty)
+
+    val noProp = flyableModel()
+    noProp.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.clear()
+    check("a shaft with no propeller is reported",
+      mentions(SimulationRequirements.validate(noProp), "no propeller"))
+
+    val noEngine = flyableModel()
+    noEngine.getConfig.getPower.getBateries.get(0).getShafts.get(0).getEngines.clear()
+    check("a shaft with no engine is reported",
+      mentions(SimulationRequirements.validate(noEngine), "no engine"))
+
+    val noCurve = flyableModel()
+    noCurve.getConfig.getPower.getBateries.get(0).getShafts.get(0).getEngines.get(0).getData.clear()
+    check("an engine with no data points is reported",
+      mentions(SimulationRequirements.validate(noCurve), "no usable data points"))
+    check("no motor parameters are invented", JsbsimExporter.buildPropulsion(noCurve).isEmpty)
+
+    val zeroVolts = flyableModel()
+    zeroVolts.getConfig.getPower.getBateries.get(0).setU_0(0f)
+    check("zero battery voltage is reported",
+      mentions(SimulationRequirements.validate(zeroVolts), "battery voltage"))
+
+    val zeroDiameter = flyableModel()
+    zeroDiameter.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.get(0).setD(0f)
+    check("zero propeller diameter is reported",
+      mentions(SimulationRequirements.validate(zeroDiameter), "propeller diameter"))
 
     println(if (ok) "SIM_REQ_OK" else "SIM_REQ_FAIL")
     if (!ok) sys.exit(1)

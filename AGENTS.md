@@ -103,6 +103,12 @@ Rules:
 - Pin the rule with a `*Check.scala` and assert the property, not the number, so it survives
   rescaling (see `GearStiffnessCheck`, which checks compression at 2.8 kg and 25 kg).
 
-Known remaining fallbacks, to be converted as they are confirmed: `JsbsimExporter.buildPropulsion`
-(battery volts, propeller diameter, blade count, motor Kv/R/I0), `detectControls` (25° default
-deflection) and `buildAero` (span efficiency 0.85, aspect ratio 5.0).
+Propulsion is **required**, not optional: without an engine the model cannot take off and
+FlightGear reports `Throttle 0 does not exist! 0 engines exist`. The battery voltage, propeller
+diameter, blade count and the motor's data curve are all validated, and `buildPropulsion` no
+longer substitutes anything for them.
+
+Known remaining fallbacks, to be converted as they are confirmed: `detectControls` (25° default
+deflection) and `buildAero` (span efficiency 0.85, aspect ratio 5.0). The motor coil resistance
+(0.1 Ω) stays a **stated assumption** — it is not derivable from the model's three data columns
+without a load model — and is documented as such at its definition.

@@ -77,9 +77,12 @@ object JsbsimExporter {
 
   /**
    * Map the model's electric propulsion (Power → Battery → Shaft → Propeller/Engine) to a
-   * JSBSim brushless motor + propeller. Uses the real battery voltage, propeller diameter and
-   * blade count; derives Kv/R/I0 from the motor's data curve when present, else sensible
-   * defaults. Returns None when the model has no propulsion (→ glider).
+   * JSBSim brushless motor + propeller, using the model's own battery voltage, propeller
+   * diameter, blade count and motor data curve.
+   *
+   * Nothing is substituted for a missing value: an invented voltage or propeller produces
+   * plausible-looking but wrong thrust. [[SimulationRequirements]] rejects such a model before
+   * the export runs, so None here means the caller skipped that validation.
    */
   def buildPropulsion(crrcsim: CRRCSim): Option[Propulsion] = {
     val power = crrcsim.getConfig.getPower
@@ -88,30 +91,34 @@ object JsbsimExporter {
       battery <- power.getBateries.asScala.headOption
       shaft <- Option(battery.getShafts).map(_.asScala).getOrElse(Nil).headOption
       prop <- Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
-    } yield {
-      val volts = if (battery.getU_0 > 0) battery.getU_0.toDouble else 11.1
-      val diameter = if (prop.getD > 0) prop.getD.toDouble else 0.25
-      val blades = if (prop.getN_fold >= 2) prop.getN_fold else 2
-      val engine = Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
-      val (kv, r, i0) = engine.map(deriveMotorParams).getOrElse((960.0, 0.117, 0.45))
-      Propulsion(kv, volts, r, i0, diameter, blades, Vec3(0, 0, 0))
-    }
+      engine <- Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
+      (kv, r, i0) <- deriveMotorParams(engine)
+    } yield Propulsion(kv, battery.getU_0.toDouble, r, i0, prop.getD.toDouble, prop.getN_fold, Vec3(0, 0, 0))
   }
 
   /**
-   * Estimate brushless-motor (Kv, coil resistance, no-load current) from the CRRCsim motor
-   * data curve (points of terminal voltage U_K, current I_M, rpm). Kv ≈ rpm/back-EMF; the
-   * no-load current is the lowest-current point. Falls back to DJI-E305-like defaults.
+   * Brushless-motor (Kv, coil resistance, no-load current) from the CRRCsim motor data curve
+   * (points of terminal voltage U_K, current I_M, rpm). Kv ≈ rpm/back-EMF; the no-load current
+   * is the lowest-current point. None when the curve has no usable point — the caller must not
+   * invent one, and [[SimulationRequirements]] rejects such a model up front.
+   *
+   * The coil resistance is the one stated assumption here: it is not derivable from these three
+   * columns without a load model, and 0.1 Ω is representative of an RC outrunner in this class.
    */
-  private def deriveMotorParams(engine: com.abajar.avleditor.crrcsim.Engine): (Double, Double, Double) = {
+  private val CoilResistanceOhm = 0.1
+
+  private def deriveMotorParams(
+      engine: com.abajar.avleditor.crrcsim.Engine): Option[(Double, Double, Double)] = {
     val data = Option(engine.getData).map(_.asScala.toSeq).getOrElse(Nil)
       .filter(d => d.getU_K > 0 && d.getRpms > 0)
-    if (data.isEmpty) return (960.0, 0.117, 0.45)
-    val i0 = data.map(_.getI_M.toDouble).min.max(0.1)
-    // Kv from the most-unloaded (highest-rpm) point; back-EMF ≈ U_K (IR drop ignored).
-    val fastest = data.maxBy(_.getRpms)
-    val kv = (fastest.getRpms.toDouble / fastest.getU_K.toDouble).max(1.0)
-    (kv, 0.1, i0)
+    if (data.isEmpty) None
+    else {
+      val i0 = data.map(_.getI_M.toDouble).min.max(0.1)
+      // Kv from the most-unloaded (highest-rpm) point; back-EMF ≈ U_K (IR drop ignored).
+      val fastest = data.maxBy(_.getRpms)
+      val kv = (fastest.getRpms.toDouble / fastest.getU_K.toDouble).max(1.0)
+      Some((kv, CoilResistanceOhm, i0))
+    }
   }
 
   private def buildAero(calc: AvlCalculation, sref: Double, bref: Double): AeroDerivatives = {
