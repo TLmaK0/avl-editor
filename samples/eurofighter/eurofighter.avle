@@ -467,16 +467,48 @@ config:
   descr_long: null
   descr_short: new config
   mass_inertia:
-    I_xx: 0.0
-    I_xz: 0.0
-    I_yy: 0.0
-    I_zz: 0.0
-    Mass: 0.0
+    I_xx: 0.038280092
+    I_xz: 0.093712464
+    I_yy: 1.7626231
+    I_zz: 1.7730218
+    Mass: 2.829608
     units: '1'
     version: '1'
   power:
-    bateries: [
-      ]
+    bateries:
+    - C: 0.0
+      R_I: 0
+      U_0: 3.2
+      U_0rel: 1;1.05;0.95;0.90;0.85;0.70;0.60;
+      U_off: 0.0
+      shafts:
+      - J: 0.0
+        brake: 0
+        engines:
+        - Calc: 1
+          J_M: 0.0
+          data:
+          - I_M: 0.0
+            U_K: 3.0
+            rpms: 100.0
+          dataIdle: [
+            ]
+          gearing:
+            J: 0.0
+            i: 1.0
+        propellers:
+        - D: 10.0
+          H: 0.0
+          J: 0.0
+          blades: 2
+          n_fold: 0
+        simpleTrusts:
+        - gearing:
+            J: 0.0
+            i: 1.0
+          k_F: 0.0
+          k_M: 0.0
+      throttle_min: 0
   sound:
     sample:
       dist_max: 0
