@@ -36,7 +36,7 @@ public class Battery implements Serializable {
         return "Battery";
     }
 
-    @AvlEditorField(text="Throttle_min",
+    @AvlEditorField(text="Min throttle (Throttle_min)",
         help="Lower limit for throttle input. Set to >0 if you want a behaviour of"+
             "a piston engine: once started, it keeps running with at least that throttle."+
             "Set to zero otherwise."+
@@ -44,27 +44,27 @@ public class Battery implements Serializable {
     )
     private int throttle_min;
 
-    @AvlEditorField(text="C",
+    @AvlEditorField(text="Capacity (C)",
         help="Capacity at full charge in As"
     )
     private float C;
 
-    @AvlEditorField(text="R_I",
+    @AvlEditorField(text="Internal resistance (R_I)",
         help="Internal resistance in Ohm"
     )
     private int R_I;
 
-    @AvlEditorField(text="U_off",
+    @AvlEditorField(text="Cut-off voltage (U_off)",
         help="Voltage below which all the connected engines are turned off [V]"
     )
     private float U_off;
 
-    @AvlEditorField(text="U_0",
+    @AvlEditorField(text="Voltage at full charge (U_0)",
         help="Voltage at full charge [V]"
     )
     private float U_0;
 
-    @AvlEditorField(text="U_0rel",
+    @AvlEditorField(text="Discharge curve (U_0rel)",
         help="Semicolon separated values representing the proportinal voltage returned by the batery over the time. Ex. 1;1.05;0.95;0.90;0.85;0.70;0.60;\n"+
         "In this example, voltage at full charge is 1.05 * U_0"
     )

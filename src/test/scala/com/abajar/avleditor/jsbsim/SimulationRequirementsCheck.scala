@@ -5,7 +5,8 @@
  */
 package com.abajar.avleditor.jsbsim
 
-import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, EngineData, Wheel}
+import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, CRRCSimFactory, EngineData, MassInertia, Propeller, Wheel}
+import com.abajar.avleditor.view.annotations.AvlEditorField
 import com.abajar.avleditor.avl.geometry.Control
 
 object SimulationRequirementsCheck {
@@ -18,6 +19,10 @@ object SimulationRequirementsCheck {
 
   private def mentions(problems: Seq[String], fragment: String): Boolean =
     problems.exists(_.toLowerCase.contains(fragment.toLowerCase))
+
+  /** The label the properties table shows, straight from the annotation. */
+  private def uiLabel(cls: Class[_], field: String): String =
+    cls.getDeclaredField(field).getAnnotation(classOf[AvlEditorField]).text()
 
   /** A model that meets every requirement: mass, inertias, references, gear and a control. */
   private def flyableModel(): CRRCSim = {
@@ -102,8 +107,8 @@ object SimulationRequirementsCheck {
     check("zero mass is reported", mentions(SimulationRequirements.validate(noMass), "mass"))
     val noInertia = flyableModel()
     noInertia.getConfig.getMass_inertia.setI_yy(0f)
-    check("zero I_yy is reported by its UI label",
-      mentions(SimulationRequirements.validate(noInertia), "'I_yy'"))
+    check("zero I_yy is reported by the label the table shows",
+      mentions(SimulationRequirements.validate(noInertia), uiLabel(classOf[MassInertia], "I_yy")))
 
     println("reference geometry")
     val noSref = flyableModel()
@@ -141,8 +146,11 @@ object SimulationRequirementsCheck {
 
     val zeroVolts = flyableModel()
     zeroVolts.getConfig.getPower.getBateries.get(0).setU_0(0f)
-    check("zero battery voltage is reported by its UI label ('U_0')",
-      mentions(SimulationRequirements.validate(zeroVolts), "'U_0'"))
+    val voltageLabel = uiLabel(classOf[Battery], "U_0")
+    println(s"  battery voltage label: '$voltageLabel'")
+    check("zero battery voltage is reported by the label the table shows",
+      mentions(SimulationRequirements.validate(zeroVolts), voltageLabel))
+    check("that label is readable, not just a symbol", voltageLabel.split(" ").length > 1)
 
     // A propeller straight from the toolbar: 2 blades is the only default, the diameter is asked
     // for rather than invented.
@@ -153,12 +161,13 @@ object SimulationRequirementsCheck {
     val freshProblems = SimulationRequirements.validate(freshProp)
     check("a newly added propeller comes with 2 blades",
       freshShaft.getPropellers.get(0).getN_fold == 2 && !mentions(freshProblems, "blades"))
-    check("its diameter is asked for", mentions(freshProblems, "propeller diameter"))
+    check("its diameter is asked for",
+      mentions(freshProblems, uiLabel(classOf[Propeller], "D")))
 
     val zeroDiameter = flyableModel()
     zeroDiameter.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.get(0).setD(0f)
-    check("zero propeller diameter is reported by its UI label ('D')",
-      mentions(SimulationRequirements.validate(zeroDiameter), "'D'"))
+    check("zero propeller diameter is reported by the label the table shows",
+      mentions(SimulationRequirements.validate(zeroDiameter), uiLabel(classOf[Propeller], "D")))
 
     println(if (ok) "SIM_REQ_OK" else "SIM_REQ_FAIL")
     if (!ok) sys.exit(1)

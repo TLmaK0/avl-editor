@@ -10,7 +10,9 @@
 
 package com.abajar.avleditor.jsbsim
 
-import com.abajar.avleditor.crrcsim.CRRCSim
+import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, MassInertia, Propeller}
+import com.abajar.avleditor.avl.AVLGeometry
+import com.abajar.avleditor.view.annotations.AvlEditorField
 import scala.collection.JavaConverters._
 
 /**
@@ -22,6 +24,17 @@ import scala.collection.JavaConverters._
  * than a refusal. Callers report these problems and abort the launch.
  */
 object SimulationRequirements {
+
+  /**
+   * The label the properties table shows for a field, read from its annotation rather than
+   * repeated here: a message naming something the user cannot find in the table is useless, and
+   * hardcoding the label lets the two drift apart when a field is renamed.
+   */
+  private def label(cls: Class[_], field: String): String =
+    try {
+      val f = cls.getDeclaredField(field)
+      Option(f.getAnnotation(classOf[AvlEditorField])).map(_.text()).filter(_.nonEmpty).getOrElse(field)
+    } catch { case _: NoSuchFieldException => field }
 
   /** Smallest horizontal footprint accepted for the contact points, in m². */
   private val MinFootprintArea = 1.0e-6
@@ -56,11 +69,12 @@ object SimulationRequirements {
         case Some(p) =>
           val diameter =
             if (p.getD > 0) Nil
-            else Seq(s"The propeller diameter ('D' on the Propeller) must be greater than zero " +
-              s"(found ${p.getD} m).")
+            else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller must be greater than " +
+              s"zero (found ${p.getD} m).")
           val blades =
             if (p.getN_fold >= 2) Nil
-            else Seq(s"The propeller needs at least 2 blades ('n_fold', found ${p.getN_fold}).")
+            else Seq(s"The propeller needs at least 2 blades " +
+              s"('${label(classOf[Propeller], "n_fold")}', found ${p.getN_fold}).")
           diameter ++ blades
       }
       val engineProblems = engine match {
@@ -73,8 +87,8 @@ object SimulationRequirements {
             "Data row); the motor's Kv is derived from them. Add them with '+ Data'.")
       }
       val voltage = battery.filter(_.getU_0 <= 0).map(b =>
-        s"The battery voltage ('U_0' on the Battery, not 'U_off' or 'U_0rel') must be greater " +
-          s"than zero (found ${b.getU_0} V).").toSeq
+        s"'${label(classOf[Battery], "U_0")}' on the Battery must be greater than zero " +
+          s"(found ${b.getU_0} V).").toSeq
 
       voltage ++ propellerProblems ++ engineProblems
     }
@@ -83,12 +97,14 @@ object SimulationRequirements {
   private def massProblems(crrcsim: CRRCSim): Seq[String] = {
     val mi = crrcsim.getConfig.getMass_inertia
     val inertias = Seq(("I_xx", mi.getI_xx), ("I_yy", mi.getI_yy), ("I_zz", mi.getI_zz))
+      .map { case (field, value) => (label(classOf[MassInertia], field), value) }
     val massProblem =
       if (mi.getMass > 0) Nil
-      else Seq(s"The mass ('mass' under Config > Mass inertia) must be greater than zero (found ${mi.getMass}).")
+      else Seq(s"'${label(classOf[MassInertia], "Mass")}' under Config > Mass inertia must be " +
+        s"greater than zero (found ${mi.getMass}).")
     val inertiaProblems = inertias.collect {
       case (name, value) if value <= 0 =>
-        s"The moment of inertia '$name' (under Config > Mass inertia) must be greater than zero (found $value)."
+        s"'$name' under Config > Mass inertia must be greater than zero (found $value)."
     }
     massProblem ++ inertiaProblems
   }
@@ -98,9 +114,9 @@ object SimulationRequirements {
     if (geo == null) Seq("The model has no AVL geometry.")
     else Seq(("reference area", "Sref", geo.getSref), ("reference span", "Bref", geo.getBref),
       ("reference chord", "Cref", geo.getCref)).collect {
-      case (what, label, value) if value <= 0 =>
-        s"The $what ('$label' on the AVL node) must be greater than zero (found $value); the " +
-          "aero coefficients are normalised by it."
+      case (what, field, value) if value <= 0 =>
+        s"The $what '${label(classOf[AVLGeometry], field)}' on the AVL node must be greater than " +
+          s"zero (found $value); the aero coefficients are normalised by it."
     }
   }
 
