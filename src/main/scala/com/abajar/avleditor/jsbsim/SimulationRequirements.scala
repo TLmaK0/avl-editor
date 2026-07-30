@@ -52,14 +52,15 @@ object SimulationRequirements {
       Seq("The battery drives no shaft. Add one with '+ Shaft'.")
     else {
       val propellerProblems = propeller match {
-        case None => Seq("The shaft has no propeller. Add one to the shaft.")
+        case None => Seq("The shaft has no propeller. Add one with '+ Propeller'.")
         case Some(p) =>
           val diameter =
             if (p.getD > 0) Nil
-            else Seq(s"The propeller diameter must be greater than zero (found ${p.getD} m).")
+            else Seq(s"The propeller diameter ('D' on the Propeller) must be greater than zero " +
+              s"(found ${p.getD} m).")
           val blades =
             if (p.getN_fold >= 2) Nil
-            else Seq(s"The propeller needs at least 2 blades (found ${p.getN_fold}).")
+            else Seq(s"The propeller needs at least 2 blades ('n_fold', found ${p.getN_fold}).")
           diameter ++ blades
       }
       val engineProblems = engine match {
@@ -68,11 +69,12 @@ object SimulationRequirements {
           val usable = Option(e.getData).map(_.asScala).getOrElse(Nil)
             .count(d => d.getU_K > 0 && d.getRpms > 0)
           if (usable > 0) Nil
-          else Seq("The engine has no usable data points (voltage and rpm above zero); the " +
-            "motor's Kv is derived from them. Add them with '+ Data'.")
+          else Seq("The engine has no usable data points ('Voltage' and 'Rpms' above zero on a " +
+            "Data row); the motor's Kv is derived from them. Add them with '+ Data'.")
       }
       val voltage = battery.filter(_.getU_0 <= 0).map(b =>
-        s"The battery voltage must be greater than zero (found ${b.getU_0} V).").toSeq
+        s"The battery voltage ('U_0' on the Battery, not 'U_off' or 'U_0rel') must be greater " +
+          s"than zero (found ${b.getU_0} V).").toSeq
 
       voltage ++ propellerProblems ++ engineProblems
     }
@@ -80,13 +82,13 @@ object SimulationRequirements {
 
   private def massProblems(crrcsim: CRRCSim): Seq[String] = {
     val mi = crrcsim.getConfig.getMass_inertia
-    val inertias = Seq(("Ixx", mi.getI_xx), ("Iyy", mi.getI_yy), ("Izz", mi.getI_zz))
+    val inertias = Seq(("I_xx", mi.getI_xx), ("I_yy", mi.getI_yy), ("I_zz", mi.getI_zz))
     val massProblem =
       if (mi.getMass > 0) Nil
-      else Seq(s"Mass must be greater than zero (found ${mi.getMass}). Set it under Config > Mass inertia.")
+      else Seq(s"The mass ('mass' under Config > Mass inertia) must be greater than zero (found ${mi.getMass}).")
     val inertiaProblems = inertias.collect {
       case (name, value) if value <= 0 =>
-        s"Moment of inertia $name must be greater than zero (found $value). Set it under Config > Mass inertia."
+        s"The moment of inertia '$name' (under Config > Mass inertia) must be greater than zero (found $value)."
     }
     massProblem ++ inertiaProblems
   }
@@ -94,10 +96,11 @@ object SimulationRequirements {
   private def referenceProblems(crrcsim: CRRCSim): Seq[String] = {
     val geo = Option(crrcsim.getAvl).map(_.getGeometry).orNull
     if (geo == null) Seq("The model has no AVL geometry.")
-    else Seq(("reference area Sref", geo.getSref), ("reference span Bref", geo.getBref),
-      ("reference chord Cref", geo.getCref)).collect {
-      case (name, value) if value <= 0 =>
-        s"The $name must be greater than zero (found $value); the aero coefficients are normalised by it."
+    else Seq(("reference area", "Sref", geo.getSref), ("reference span", "Bref", geo.getBref),
+      ("reference chord", "Cref", geo.getCref)).collect {
+      case (what, label, value) if value <= 0 =>
+        s"The $what ('$label' on the AVL node) must be greater than zero (found $value); the " +
+          "aero coefficients are normalised by it."
     }
   }
 

@@ -102,7 +102,8 @@ object SimulationRequirementsCheck {
     check("zero mass is reported", mentions(SimulationRequirements.validate(noMass), "mass"))
     val noInertia = flyableModel()
     noInertia.getConfig.getMass_inertia.setI_yy(0f)
-    check("zero Iyy is reported", mentions(SimulationRequirements.validate(noInertia), "Iyy"))
+    check("zero I_yy is reported by its UI label",
+      mentions(SimulationRequirements.validate(noInertia), "'I_yy'"))
 
     println("reference geometry")
     val noSref = flyableModel()
@@ -140,8 +141,8 @@ object SimulationRequirementsCheck {
 
     val zeroVolts = flyableModel()
     zeroVolts.getConfig.getPower.getBateries.get(0).setU_0(0f)
-    check("zero battery voltage is reported",
-      mentions(SimulationRequirements.validate(zeroVolts), "battery voltage"))
+    check("zero battery voltage is reported by its UI label ('U_0')",
+      mentions(SimulationRequirements.validate(zeroVolts), "'U_0'"))
 
     // A propeller straight from the toolbar: 2 blades is the only default, the diameter is asked
     // for rather than invented.
@@ -156,8 +157,8 @@ object SimulationRequirementsCheck {
 
     val zeroDiameter = flyableModel()
     zeroDiameter.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.get(0).setD(0f)
-    check("zero propeller diameter is reported",
-      mentions(SimulationRequirements.validate(zeroDiameter), "propeller diameter"))
+    check("zero propeller diameter is reported by its UI label ('D')",
+      mentions(SimulationRequirements.validate(zeroDiameter), "'D'"))
 
     println(if (ok) "SIM_REQ_OK" else "SIM_REQ_FAIL")
     if (!ok) sys.exit(1)
