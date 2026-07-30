@@ -5,7 +5,7 @@
  */
 package com.abajar.avleditor.jsbsim
 
-import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, EngineData, Propeller, Wheel}
+import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, EngineData, Wheel}
 import com.abajar.avleditor.avl.geometry.Control
 
 object SimulationRequirementsCheck {
@@ -51,9 +51,9 @@ object SimulationRequirementsCheck {
     battery.createShaft()
     val shaft = battery.getShafts.get(0)
 
-    val propeller = new Propeller
-    propeller.setD(0.25f); propeller.setN_fold(2)
-    shaft.getPropellers.add(propeller)
+    // Same path the "+ Propeller" toolbar button uses.
+    val propeller = shaft.createPropeller()
+    propeller.setD(0.25f)
 
     val engine = shaft.createEngine()
     val point = new EngineData
@@ -142,6 +142,17 @@ object SimulationRequirementsCheck {
     zeroVolts.getConfig.getPower.getBateries.get(0).setU_0(0f)
     check("zero battery voltage is reported",
       mentions(SimulationRequirements.validate(zeroVolts), "battery voltage"))
+
+    // A propeller straight from the toolbar: 2 blades is the only default, the diameter is asked
+    // for rather than invented.
+    val freshProp = flyableModel()
+    val freshShaft = freshProp.getConfig.getPower.getBateries.get(0).getShafts.get(0)
+    freshShaft.getPropellers.clear()
+    freshShaft.createPropeller()
+    val freshProblems = SimulationRequirements.validate(freshProp)
+    check("a newly added propeller comes with 2 blades",
+      freshShaft.getPropellers.get(0).getN_fold == 2 && !mentions(freshProblems, "blades"))
+    check("its diameter is asked for", mentions(freshProblems, "propeller diameter"))
 
     val zeroDiameter = flyableModel()
     zeroDiameter.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.get(0).setD(0f)

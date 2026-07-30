@@ -199,6 +199,8 @@ class MainWindow(
     addToolItem(toolbar, "+ Battery", "Add a battery", ENABLE_BUTTONS.ADD_BATTERY)
     addToolItem(toolbar, "+ Shaft", "Add a shaft", ENABLE_BUTTONS.ADD_SHAFT)
     addToolItem(toolbar, "+ Engine", "Add an engine", ENABLE_BUTTONS.ADD_ENGINE)
+    addToolItem(toolbar, "+ Propeller", "Add a propeller (required to export a flyable model)",
+      ENABLE_BUTTONS.ADD_PROPELLER)
     addToolItem(toolbar, "+ Data", "Add engine data point", ENABLE_BUTTONS.ADD_DATA)
     addToolItem(toolbar, "+ Idle", "Add idle data point", ENABLE_BUTTONS.ADD_DATA_IDLE)
     addToolItem(toolbar, "+ Trust", "Add simple trust", ENABLE_BUTTONS.ADD_SYMPLE_TRUST)

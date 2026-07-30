@@ -23,7 +23,7 @@ import javax.xml.bind.annotation.XmlElement;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_ENGINE, ENABLE_BUTTONS.ADD_SYMPLE_TRUST})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_ENGINE, ENABLE_BUTTONS.ADD_PROPELLER, ENABLE_BUTTONS.ADD_SYMPLE_TRUST})
 public class Shaft implements Serializable {
     static final long serialVersionUID = -4669977187731929600L;
     @Override
@@ -115,6 +115,18 @@ public class Shaft implements Serializable {
      */
     public void setPropellers(ArrayList<Propeller> propellers) {
         this.propellers = propellers;
+    }
+
+    /**
+     * The JSBSim export drives a fixed-pitch propeller from the motor, so it needs the
+     * propeller's diameter and blade count. Two blades is the only default: a diameter cannot be
+     * guessed, and SimulationRequirements asks for it rather than inventing one.
+     */
+    public Propeller createPropeller() {
+        Propeller propeller = new Propeller();
+        propeller.setN_fold(2);
+        this.getPropellers().add(propeller);
+        return propeller;
     }
 
     /**
