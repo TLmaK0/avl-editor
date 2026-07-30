@@ -20,11 +20,15 @@ avl:
       dZ: 0.015202628
       length: 0.3
       masses:
-      - mass: 0.102
+      - inertia: false
+        mass: 0.102
         name: body1 ballast
         x: 0.14
+        xLength: 0.0
         y: 0.0
+        yLength: 0.0
         z: 0.015
+        zLength: 0.0
       name: body1
       profilePoints:
       - radius: 0.0
@@ -42,11 +46,15 @@ avl:
       dZ: 0.02849165
       length: 0.3
       masses:
-      - mass: 0.187
+      - inertia: false
+        mass: 0.187
         name: body2 ballast
         x: 0.232
+        xLength: 0.0
         y: 0.0
+        yLength: 0.0
         z: 0.028
+        zLength: 0.0
       name: body2
       profilePoints:
       - radius: 0.022110574
@@ -70,11 +78,15 @@ avl:
       dZ: 0.086127296
       length: 1.25
       masses:
-      - mass: 0.8075
+      - inertia: false
+        mass: 0.8075
         name: body3 ballast
         x: 0.849
+        xLength: 0.0
         y: 0.0
+        yLength: 0.0
         z: 0.086
+        zLength: 0.0
       name: body3
       profilePoints:
       - radius: 0.0
@@ -108,11 +120,15 @@ avl:
       dZ: 0.0
       length: 1.0
       masses:
-      - mass: 0.323
+      - inertia: false
+        mass: 0.323
         name: body4 ballast
         x: 1.0
+        xLength: 0.0
         y: 0.067
+        yLength: 0.0
         z: 0.0
+        zLength: 0.0
       name: body4
       profilePoints:
       - radius: 0.07747216
@@ -136,11 +152,15 @@ avl:
       dZ: -0.0263055
       length: 0.25
       masses:
-      - mass: 0.0765
+      - inertia: false
+        mass: 0.0765
         name: body5 ballast
         x: 1.195
+        xLength: 0.0
         y: -0.547
+        yLength: 0.0
         z: -0.026
+        zLength: 0.0
       name: body5
       profilePoints:
       - radius: 0.005
@@ -158,11 +178,15 @@ avl:
     iYsym: 0
     iZsym: 0
     masses:
-    - mass: 0.449608
+    - inertia: false
+      mass: 0.449608
       name: manual nose ballast target cgx 0.684
       x: 0.0549442
+      xLength: 0.0
       y: 0.0
+      yLength: 0.0
       z: 0.015202628
+      zLength: 0.0
     name: Geometry
     surfaces:
     - Cspace: 1.0
@@ -175,11 +199,15 @@ avl:
       dY: 0.0
       dZ: 0.0
       masses:
-      - mass: 0.595
+      - inertia: false
+        mass: 0.595
         name: wing ballast
         x: 0.85
+        xLength: 0.0
         y: 0.0
+        yLength: 0.0
         z: -0.02
+        zLength: 0.0
       name: wing
       sections:
       - AFILE: ''
@@ -202,6 +230,7 @@ avl:
           gain: 20.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: flapaileron
           type: 0
         masses: [
@@ -226,6 +255,7 @@ avl:
           gain: 20.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: flapaileron
           type: 0
         - SgnDup: -1.0
@@ -236,6 +266,7 @@ avl:
           gain: 20.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: aileron2
           type: 0
         masses: [
@@ -260,6 +291,7 @@ avl:
           gain: 20.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: aileron2
           type: 0
         masses: [
@@ -275,11 +307,15 @@ avl:
       dY: 0.0
       dZ: 0.0
       masses:
-      - mass: 0.153
+      - inertia: false
+        mass: 0.153
         name: vertical stabilizer ballast
         x: 1.35
+        xLength: 0.0
         y: 0.0
+        yLength: 0.0
         z: 0.22
+        zLength: 0.0
       name: vertical stabilizer
       sections:
       - AFILE: ''
@@ -302,6 +338,7 @@ avl:
           gain: 20.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: rudder1
           type: 2
         masses: [
@@ -326,6 +363,7 @@ avl:
           gain: 20.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: rudder1
           type: 2
         masses: [
@@ -356,11 +394,15 @@ avl:
       dY: 0.0
       dZ: 0.0
       masses:
-      - mass: 0.136
+      - inertia: false
+        mass: 0.136
         name: canard ballast
-        x: 0.30
+        x: 0.3
+        xLength: 0.0
         y: 0.0
+        yLength: 0.0
         z: 0.0
+        zLength: 0.0
       name: canard
       sections:
       - AFILE: ''
@@ -383,6 +425,7 @@ avl:
           gain: 30.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: canard
           type: 1
         masses: [
@@ -407,6 +450,7 @@ avl:
           gain: 30.0
           masses: [
             ]
+          maxDeflection: 25.0
           name: canard
           type: 1
         masses: [
@@ -420,7 +464,6 @@ avl:
 changelog1: [
   ]
 config:
-  aero: null
   descr_long: null
   descr_short: new config
   mass_inertia:
@@ -457,7 +500,39 @@ graphics:
   version: '1'
 internalVersion: 21
 version: '2'
-wheels: [
-  ]
+wheels:
+- caster_angle_rad: 0.0
+  name: Collision point
+  percent_brake: 1.0
+  pos:
+    x: 0.5330318
+    y: 0.0080704
+    z: -0.1831888
+  spring:
+    constant: 1.0
+    damping: 0.0
+    max_force: 0.0
+- caster_angle_rad: 0.0
+  name: Collision point
+  percent_brake: 1.0
+  pos:
+    x: 0.996576
+    y: -0.2093412
+    z: -0.1672213
+  spring:
+    constant: 1.0
+    damping: 0.0
+    max_force: 0.0
+- caster_angle_rad: 0.0
+  name: Collision point
+  percent_brake: 1.0
+  pos:
+    x: 0.95937365
+    y: 0.1969384
+    z: -0.1750826
+  spring:
+    constant: 1.0
+    damping: 0.0
+    max_force: 0.0
 wheelsUnits: '1'
 wheelsVersion: '1'
