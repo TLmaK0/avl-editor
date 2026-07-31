@@ -100,6 +100,20 @@ object AC3DWriter {
     out.toSeq
   }
 
+  /**
+   * Drops the corners that collapse onto each other before writing a surface. A body's nose and
+   * tail are fans of panels whose outer edge shrinks to a point, so those panels arrive as quads
+   * with two coincident corners: written as `refs 4` they are degenerate faces, which waste
+   * geometry and can render as artefacts. Emitted as triangles instead, and skipped entirely when
+   * fewer than three corners remain.
+   */
+  private def distinctCorners(quad: Quad): Seq[(Float, Float, Float)] = {
+    val corners = quad.v.toSeq
+    corners.zipWithIndex.collect {
+      case (v, i) if v != corners((i + corners.length - 1) % corners.length) => v
+    }
+  }
+
   private def render(quads: Seq[Quad]): String = {
     val sb = new StringBuilder
     sb.append("AC3Db\n")
@@ -110,21 +124,24 @@ object AC3DWriter {
     sb.append("OBJECT poly\n")
     sb.append("name \"aircraft\"\n")
 
-    val verts = quads.flatMap(_.v).map(toFlightGearFrame)
+    val faces = quads.map(distinctCorners).filter(_.length >= 3)
+    val verts = faces.flatten.map(toFlightGearFrame)
     sb.append(s"numvert ${verts.length}\n")
     verts.foreach { case (x, y, z) => sb.append(s"$x $y $z\n") }
 
-    sb.append(s"numsurf ${quads.length}\n")
+    sb.append(s"numsurf ${faces.length}\n")
     var base = 0
-    for (_ <- quads) {
+    for (face <- faces) {
       sb.append("SURF 0x0\n")
       sb.append("mat 0\n")
-      sb.append("refs 4\n")
-      sb.append(s"$base 0 0\n")
-      sb.append(s"${base + 1} 1 0\n")
-      sb.append(s"${base + 2} 1 1\n")
-      sb.append(s"${base + 3} 0 1\n")
-      base += 4
+      sb.append(s"refs ${face.length}\n")
+      // Texture coordinates around the face; unused by the flat material but required by the format.
+      val uv = Seq((0, 0), (1, 0), (1, 1), (0, 1))
+      face.indices.foreach { i =>
+        val (u, v) = uv(i % uv.length)
+        sb.append(s"${base + i} $u $v\n")
+      }
+      base += face.length
     }
     sb.append("kids 0\n")
     sb.toString

@@ -49,6 +49,22 @@ object AC3DWriterFrameCheck {
 
   private def extent(vs: Seq[Float]): Float = vs.max - vs.min
 
+  /** Vertex indices of every surface in the file. */
+  private def surfaces(ac: String): Seq[Seq[Int]] = {
+    val lines = ac.split("\n").toIndexedSeq
+    val out = scala.collection.mutable.ArrayBuffer[Seq[Int]]()
+    var i = 0
+    while (i < lines.length) {
+      if (lines(i).startsWith("refs ")) {
+        val n = lines(i).split(" ")(1).toInt
+        out += (1 to n).map(k => lines(i + k).trim.split("\\s+")(0).toInt)
+        i += n
+      }
+      i += 1
+    }
+    out.toSeq
+  }
+
   def main(args: Array[String]): Unit = {
     check("the frame mapping is the (y, z, x) permutation",
       AC3DWriter.toFlightGearFrame((1f, 2f, 3f)) == ((2f, 3f, 1f)))
@@ -70,6 +86,25 @@ object AC3DWriterFrameCheck {
     check("leading edge is forward of the trailing edge", vs.map(_._3).min < vs.map(_._3).max)
     check("wing is mirrored about x=0", math.abs(vs.map(_._1).min + vs.map(_._1).max) < 0.001f)
     check("chord starts at the AVL root x offset", math.abs(vs.map(_._3).min - RootX) < 0.001f)
+
+    // A body's nose and tail collapse to a point, so those panels arrive as quads with two
+    // coincident corners. They must be written as triangles, never as degenerate quads.
+    val body = wingGeometry()
+    val b = new com.abajar.avleditor.avl.geometry.Body
+    b.getProfilePoints.clear()
+    Seq((0.0f, 0.0f), (0.3f, 0.08f), (1.0f, 0.0f)).foreach { case (x, r) =>
+      b.getProfilePoints.add(new com.abajar.avleditor.avl.geometry.BodyProfilePoint(x, r))
+    }
+    b.setLength(1.0f)
+    body.getBodies.add(b)
+
+    val ac = AC3DWriter.fromGeometry(body)
+    val faces = surfaces(ac)
+    println(s"  surfaces: ${faces.length}, of which triangles: ${faces.count(_.length == 3)}")
+    check("the mesh has faces", faces.nonEmpty)
+    check("no face repeats a vertex index", faces.forall(f => f.distinct.length == f.length))
+    check("collapsed panels become triangles", faces.exists(_.length == 3))
+    check("every face has at least 3 corners", faces.forall(_.length >= 3))
 
     println(if (ok) "AC3D_FRAME_OK" else "AC3D_FRAME_FAIL")
     if (!ok) sys.exit(1)
