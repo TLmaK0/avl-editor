@@ -108,7 +108,20 @@ FlightGear reports `Throttle 0 does not exist! 0 engines exist`. The battery vol
 diameter, blade count and the motor's data curve are all validated, and `buildPropulsion` no
 longer substitutes anything for them.
 
-Known remaining fallbacks, to be converted as they are confirmed: `detectControls` (25° default
-deflection) and `buildAero` (span efficiency 0.85, aspect ratio 5.0). The motor coil resistance
-(0.1 Ω) stays a **stated assumption** — it is not derivable from the model's three data columns
-without a load model — and is documented as such at its definition.
+Validation runs in **two stages**, because some inputs are AVL's outputs rather than the editor's
+fields: `SimulationRequirements.validate(model)` before AVL runs, and `validateCalculation(calc)`
+after it (the span efficiency comes from AVL's totals and used to be replaced by 0.85).
+
+No silent fallbacks remain in the export path. The last two were removed: `detectControls` no
+longer flies a control with an invented 25° deflection, and `buildAero` derives the aspect ratio
+from the reference geometry instead of assuming 5.0.
+
+What remains are **stated assumptions**: values the model genuinely cannot express, each documented
+where it is defined, and none of them standing in for something the user should have entered.
+Currently, all in `JsbsimWriter`/`JsbsimExporter`: the propeller's generic thrust and power
+coefficient tables and its inertia (scaled from a DJI 9450), the gear friction coefficients, the
+gear stiffness rule taken from FlightGear's c172p, and treating the motor curve's electrical input
+power as shaft power. Replace one only with a better-sourced derivation, never with a guess.
+
+`SimpleTrust` is a CRRCsim thrust model the export does not support; a model built with it is told
+so explicitly rather than being asked for an engine it already has.

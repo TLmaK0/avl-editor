@@ -24,7 +24,10 @@ import JsbsimWriter._
  *
  * Assumptions (documented for later refinement):
  *  - `MassInertia` is SI (kg, kg·m²); CG and AERORP share the geometry frame (converted
- *    to metres). Control max deflections default per surface (AVL carries no limit).
+ *    to metres).
+ *
+ * Nothing here substitutes a value the model does not provide: [[SimulationRequirements]] gates
+ * every export, in two stages — the editor's own fields before AVL runs, and AVL's outputs after.
  */
 object JsbsimExporter {
 
@@ -134,6 +137,10 @@ object JsbsimExporter {
     if (watts.isEmpty) None else Some(watts.max)
   }
 
+  /** Span efficiency as AVL reported it, or None when the run did not produce a usable one. */
+  def spanEfficiency(calc: AvlCalculation): Option[Double] =
+    Option(calc.getConfiguration).flatMap(c => Option(c.getE)).map(_.doubleValue).filter(_ > 0)
+
   private def buildAero(calc: AvlCalculation, sref: Double, bref: Double): AeroDerivatives = {
     val std = calc.getStabilityDerivatives
     val cfg = calc.getConfiguration
@@ -141,8 +148,14 @@ object JsbsimExporter {
     val rp = calc.getRudderPosition
     val ap = calc.getAileronPosition
     def at(a: Array[Float], i: Int): Double = if (a != null && i >= 0 && i < a.length) a(i).toDouble else 0.0
-    val ar = if (sref > 0) bref * bref / sref else 5.0
-    val e = Option(cfg.getE).map(_.doubleValue).filter(_ > 0).getOrElse(0.85)
+    // Both of these used to fall back to round numbers (aspect ratio 5, span efficiency 0.85),
+    // which silently replaced the aircraft's own aerodynamics. They are derived or nothing:
+    // the reference area is validated before the AVL run, the span efficiency after it, so
+    // reaching either failure here means a caller skipped [[SimulationRequirements]].
+    require(sref > 0, "reference area must be positive to derive the aspect ratio")
+    val ar = bref * bref / sref
+    val e = spanEfficiency(calc).getOrElse(
+      throw new IllegalStateException("AVL produced no span efficiency for this model"))
     new AeroDerivatives(
       cl0 = cfg.getCLtot, cla = std.getCLa, clq = std.getCLq, clde = at(std.getCLd, ep),
       cd0 = cfg.getCDvis, spanEfficiency = e, aspectRatio = ar, cdde = 0.0,
@@ -164,9 +177,12 @@ object JsbsimExporter {
       .flatMap(_.getControls.asScala)
     val axisFor = Map(0 -> ControlAxis.Aileron, 1 -> ControlAxis.Elevator, 2 -> ControlAxis.Rudder)
     val maxDeflByAxis = scala.collection.mutable.Map.empty[ControlAxis.Value, Double]
-    for (c <- controls; axis <- axisFor.get(c.getType)) {
-      val defl = math.toRadians(if (c.getMaxDeflection > 0) c.getMaxDeflection.toDouble else 25.0)
-      maxDeflByAxis(axis) = math.max(maxDeflByAxis.getOrElse(axis, 0.0), defl)
+    // A control with no stated deflection is skipped, not given an invented 25 deg: the channel
+    // range is what the pilot's stick maps to, so a guess flies the aircraft wrongly.
+    // [[SimulationRequirements]] reports such a control instead.
+    for (c <- controls; axis <- axisFor.get(c.getType) if c.getMaxDeflection > 0) {
+      maxDeflByAxis(axis) = math.max(maxDeflByAxis.getOrElse(axis, 0.0),
+        math.toRadians(c.getMaxDeflection.toDouble))
     }
     // Stable order: Elevator, Aileron, Rudder.
     Seq(ControlAxis.Elevator, ControlAxis.Aileron, ControlAxis.Rudder)

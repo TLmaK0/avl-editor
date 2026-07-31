@@ -11,6 +11,8 @@
 package com.abajar.avleditor.jsbsim
 
 import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, CombustionEngine, FuelTank, MassInertia, Propeller, Power}
+import com.abajar.avleditor.avl.geometry.Control
+import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.avl.AVLGeometry
 import com.abajar.avleditor.view.annotations.AvlEditorField
 import scala.collection.JavaConverters._
@@ -95,8 +97,18 @@ object SimulationRequirements {
             "one can drive the propeller.")
         case (None, Some(p)) => combustionProblems(p, crrcsim)
         case (None, None) =>
-          Seq("The shaft has no engine. Add an electric one with '+ Engine' or a combustion one " +
-            "with '+ Piston'.")
+          // A SimpleTrust is a CRRCsim thrust model the JSBSim export does not map. Saying so is
+          // the point: the '+ Trust' button exists, so a model built that way otherwise gets told
+          // to add an engine with no hint that its thrust source is simply ignored.
+          val trusts = shaft.map(sh =>
+            Option(sh.getSimpleTrusts).map(_.asScala).getOrElse(Nil)).getOrElse(Nil)
+          if (trusts.nonEmpty)
+            Seq("The shaft's thrust comes from a Simple Trust, which the JSBSim export does not " +
+              "support. Replace it with an electric engine ('+ Engine') or a combustion one " +
+              "('+ Piston').")
+          else
+            Seq("The shaft has no engine. Add an electric one with '+ Engine' or a combustion one " +
+              "with '+ Piston'.")
         case (Some(e), None) =>
           // The exporter derives the motor's power from voltage x current, so a point with a
           // zero current yields no power: requiring the same thing here keeps the validation
@@ -216,12 +228,46 @@ object SimulationRequirements {
     if (triples.isEmpty) 0.0 else triples.max
   }
 
+  /**
+   * Controls must state how far they deflect. The channel range is what the pilot's stick maps
+   * to, so a control without it used to be flown with an invented 25 deg: the aircraft responds
+   * to the wrong authority, which looks like a handling quirk rather than missing data.
+   */
   private def controlProblems(crrcsim: CRRCSim): Seq[String] = {
     val geo = Option(crrcsim.getAvl).map(_.getGeometry).orNull
-    if (geo == null) Nil // already reported by referenceProblems
-    else if (JsbsimExporter.detectControls(geo).isEmpty)
+    if (geo == null) return Nil // already reported by referenceProblems
+
+    val axes = Set(0, 1, 2) // aileron, elevator, rudder
+    val flying = geo.getSurfaces.asScala.flatMap(_.getSections.asScala).flatMap(_.getControls.asScala)
+      .filter(c => axes.contains(c.getType))
+
+    val noDeflection = flying.filter(_.getMaxDeflection <= 0).map(_.getName)
+      .filter(n => n != null && n.nonEmpty).toSeq.distinct
+    val deflectionProblems =
+      if (noDeflection.isEmpty && flying.forall(_.getMaxDeflection > 0)) Nil
+      else Seq(s"'${label(classOf[Control], "maxDeflection")}' must be greater than zero on every " +
+        "control" + (if (noDeflection.isEmpty) "." else s": ${noDeflection.mkString(", ")}."))
+
+    if (JsbsimExporter.detectControls(geo).isEmpty && deflectionProblems.isEmpty)
       Seq("The model has no control surface on any axis (elevator, aileron or rudder), so it " +
         "cannot be flown. Add a control to a section.")
-    else Nil
+    else deflectionProblems
+  }
+
+  /**
+   * What the AVL run itself must have produced, checked after running AVL and before writing the
+   * model. Unlike everything above, these are AVL's outputs rather than the editor's fields, so
+   * they cannot be checked up front — and they used to be replaced by round numbers.
+   */
+  def validateCalculation(calc: AvlCalculation): Seq[String] = {
+    if (calc == null) return Seq("AVL produced no results for this model.")
+    val derivatives =
+      if (calc.getStabilityDerivatives != null) Nil
+      else Seq("AVL produced no stability derivatives; the aerodynamic model cannot be built.")
+    val efficiency =
+      if (JsbsimExporter.spanEfficiency(calc).isDefined) Nil
+      else Seq("AVL reported no span efficiency ('e'), which sets the induced drag. Re-run AVL; " +
+        "it is not substituted with a typical value.")
+    derivatives ++ efficiency
   }
 }

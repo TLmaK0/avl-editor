@@ -854,6 +854,9 @@ object AvlEditor{
       if (!reportModelProblems("simulated", geometryProblems(avl) ++ SimulationRequirements.validate(crrcsim))) return
       try {
         val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
+        // A second stage: some inputs come from AVL's own output, so they can only be checked
+        // once it has run. They are not substituted with typical values either.
+        if (!reportModelProblems("simulated", SimulationRequirements.validateCalculation(calc))) return
         val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
         action(name, calc)
       } catch {

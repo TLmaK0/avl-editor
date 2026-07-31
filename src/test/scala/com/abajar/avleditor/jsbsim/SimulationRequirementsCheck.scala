@@ -8,6 +8,8 @@ package com.abajar.avleditor.jsbsim
 import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, CRRCSimFactory, EngineData, MassInertia, Propeller, Wheel}
 import com.abajar.avleditor.view.annotations.AvlEditorField
 import com.abajar.avleditor.avl.geometry.Control
+import com.abajar.avleditor.avl.runcase.{AvlCalculation, Configuration}
+import scala.collection.JavaConverters._
 
 object SimulationRequirementsCheck {
 
@@ -186,6 +188,43 @@ object SimulationRequirementsCheck {
     zeroDiameter.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.get(0).setD(0f)
     check("zero propeller diameter is reported by the label the table shows",
       mentions(SimulationRequirements.validate(zeroDiameter), uiLabel(classOf[Propeller], "D")))
+
+    // The '+ Trust' button builds a thrust model the export cannot use: say so, do not just ask
+    // for an engine.
+    val onlyTrust = flyableModel()
+    val trustShaft = onlyTrust.getConfig.getPower.getBateries.get(0).getShafts.get(0)
+    trustShaft.getEngines.clear()
+    trustShaft.createSimpleTrust()
+    check("a Simple Trust is reported as unsupported, not as a missing engine",
+      mentions(SimulationRequirements.validate(onlyTrust), "does not support"))
+
+    println("control deflection")
+    val noDeflection = flyableModel()
+    // The factory's surfaces carry default sections, so find the one holding the control.
+    val allControls = noDeflection.getAvl.getGeometry.getSurfaces.asScala
+      .flatMap(_.getSections.asScala).flatMap(_.getControls.asScala)
+    allControls.foreach(_.setMaxDeflection(0f))
+    check("the fixture has a control to blank", allControls.nonEmpty)
+    val deflProblems = SimulationRequirements.validate(noDeflection)
+    check("a control with no deflection is reported",
+      mentions(deflProblems, uiLabel(classOf[Control], "maxDeflection")))
+    check("and no 25 deg default is invented",
+      JsbsimExporter.detectControls(noDeflection.getAvl.getGeometry).isEmpty)
+
+    println("what AVL itself must produce")
+    check("a missing calculation is reported",
+      mentions(SimulationRequirements.validateCalculation(null), "no results"))
+
+    val calc = new AvlCalculation(0, 0, 0)
+    calc.setConfiguration(new Configuration)
+    check("a run with no span efficiency is reported",
+      mentions(SimulationRequirements.validateCalculation(calc), "span efficiency"))
+    check("and it is not replaced by a typical value",
+      JsbsimExporter.spanEfficiency(calc).isEmpty)
+
+    calc.getConfiguration.setE(java.lang.Float.valueOf(0.9f))
+    check("a span efficiency AVL reported is used",
+      JsbsimExporter.spanEfficiency(calc).exists(v => math.abs(v - 0.9) < 1e-6))
 
     println(if (ok) "SIM_REQ_OK" else "SIM_REQ_FAIL")
     if (!ok) sys.exit(1)
