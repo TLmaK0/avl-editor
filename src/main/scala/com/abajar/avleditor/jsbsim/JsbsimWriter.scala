@@ -202,7 +202,7 @@ object JsbsimWriter {
     case Some(pr) =>
       s"""  <propulsion>
       |    <engine file="${engineName(ac)}">
-      |      <thruster file="${propName(ac)}">
+      |${feeds(pr.tanks)}      <thruster file="${propName(ac)}">
       |        <location unit="M"><x>${f(pr.at.x)}</x><y>${f(pr.at.y)}</y><z>${f(pr.at.z)}</z></location>
       |        <orient unit="DEG"><roll>0</roll><pitch>0</pitch><yaw>0</yaw></orient>
       |      </thruster>
@@ -237,6 +237,14 @@ object JsbsimWriter {
     |  <bsfc>${f(pe.fuelConsumptionGPerKWh / GPerKWhPerLbPerHpH)}</bsfc>
     |</piston_engine>
     |""".stripMargin
+
+  /**
+   * The tanks an engine draws from, by index. Without a `<feed>` an engine has no fuel source: it
+   * cranks under the starter and produces a little thrust, but never runs and burns nothing, which
+   * reads as a mysterious ignition problem rather than a missing element.
+   */
+  private def feeds(tanks: Seq[FuelTank]): String =
+    tanks.indices.map(i => s"      <feed>$i</feed>\n").mkString
 
   private def fuelTank(tank: FuelTank): String =
     s"""    <tank type="FUEL">

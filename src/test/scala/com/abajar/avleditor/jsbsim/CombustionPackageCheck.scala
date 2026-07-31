@@ -116,6 +116,11 @@ object CombustionPackageCheck {
     check("the rev range is passed through",
       valueOf(engineXml, "idlerpm").exists(_ == 2500.0) && valueOf(engineXml, "maxrpm").exists(_ == 14000.0))
 
+    // Without a <feed> the engine has no fuel source: it cranks but never runs.
+    val feeds = """<feed>([0-9]+)</feed>""".r.findAllMatchIn(generated.aircraftXml).map(_.group(1)).toSeq
+    println(s"  engine feeds from tank(s): ${feeds.mkString(", ")}")
+    check("the engine is fed from every tank", feeds == Seq("0"))
+
     // The tank goes in the aircraft file, where JSBSim expects it.
     check("a fuel tank is emitted", generated.aircraftXml.contains("""<tank type="FUEL">"""))
     check("with its mass in kilograms",
