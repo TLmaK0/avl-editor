@@ -103,14 +103,15 @@ Rules:
 - Pin the rule with a `*Check.scala` and assert the property, not the number, so it survives
   rescaling (see `GearStiffnessCheck`, which checks compression at 2.8 kg and 25 kg).
 
-Every propulsion component states its **own mass and position**, and the centre of gravity is
-computed from all of them (`CRRCSim.getAllMasses`). Before that, `Battery`, `Engine` and `Propeller`
-had no mass at all, so the only way to move the CG was ballast — the eurofighter sample carried
-450 g of "manual nose ballast target cgx", which put its CG 0.8 chords ahead of the main wheels
-where the elevator cannot rotate it. **The CG is a result, never a target.** Two things to keep
-right: the fuel is *not* part of the empty weight (JSBSim adds it from the tank's contents), and the
-propulsion masses stay out of `getMassesRecursive()` because `autoMassesFromVolume()` redistributes
-that total by volume and would count them twice.
+Propulsion components carry their **own mass and position**, and the total mass, the inertias and
+the centre of gravity are computed from all of them (`CRRCSim.getAllMasses`). They used to have no
+mass field, so a motor or a battery could only be represented as ballast somewhere else.
+
+These masses are **optional**: a component may be accounted for elsewhere or be negligible, and a
+zero is a stated value rather than missing data, so it is accepted and contributes nothing. Two
+things to keep right: the fuel is not part of the empty weight (JSBSim adds it from the tank's
+contents), and the propulsion masses stay out of `getMassesRecursive()`, because
+`autoMassesFromVolume()` redistributes that total by volume and would otherwise count them twice.
 
 Propulsion is **required**, not optional: without an engine the model cannot take off and
 FlightGear reports `Throttle 0 does not exist! 0 engines exist`. The battery voltage, propeller

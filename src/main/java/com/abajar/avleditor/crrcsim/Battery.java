@@ -73,8 +73,8 @@ public class Battery implements Serializable {
     private ArrayList<Shaft> shafts = new ArrayList<Shaft>();
 
     @AvlEditorField(text="Mass",
-        help="Mass of the battery pack, in the model's mass unit. It counts towards the centre of gravity and the"
-        + " inertias, so weigh it rather than compensating with ballast elsewhere."
+        help="Mass of the battery pack, in the model's mass unit. Counts towards the total mass, the"
+        + " centre of gravity and the inertias. Leave it at zero if it is accounted for elsewhere."
     )
     private float mass;
 

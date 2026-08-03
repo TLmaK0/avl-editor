@@ -100,14 +100,20 @@ object PropulsionMassCheck {
     check("the tank's fuel stays out of the empty weight",
       math.abs(fuelled.getConfig.getMass_inertia.getMass - 1.74f) < 1e-3)
 
-    println("a component with no mass is reported")
+    // A mass is optional: a component may be accounted for elsewhere, or be negligible. A zero is
+    // a stated value, not missing data, so it is accepted and simply contributes nothing.
+    println("a component with no mass")
     val noMass = withPropulsion(0.10f)
     noMass.getConfig.getPower.getBateries.get(0).setMass(0f)
-    val problems = SimulationRequirements.validate(noMass)
-    check("the battery is named", problems.exists(p =>
-      p.contains("Battery") && p.toLowerCase.contains("mass")))
-    check("and ballast is not offered as a way out",
-      problems.exists(_.toLowerCase.contains("ballast")))
+    // Compare the whole problem list with and without the battery's mass: zeroing it must change
+    // nothing. (Checking for the word "mass" would catch the unrelated total-mass rule.)
+    val withMass = SimulationRequirements.validate(withPropulsion(0.10f))
+    check("is not reported as a problem", SimulationRequirements.validate(noMass) == withMass)
+    check("contributes nothing to the balance",
+      math.abs(noMass.getPropulsionMasses.asScala.map(_.getMass).sum - 0.24f) < 1e-4)
+    noMass.calculate()
+    check("and the total mass is the rest of the model",
+      math.abs(noMass.getConfig.getMass_inertia.getMass - 1.24f) < 1e-3)
 
     println(if (ok) "PROPULSION_MASS_OK" else "PROPULSION_MASS_FAIL")
     if (!ok) sys.exit(1)

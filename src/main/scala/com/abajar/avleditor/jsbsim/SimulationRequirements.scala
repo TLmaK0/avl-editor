@@ -123,33 +123,8 @@ object SimulationRequirements {
         s"'${label(classOf[Battery], "U_0")}' on the Battery must be greater than zero " +
           s"(found ${b.getU_0} V).").toSeq
 
-      voltage ++ propellerProblems ++ engineProblems ++ componentMassProblems(battery, shaft)
+      voltage ++ propellerProblems ++ engineProblems
     }
-  }
-
-  /**
-   * Every propulsion component must state its mass. A motor or a battery weighing zero shifts the
-   * centre of gravity forward without saying so, and the only way to bring it back is ballast —
-   * which is how a model ends up with its CG 0.8 chords ahead of the main wheels, unable to rotate
-   * for takeoff. The fuel is not asked for here: JSBSim adds it from the tank's contents.
-   */
-  private def componentMassProblems(battery: Option[Battery],
-                                    shaft: Option[com.abajar.avleditor.crrcsim.Shaft]): Seq[String] = {
-    def needsMass(cls: Class[_], what: String, mass: Float): Seq[String] =
-      if (mass > 0) Nil
-      else Seq(s"'${label(cls, "mass")}' on the $what must be greater than zero: without it the " +
-        "centre of gravity is wrong and no ballast can honestly fix that.")
-
-    val batteryMass = battery.toSeq.flatMap(b => needsMass(classOf[Battery], "Battery", b.getMass))
-    val shaftMasses = shaft.toSeq.flatMap { sh =>
-      Option(sh.getEngines).map(_.asScala).getOrElse(Nil).toSeq
-        .flatMap(e => needsMass(classOf[com.abajar.avleditor.crrcsim.Engine], "electric motor", e.getMass)) ++
-      Option(sh.getCombustionEngines).map(_.asScala).getOrElse(Nil).toSeq
-        .flatMap(e => needsMass(classOf[CombustionEngine], "Combustion engine", e.getMass)) ++
-      Option(sh.getPropellers).map(_.asScala).getOrElse(Nil).toSeq
-        .flatMap(p => needsMass(classOf[Propeller], "Propeller", p.getMass))
-    }
-    batteryMass ++ shaftMasses
   }
 
   /**
