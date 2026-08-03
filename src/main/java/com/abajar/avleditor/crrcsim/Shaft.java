@@ -24,7 +24,7 @@ import javax.xml.bind.annotation.XmlElement;
  * @author Hugo
  */
 @AvlEditor(buttons={ENABLE_BUTTONS.ADD_ENGINE, ENABLE_BUTTONS.ADD_COMBUSTION_ENGINE,
-    ENABLE_BUTTONS.ADD_PROPELLER, ENABLE_BUTTONS.ADD_SYMPLE_TRUST})
+    ENABLE_BUTTONS.ADD_PROPELLER})
 public class Shaft implements Serializable {
     static final long serialVersionUID = -4669977187731929600L;
     @Override
@@ -168,6 +168,11 @@ public class Shaft implements Serializable {
         this.simpleTrusts = simpleTrusts;
     }
 
+    /**
+     * Kept so models saved with a Simple Trust still load and save it unchanged, but no longer
+     * offered in the toolbar: it is a CRRCsim thrust model, the CRRCsim export is gone, and the
+     * JSBSim one cannot use it — so creating a new one would build something with no destination.
+     */
     public SimpleTrust createSimpleTrust() {
         SimpleTrust trust = new SimpleTrust();
         this.getSimpleTrusts().add(trust);

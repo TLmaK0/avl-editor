@@ -206,7 +206,6 @@ class MainWindow(
       ENABLE_BUTTONS.ADD_FUEL_TANK)
     addToolItem(toolbar, "+ Data", "Add engine data point", ENABLE_BUTTONS.ADD_DATA)
     addToolItem(toolbar, "+ Idle", "Add idle data point", ENABLE_BUTTONS.ADD_DATA_IDLE)
-    addToolItem(toolbar, "+ Trust", "Add simple trust", ENABLE_BUTTONS.ADD_SYMPLE_TRUST)
     addToolItem(toolbar, "+ Collision", "Add a collision point", ENABLE_BUTTONS.ADD_COLLISION_POINT)
     new ToolItem(toolbar, SWT.SEPARATOR)
 

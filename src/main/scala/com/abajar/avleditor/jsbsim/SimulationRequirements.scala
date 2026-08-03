@@ -103,9 +103,9 @@ object SimulationRequirements {
           val trusts = shaft.map(sh =>
             Option(sh.getSimpleTrusts).map(_.asScala).getOrElse(Nil)).getOrElse(Nil)
           if (trusts.nonEmpty)
-            Seq("The shaft's thrust comes from a Simple Trust, which the JSBSim export does not " +
-              "support. Replace it with an electric engine ('+ Engine') or a combustion one " +
-              "('+ Piston').")
+            Seq("The shaft's thrust comes from a Simple Trust, a CRRCsim model this editor keeps " +
+              "for older files but cannot export. Replace it with an electric engine " +
+              "('+ Engine') or a combustion one ('+ Piston').")
           else
             Seq("The shaft has no engine. Add an electric one with '+ Engine' or a combustion one " +
               "with '+ Piston'.")

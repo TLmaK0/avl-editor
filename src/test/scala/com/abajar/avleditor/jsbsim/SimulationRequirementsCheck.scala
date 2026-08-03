@@ -196,7 +196,7 @@ object SimulationRequirementsCheck {
     trustShaft.getEngines.clear()
     trustShaft.createSimpleTrust()
     check("a Simple Trust is reported as unsupported, not as a missing engine",
-      mentions(SimulationRequirements.validate(onlyTrust), "does not support"))
+      mentions(SimulationRequirements.validate(onlyTrust), "cannot export"))
 
     println("control deflection")
     val noDeflection = flyableModel()

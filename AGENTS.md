@@ -123,5 +123,9 @@ coefficient tables and its inertia (scaled from a DJI 9450), the gear friction c
 gear stiffness rule taken from FlightGear's c172p, and treating the motor curve's electrical input
 power as shaft power. Replace one only with a better-sourced derivation, never with a guess.
 
-`SimpleTrust` is a CRRCsim thrust model the export does not support; a model built with it is told
-so explicitly rather than being asked for an engine it already has.
+`SimpleTrust` is a CRRCsim thrust model, and with the CRRCsim export gone it has no destination at
+all, so the editor no longer offers to create one: the `+ Trust` button is removed. The node and
+its serialization stay, so files saved with one still load and save it unchanged
+(`LegacyRoundTripCheck` pins that), and a model that has one is told plainly that it cannot be
+exported. **Do not offer a control that builds something no export can consume** — that is the same
+failure as an invented default, moved into the UI.
