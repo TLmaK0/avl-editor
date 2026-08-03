@@ -47,6 +47,15 @@ public class Engine implements Serializable{
 
     private int Calc = 1;
 
+
+    @AvlEditorField(text="Mass",
+        help="Mass of the electric motor, in the model's mass unit. It counts towards the centre of gravity and the"
+        + " inertias, so weigh it rather than compensating with ballast elsewhere."
+    )
+    private float mass;
+
+    private Pos pos = new Pos();
+
     public Engine() {
     }
 
@@ -133,5 +142,36 @@ public class Engine implements Serializable{
         EngineDataIdle newDataIdle = new EngineDataIdle();
         this.getDataIdle().add(newDataIdle);
         return newDataIdle;
+    }
+
+    /**
+     * @return the mass of the motor
+     */
+    @XmlAttribute
+    public float getMass() {
+        return mass;
+    }
+
+    /**
+     * @param mass the mass of the motor to set
+     */
+    public void setMass(float mass) {
+        this.mass = mass;
+    }
+
+    /**
+     * @return where the motor sits
+     */
+    @AvlEditorNode(name="Position")
+    @XmlElement(name="pos")
+    public Pos getPos() {
+        return pos;
+    }
+
+    /**
+     * @param pos where the motor sits
+     */
+    public void setPos(Pos pos) {
+        this.pos = pos;
     }
 }

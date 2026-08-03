@@ -11,6 +11,7 @@
 package com.abajar.avleditor.crrcsim;
 
 import com.abajar.avleditor.avl.AVL;
+import com.abajar.avleditor.avl.mass.Mass;
 import com.abajar.avleditor.view.annotations.AvlEditor;
 import com.abajar.avleditor.view.annotations.AvlEditorField;
 import com.abajar.avleditor.view.annotations.AvlEditorNode;
@@ -187,7 +188,57 @@ public class CRRCSim implements Serializable{
 
     /** Recomputes mass &amp; inertia from the aircraft masses (needed for the FDM export). */
     public void calculate() {
-        this.config.setMass_inertiaFromMasses(avl.getGeometry().getMassesRecursive(), avl.getLengthUnit(), avl.getMassUnit());
+        this.config.setMass_inertiaFromMasses(getAllMasses(), avl.getLengthUnit(), avl.getMassUnit());
+    }
+
+    /**
+     * Every mass in the model: the geometry's own plus the propulsion components'. The two are kept
+     * apart deliberately — {@link com.abajar.avleditor.avl.AVLGeometry#autoMassesFromVolume()}
+     * redistributes the geometry total by volume, and a motor swept into that would be counted
+     * twice — so this is the list to use for the mass, the inertias and the centre of gravity.
+     */
+    public ArrayList<Mass> getAllMasses() {
+        ArrayList<Mass> masses = new ArrayList<Mass>(avl.getGeometry().getMassesRecursive());
+        masses.addAll(getPropulsionMasses());
+        return masses;
+    }
+
+    /**
+     * One point mass per propulsion component that states one, at the position the component
+     * states. The fuel is deliberately absent: JSBSim adds it from the tank's contents, so counting
+     * it here as well would double the fuel's weight.
+     */
+    public ArrayList<Mass> getPropulsionMasses() {
+        ArrayList<Mass> masses = new ArrayList<Mass>();
+        Power power = this.config.getPower();
+        if (power == null) return masses;
+
+        for (Battery battery : power.getBateries()) {
+            addPointMass(masses, "battery", battery.getMass(), battery.getPos());
+            for (Shaft shaft : battery.getShafts()) {
+                for (Engine engine : shaft.getEngines()) {
+                    addPointMass(masses, "electric motor", engine.getMass(), engine.getPos());
+                }
+                for (CombustionEngine engine : shaft.getCombustionEngines()) {
+                    addPointMass(masses, "combustion engine", engine.getMass(), engine.getPos());
+                }
+                for (Propeller propeller : shaft.getPropellers()) {
+                    addPointMass(masses, "propeller", propeller.getMass(), propeller.getPos());
+                }
+            }
+        }
+        return masses;
+    }
+
+    private void addPointMass(ArrayList<Mass> masses, String name, float mass, Pos pos) {
+        if (mass <= 0 || pos == null) return;
+        Mass m = new Mass();
+        m.setName(name);
+        m.setMass(mass);
+        m.setX(pos.getX());
+        m.setY(pos.getY());
+        m.setZ(pos.getZ());
+        masses.add(m);
     }
 
     @Override

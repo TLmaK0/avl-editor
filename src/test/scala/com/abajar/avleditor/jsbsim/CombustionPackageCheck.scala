@@ -56,8 +56,11 @@ object CombustionPackageCheck {
     battery.setU_0(11.1f) // the ignition supply; the shaft carries no electric motor
     battery.createShaft()
     val shaft = battery.getShafts.get(0)
-    shaft.createPropeller().setD(0.30f)
+    battery.setMass(0.10f); battery.getPos.setX(0.30f)
+    val propeller = shaft.createPropeller()
+    propeller.setD(0.30f); propeller.setMass(0.05f); propeller.getPos.setX(0.02f)
     val engine = shaft.createCombustionEngine()
+    engine.setMass(0.55f); engine.getPos.setX(0.10f)
     engine.setDisplacement(10.0f)
     engine.setMaxPower(1200.0f)
     engine.setIdleRpm(2500.0f)

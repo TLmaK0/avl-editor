@@ -11,8 +11,10 @@
 package com.abajar.avleditor.crrcsim;
 
 import com.abajar.avleditor.view.annotations.AvlEditorField;
+import com.abajar.avleditor.view.annotations.AvlEditorNode;
 import java.io.Serializable;
 import javax.xml.bind.annotation.XmlAttribute;
+import javax.xml.bind.annotation.XmlElement;
 
 /**
  * A combustion engine (glow, petrol or diesel), as a sibling of the electric {@link Engine} under
@@ -64,6 +66,15 @@ public class CombustionEngine implements Serializable {
         + " Model glow engines are in the 400-900 range; a petrol four-stroke is nearer 350."
     )
     private float fuelConsumption;
+
+
+    @AvlEditorField(text="Mass",
+        help="Mass of the engine, dry, in the model's mass unit. It counts towards the centre of gravity and the"
+        + " inertias, so weigh it rather than compensating with ballast elsewhere."
+    )
+    private float mass;
+
+    private Pos pos = new Pos();
 
     public CombustionEngine() {
     }
@@ -156,5 +167,36 @@ public class CombustionEngine implements Serializable {
      */
     public void setFuelConsumption(float fuelConsumption) {
         this.fuelConsumption = fuelConsumption;
+    }
+
+    /**
+     * @return the mass of the engine
+     */
+    @XmlAttribute
+    public float getMass() {
+        return mass;
+    }
+
+    /**
+     * @param mass the mass of the engine to set
+     */
+    public void setMass(float mass) {
+        this.mass = mass;
+    }
+
+    /**
+     * @return where the engine sits
+     */
+    @AvlEditorNode(name="Position")
+    @XmlElement(name="pos")
+    public Pos getPos() {
+        return pos;
+    }
+
+    /**
+     * @param pos where the engine sits
+     */
+    public void setPos(Pos pos) {
+        this.pos = pos;
     }
 }

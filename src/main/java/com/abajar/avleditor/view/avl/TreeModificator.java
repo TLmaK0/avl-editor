@@ -42,7 +42,16 @@ class AddBody implements TreeModificator{
 
 class CalculateCenterOfMass implements TreeModificator{
   public void modify(Object node, Object parent){
-    ((AVLGeometry)node).calculateCenterOfMassFromMasses();
+    // The editor passes the CRRCSim as the parent so the propulsion masses count too: the centre
+    // of gravity has to come from every component, not just the airframe. Without the motor and
+    // the battery it lands wherever the geometry alone puts it, and the only way to move it is
+    // ballast.
+    AVLGeometry geometry = (AVLGeometry)node;
+    if (parent instanceof CRRCSim) {
+      geometry.calculateCenterOfMassFromMasses(((CRRCSim)parent).getAllMasses());
+    } else {
+      geometry.calculateCenterOfMassFromMasses();
+    }
   }
 }
 

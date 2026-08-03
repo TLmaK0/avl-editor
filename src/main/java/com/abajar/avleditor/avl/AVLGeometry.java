@@ -458,8 +458,16 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return masses;
     }
 
+    /**
+     * The centre of gravity from the geometry's masses alone. Callers that know about the
+     * propulsion should use the overload: a motor and a battery move the CG a long way, and
+     * leaving them out is what forces ballast into a model.
+     */
     public boolean calculateCenterOfMassFromMasses() {
-        ArrayList<Mass> masses = getMassesRecursive();
+        return calculateCenterOfMassFromMasses(getMassesRecursive());
+    }
+
+    public boolean calculateCenterOfMassFromMasses(ArrayList<Mass> masses) {
         float totalMass = 0f;
         float xWeighted = 0f;
         float yWeighted = 0f;

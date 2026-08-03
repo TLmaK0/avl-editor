@@ -58,11 +58,15 @@ object SimulationRequirementsCheck {
     battery.createShaft()
     val shaft = battery.getShafts.get(0)
 
+    battery.setMass(0.45f); battery.getPos.setX(0.25f)
+
     // Same path the "+ Propeller" toolbar button uses.
     val propeller = shaft.createPropeller()
     propeller.setD(0.25f)
+    propeller.setMass(0.03f); propeller.getPos.setX(0.02f)
 
     val engine = shaft.createEngine()
+    engine.setMass(0.18f); engine.getPos.setX(0.08f)
     val point = new EngineData
     point.setU_K(11.1f); point.setI_M(0.45f); point.setRpms(10000f)
     engine.getData.add(point)

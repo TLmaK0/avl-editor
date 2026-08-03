@@ -332,7 +332,9 @@ object AvlEditor{
       val oldYref = geo.getYref
       val oldZref = geo.getZref
 
-      ENABLE_BUTTONS.CALCULATE_CG.click(nodeSelected, parent)
+      // Pass the model, not the tree parent: the CG must include the propulsion masses, which
+      // live under Config > Power and not in the geometry.
+      ENABLE_BUTTONS.CALCULATE_CG.click(nodeSelected, crrcsim)
 
       val newXref = geo.getXref
       val newYref = geo.getYref
