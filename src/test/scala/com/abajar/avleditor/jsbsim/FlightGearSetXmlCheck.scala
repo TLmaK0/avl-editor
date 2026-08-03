@@ -41,9 +41,16 @@ object FlightGearSetXmlCheck {
 
     check("aero points at the JSBSim model name", textOf(xml, "aero").exists(_ == name))
 
-    // Generated models have no cockpit interior: starting in view 0 shows an empty scene.
-    check("starts in an external view",
-      textOf(xml, "view-number").exists(_.trim == FlightGearExporter.ChaseView.toString))
+    // Generated models have no cockpit interior: starting in view 0 shows an empty scene. The
+    // view has to be selected from Nasal, once FlightGear has built its views -- setting
+    // /sim/current-view/view-number in this file is applied too early and silently falls back to
+    // view 0. This asserts the mechanism is present; that FlightGear honours it can only be
+    // confirmed by running it (see PLAN.md).
+    val viewProperty = "\"/sim/current-view/view-number\", " + FlightGearExporter.ChaseView
+    check("an external view is selected from Nasal",
+      xml.contains("setlistener(\"/sim/signals/fdm-initialized\"") && xml.contains(viewProperty))
+    check("the view number is not set directly, which would be ignored",
+      !xml.contains("<current-view>"))
     // FlightGear resolves this relative to the aircraft's own directory; prefixing it with
     // the package name makes it fall back to glider.ac.
     check("model path is relative to the aircraft directory",
