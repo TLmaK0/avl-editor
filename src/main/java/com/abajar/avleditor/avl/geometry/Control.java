@@ -253,6 +253,21 @@ public class Control extends MassObject implements AVLSerializable {
         }
     }
 
+    /**
+     * The middle of the control: its section's centre moved back to the hinge line, since a control
+     * surface lives behind the hinge rather than at mid-chord.
+     */
+    @Override
+    public float[] geometricCenter() {
+        Section section = getParentSection();
+        if (section == null) return new float[]{0f, 0f, 0f};
+        float[] centre = section.geometricCenter();
+        float hinge = Math.max(0f, Math.min(1f, getXhinge()));
+        // The section's centre is at mid-chord; move it to halfway between hinge and trailing edge.
+        centre[0] += section.getChord() * (0.5f * (hinge + 1f) - 0.5f);
+        return centre;
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         return new ArrayList<Mass>(getMasses());
     }

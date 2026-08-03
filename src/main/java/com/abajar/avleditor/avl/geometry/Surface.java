@@ -246,6 +246,35 @@ public class Surface extends MassObject implements AVLSerializable {
     }
 
     // Initialize parent references for all sections and controls (call after loading from file)
+    /**
+     * The middle of the surface: the area-weighted centroid of the trapezoidal panels between
+     * consecutive sections, at mid-chord, plus the surface's offsets. A symmetric surface centres
+     * on the plane of symmetry, because the mirrored half cancels the defined half's y.
+     */
+    @Override
+    public float[] geometricCenter() {
+        float area = 0f, x = 0f, y = 0f, z = 0f;
+        ArrayList<Section> sections = getSections();
+        for (int i = 0; i < sections.size() - 1; i++) {
+            Section root = sections.get(i);
+            Section tip = sections.get(i + 1);
+            float span = (float) Math.hypot(tip.getYle() - root.getYle(), tip.getZle() - root.getZle());
+            float panelArea = 0.5f * (Math.max(0f, root.getChord()) + Math.max(0f, tip.getChord())) * span;
+            if (panelArea <= 0f) continue;
+            float midChord = 0.25f * (root.getChord() + tip.getChord());
+            area += panelArea;
+            x += panelArea * (0.5f * (root.getXle() + tip.getXle()) + midChord);
+            y += panelArea * 0.5f * (root.getYle() + tip.getYle());
+            z += panelArea * 0.5f * (root.getZle() + tip.getZle());
+        }
+        if (area <= 0f) return new float[]{getdX(), getdY(), getdZ()};
+
+        float cy = y / area;
+        // The mirrored half is the same area at -y, so the pair balances on the symmetry plane.
+        if (isSymmetric()) cy = 0f;
+        return new float[]{x / area + getdX(), cy + getdY(), z / area + getdZ()};
+    }
+
     public void initSectionParents() {
         for (Section section : this.getSections()) {
             section.setParentSurface(this);

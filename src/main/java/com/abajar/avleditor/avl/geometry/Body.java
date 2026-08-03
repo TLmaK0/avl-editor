@@ -351,6 +351,41 @@ public class Body extends MassObject implements AVLSerializable  {
         this.length = length;
     }
 
+    /**
+     * The middle of the body: the volume-weighted centroid of the truncated cones between
+     * consecutive profile points, plus the body's offsets. Profile x is a fraction of the length,
+     * so it is scaled; the radius weighs squared, which is why a fat mid-section pulls the centre
+     * towards it rather than to the geometric mid-point.
+     */
+    @Override
+    public float[] geometricCenter() {
+        float volume = 0f, moment = 0f;
+        ArrayList<BodyProfilePoint> points = getProfilePoints();
+        for (int i = 0; i < points.size() - 1; i++) {
+            BodyProfilePoint from = points.get(i);
+            BodyProfilePoint to = points.get(i + 1);
+            float x1 = from.getX() * getLength();
+            float x2 = to.getX() * getLength();
+            float r1 = Math.max(0f, from.getRadius());
+            float r2 = Math.max(0f, to.getRadius());
+            float segment = x2 - x1;
+            if (segment <= 0f) continue;
+
+            // Truncated cone: V = pi/3 * h * (r1^2 + r1*r2 + r2^2)
+            float coneVolume = (float)(Math.PI / 3.0) * segment * (r1 * r1 + r1 * r2 + r2 * r2);
+            if (coneVolume <= 0f) continue;
+            // Its centroid, measured from the smaller end.
+            float weighted = r1 * r1 + 2f * r1 * r2 + 3f * r2 * r2;
+            float divisor = 4f * (r1 * r1 + r1 * r2 + r2 * r2);
+            float centroid = divisor > 0f ? segment * weighted / divisor : 0.5f * segment;
+
+            volume += coneVolume;
+            moment += coneVolume * (x1 + centroid);
+        }
+        if (volume <= 0f) return new float[]{getdX() + 0.5f * getLength(), getdY(), getdZ()};
+        return new float[]{getdX() + moment / volume, getdY(), getdZ()};
+    }
+
     public ArrayList<Mass> getMassesRecursive(){
         return new ArrayList<Mass>(getMasses());
     }

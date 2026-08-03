@@ -373,6 +373,21 @@ public class Section  extends MassObject implements AVLSerializable{
         }
     }
 
+    /**
+     * The middle of the section: its mid-chord point, plus the parent surface's offsets when the
+     * link is available (it is transient, re-established after loading a file).
+     */
+    @Override
+    public float[] geometricCenter() {
+        float dX = 0f, dY = 0f, dZ = 0f;
+        if (this.parentSurface != null) {
+            dX = this.parentSurface.getdX();
+            dY = this.parentSurface.getdY();
+            dZ = this.parentSurface.getdZ();
+        }
+        return new float[]{getXle() + 0.5f * getChord() + dX, getYle() + dY, getZle() + dZ};
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Control control: getControls()){

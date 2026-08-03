@@ -48,10 +48,30 @@ public abstract class MassObject implements Serializable{
         }
     }
 
+    /**
+     * A new mass starts at the middle of this element rather than at the origin: weighing a wing
+     * and having its mass appear in the middle of the wing is the useful default, and the origin
+     * is the nose, which is wrong for everything except a nose-mounted item.
+     *
+     * The position is only a starting point. It belongs to the mass from then on and is editable in
+     * the properties table; nothing recomputes it, so moving it sticks.
+     */
     public Mass createMass() {
         Mass mass = new Mass();
+        float[] centre = geometricCenter();
+        mass.setX(centre[0]);
+        mass.setY(centre[1]);
+        mass.setZ(centre[2]);
         this.getMasses().add(mass);
         return mass;
+    }
+
+    /**
+     * The centre of this element's own geometry, as {x, y, z}. Elements that have geometry work it
+     * out from their own shape; the default is the origin, for anything that has none.
+     */
+    public float[] geometricCenter() {
+        return new float[]{0f, 0f, 0f};
     }
 
     public abstract ArrayList<Mass> getMassesRecursive();

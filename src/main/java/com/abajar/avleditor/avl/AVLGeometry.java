@@ -445,6 +445,32 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return body;
     }
 
+    /**
+     * The middle of the whole aircraft: every surface's and body's own centre, weighted by the
+     * volume each of them encloses, so a mass added straight to the geometry starts somewhere
+     * defensible instead of on the nose.
+     */
+    @Override
+    public float[] geometricCenter() {
+        float weight = 0f, x = 0f, y = 0f, z = 0f;
+        for (Surface surface : getSurfaces()) {
+            VolumeCentroid volume = estimateSurfaceDefinedSideVolume(surface);
+            float w = surface.isSymmetric() ? 2f * volume.volume : volume.volume;
+            if (w <= EPSILON) continue;
+            float[] centre = surface.geometricCenter();
+            weight += w; x += w * centre[0]; y += w * centre[1]; z += w * centre[2];
+        }
+        for (Body body : getBodies()) {
+            VolumeCentroid volume = estimateBodyDefinedSideVolume(body);
+            float w = volume.volume;
+            if (w <= EPSILON) continue;
+            float[] centre = body.geometricCenter();
+            weight += w; x += w * centre[0]; y += w * centre[1]; z += w * centre[2];
+        }
+        if (weight <= EPSILON) return new float[]{0f, 0f, 0f};
+        return new float[]{x / weight, y / weight, z / weight};
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Surface surface: getSurfaces()){
