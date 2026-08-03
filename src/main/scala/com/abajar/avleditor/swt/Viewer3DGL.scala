@@ -88,6 +88,15 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   @volatile private var isDraggingCollisionPoint: Boolean = false
   private var collisionPointUpdateCallback: Option[(Int, Float, Float, Float) => Unit] = None
 
+  // Masses in AVL coordinates with their weight, (x, y, z, kg), and which one the tree has
+  // selected. The selected one is moved one axis at a time, so each axis drags separately.
+  @volatile private var massPoints: Array[(Float, Float, Float, Float)] = Array()
+  @volatile private var selectedMassPoint: Option[Int] = None
+  @volatile private var isDraggingMassAxisX: Boolean = false
+  @volatile private var isDraggingMassAxisY: Boolean = false
+  @volatile private var isDraggingMassAxisZ: Boolean = false
+  private var massPointUpdateCallback: Option[(Int, Float, Float, Float) => Unit] = None
+
   // Selected section for editing (surfaceIndex, sectionIndex, x, y, z, chord)
   @volatile private var selectedSection: Option[(Int, Int, Float, Float, Float, Float)] = None
   @volatile private var isDraggingSection: Boolean = false
@@ -221,7 +230,13 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       if (e.getButton == java.awt.event.MouseEvent.BUTTON1) {
         // Left click to drag section, control, body, profile point or collision point when
         // one is selected
-        if (selectedCollisionPoint.isDefined) {
+        if (selectedMassPoint.isDefined) {
+          getClosestMassAxisHandle(e.getX, e.getY) match {
+            case "y" => isDraggingMassAxisY = true
+            case "z" => isDraggingMassAxisZ = true
+            case _   => isDraggingMassAxisX = true
+          }
+        } else if (selectedCollisionPoint.isDefined) {
           isDraggingCollisionPoint = true
         } else if (selectedProfilePoint.isDefined) {
           // Check which handle is closer (X position or radius)
@@ -260,7 +275,17 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     }
 
     override def mouseReleased(e: java.awt.event.MouseEvent): Unit = {
-      if (isDraggingCollisionPoint) {
+      if (isDraggingMassAxisX || isDraggingMassAxisY || isDraggingMassAxisZ) {
+        isDraggingMassAxisX = false
+        isDraggingMassAxisY = false
+        isDraggingMassAxisZ = false
+        selectedMassPoint.foreach { index =>
+          if (index < massPoints.length) {
+            val (x, y, z, _) = massPoints(index)
+            massPointUpdateCallback.foreach(_(index, x, y, z))
+          }
+        }
+      } else if (isDraggingCollisionPoint) {
         isDraggingCollisionPoint = false
         selectedCollisionPoint.foreach { index =>
           if (index < collisionPoints.length) {
@@ -309,7 +334,29 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
   glCanvas.addMouseMotionListener(new java.awt.event.MouseMotionAdapter {
     override def mouseDragged(e: java.awt.event.MouseEvent): Unit = {
-      if (isDraggingCollisionPoint) {
+      if (isDraggingMassAxisX || isDraggingMassAxisY || isDraggingMassAxisZ) {
+        // One axis at a time, and by however far the mouse travelled along that axis as it appears
+        // on screen. A fixed "horizontal is x" rule moves the mass the wrong way as soon as the
+        // view is rotated, and every view here is rotated. No vertex snapping: a battery sits
+        // inside the fuselage, not on its skin.
+        val axis = if (isDraggingMassAxisX) 0 else if (isDraggingMassAxisY) 1 else 2
+        selectedMassPoint.foreach { index =>
+          if (index < massPoints.length) {
+            val (x, y, z, mass) = massPoints(index)
+            val delta = massAxisDelta(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
+            val moved = axis match {
+              case 0 => (x + delta, y, z, mass)
+              case 1 => (x, y + delta, z, mass)
+              case _ => (x, y, z + delta, mass)
+            }
+            val updated = massPoints.clone()
+            updated(index) = moved
+            massPoints = updated
+          }
+        }
+        lastMouseX = e.getX
+        lastMouseY = e.getY
+      } else if (isDraggingCollisionPoint) {
         // Horizontal mouse moves along the fuselage (AVL x), vertical moves in height (AVL z),
         // which is what placing a wheel under the aircraft needs. Snapping to a mesh vertex
         // sets all three coordinates at once, for putting the contact exactly on the model.
@@ -665,6 +712,25 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     collisionPointUpdateCallback = Some(callback)
   }
 
+  /** Every mass the model has a position for, as (x, y, z, kg) in AVL coordinates. They decide the
+    * centre of gravity, so they are drawn where they are and the selected one can be moved. */
+  def setMassPoints(points: Array[(Float, Float, Float, Float)]): Unit = {
+    massPoints = points
+  }
+
+  def setSelectedMassPoint(index: Int): Unit = {
+    selectedMassPoint = Some(index)
+  }
+
+  def clearSelectedMassPoint(): Unit = {
+    selectedMassPoint = None
+  }
+
+  /** Called on mouse release with the dragged mass's index and its new AVL coordinates. */
+  def setMassPointUpdateCallback(callback: (Int, Float, Float, Float) => Unit): Unit = {
+    massPointUpdateCallback = Some(callback)
+  }
+
   def setScale(scale: Float): Unit = {
     displayScale = scale
     if (vertices.nonEmpty) updateInfoLabel()
@@ -892,6 +958,66 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         } else "center"
       } else "center"
     }.getOrElse("center")
+  }
+
+  /**
+   * The aircraft's largest dimension in AVL units, taken from the AVL geometry rather than from the
+   * mesh: the geometry is what the masses are positioned against, and a model may have no mesh at
+   * all. Used to size the mass handles, so they are grabbable on a 20 cm model and not vast on a
+   * 20 m one.
+   */
+  private def avlExtent(): Float = {
+    var largest = 0f
+    avlSurfaces.foreach { case (sections, symmetric) =>
+      sections.foreach { case (xle, yle, zle, chord, _, _, _) =>
+        largest = scala.math.max(largest, xle + chord)
+        largest = scala.math.max(largest, scala.math.abs(yle) * (if (symmetric) 2f else 1f))
+      }
+    }
+    avlBodies.foreach { case (_, _, dX, _, _, length, _) =>
+      largest = scala.math.max(largest, dX + length)
+    }
+    if (largest > 0f) largest else 1.0f
+  }
+
+  private def massHandleOffset(): Float = avlExtent() * 0.12f
+
+  /** The three handle positions of a mass marker, in AVL coordinates. */
+  private def massAxisHandles(x: Float, y: Float, z: Float): Seq[(Float, Float, Float)] = {
+    val offset = massHandleOffset()
+    Seq((x + offset, y, z), (x, y + offset, z), (x, y, z + offset))
+  }
+
+  private def getClosestMassAxisHandle(mouseX: Int, mouseY: Int): String = {
+    selectedMassPoint.filter(_ < massPoints.length).map { index =>
+      val (x, y, z, _) = massPoints(index)
+      val distances = massAxisHandles(x, y, z).zip(Seq("x", "y", "z")).map { case ((hx, hy, hz), axis) =>
+        val distance = projectToScreen(hx, hy, hz) match {
+          case Some((sx, sy)) =>
+            val dx = mouseX - sx
+            val dy = mouseY - sy
+            (dx * dx + dy * dy).toFloat
+          case None => Float.MaxValue
+        }
+        (distance, axis)
+      }
+      distances.minBy(_._1)._2
+    }.getOrElse("x")
+  }
+
+  /**
+   * How far a mass moves along one axis for a mouse movement, by projecting the mouse movement onto
+   * that axis's direction on screen. The handle offset is the yardstick: it is one known length
+   * along the axis, so its projected length converts pixels back into AVL units.
+   */
+  private def massAxisDelta(x: Float, y: Float, z: Float, axis: Int, mouseDx: Int, mouseDy: Int): Float = {
+    val offset = massHandleOffset()
+    val handle = massAxisHandles(x, y, z)(axis)
+    (projectToScreen(x, y, z), projectToScreen(handle._1, handle._2, handle._3)) match {
+      case (Some((originX, originY)), Some((handleX, handleY))) =>
+        Viewer3DGL.axisDragDelta(handleX - originX, handleY - originY, mouseDx, mouseDy, offset)
+      case _ => 0f
+    }
   }
 
   // Find nearest vertex based on screen position (2D projection)
@@ -1163,6 +1289,8 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       if (selectedBody.isDefined) drawSelectedBodyHandle(gl)
       if (selectedProfilePoint.isDefined) drawSelectedProfilePointHandle(gl)
       if (collisionPoints.nonEmpty) drawCollisionPoints(gl)
+      if (massPoints.nonEmpty) drawMassPoints(gl)
+      if (selectedMassPoint.isDefined) drawSelectedMassHandles(gl)
     }
 
     gl.glFlush()
@@ -1761,6 +1889,96 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     if (!wireframeMode) gl.glEnable(GLLightingFunc.GL_LIGHTING)
   }
 
+  /**
+   * The masses as markers, sized by weight. The size is the square root of the weight relative to
+   * the heaviest one, so it reads as an area rather than as a diameter and a 2 kg battery does not
+   * dwarf a 200 g motor entirely. A mass of zero still gets the smallest marker: its position is
+   * real even when the weight is stated elsewhere.
+   *
+   * Sizes are in pixels, and depth testing is off, as for every other overlay in this viewer: a
+   * mass inside the fuselage is exactly the case that has to be visible.
+   */
+  private def drawMassPoints(gl: GL2): Unit = {
+    gl.glDisable(GLLightingFunc.GL_LIGHTING)
+    gl.glDisable(GL.GL_DEPTH_TEST)
+
+    gl.glPushMatrix()
+    gl.glScalef(modelScale, modelScale, modelScale)
+    gl.glTranslatef(-centerX, -centerY, -centerZ)
+
+    val points = massPoints
+    val heaviest = points.foldLeft(0f)((acc, p) => scala.math.max(acc, p._4))
+    points.zipWithIndex.foreach { case ((x, y, z, mass), index) =>
+      val (mx, my, mz) = avlToModel(x, y, z)
+      val fraction = if (heaviest > 0f) scala.math.sqrt(scala.math.max(mass, 0f) / heaviest).toFloat else 0f
+      val size = 7.0f + 9.0f * fraction
+
+      if (selectedMassPoint.exists(_ == index)) {
+        gl.glColor3f(1.0f, 0.85f, 1.0f) // the same violet, brightened
+        gl.glPointSize(size + 5.0f)
+      } else {
+        gl.glColor3f(0.85f, 0.35f, 1.0f) // violet, so masses are not mistaken for collision points
+        gl.glPointSize(size)
+      }
+      gl.glBegin(GL.GL_POINTS)
+      gl.glVertex3f(mx * displayScale, my * displayScale, mz * displayScale)
+      gl.glEnd()
+    }
+
+    gl.glPopMatrix()
+    gl.glPointSize(1.0f)
+    gl.glEnable(GL.GL_DEPTH_TEST)
+    if (!wireframeMode) gl.glEnable(GLLightingFunc.GL_LIGHTING)
+  }
+
+  /**
+   * One handle per axis on the selected mass, coloured as the body handles are (X red, Y green,
+   * Z blue). There is no centre handle: without a surface to snap to, a free drag would have to
+   * guess which plane the mass moves in, and guessing is what the axes avoid.
+   */
+  private def drawSelectedMassHandles(gl: GL2): Unit = {
+    selectedMassPoint.filter(_ < massPoints.length).foreach { index =>
+      val (x, y, z, _) = massPoints(index)
+
+      gl.glDisable(GLLightingFunc.GL_LIGHTING)
+      gl.glDisable(GL.GL_DEPTH_TEST)
+
+      gl.glPushMatrix()
+      gl.glScalef(modelScale, modelScale, modelScale)
+      gl.glTranslatef(-centerX, -centerY, -centerZ)
+
+      val (cx, cy, cz) = avlToModel(x, y, z)
+      val handles = massAxisHandles(x, y, z)
+      val colours = Seq((1.0f, 0.3f, 0.3f), (0.3f, 1.0f, 0.3f), (0.3f, 0.5f, 1.0f))
+      val dragging = Seq(isDraggingMassAxisX, isDraggingMassAxisY, isDraggingMassAxisZ)
+
+      gl.glLineWidth(3.0f)
+      handles.zip(colours).zip(dragging).foreach { case (((hx, hy, hz), (r, g, b)), isActive) =>
+        val (mx, my, mz) = avlToModel(hx, hy, hz)
+        if (isActive) {
+          gl.glColor3f(scala.math.min(1.0f, r + 0.4f), scala.math.min(1.0f, g + 0.4f), scala.math.min(1.0f, b + 0.4f))
+          gl.glPointSize(16.0f)
+        } else {
+          gl.glColor3f(r, g, b)
+          gl.glPointSize(12.0f)
+        }
+        gl.glBegin(GL.GL_POINTS)
+        gl.glVertex3f(mx * displayScale, my * displayScale, mz * displayScale)
+        gl.glEnd()
+        gl.glBegin(GL.GL_LINES)
+        gl.glVertex3f(cx * displayScale, cy * displayScale, cz * displayScale)
+        gl.glVertex3f(mx * displayScale, my * displayScale, mz * displayScale)
+        gl.glEnd()
+      }
+
+      gl.glPopMatrix()
+      gl.glPointSize(1.0f)
+      gl.glLineWidth(1.0f)
+      gl.glEnable(GL.GL_DEPTH_TEST)
+      if (!wireframeMode) gl.glEnable(GLLightingFunc.GL_LIGHTING)
+    }
+  }
+
   private def drawSelectedProfilePointHandle(gl: GL2): Unit = {
     selectedProfilePoint.foreach { case (bodyIdx, pointIdx, x, radius) =>
       // Get body data from avlBodies
@@ -2011,5 +2229,31 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
     gl.glEnable(GL.GL_DEPTH_TEST)
     gl.glEnable(GLLightingFunc.GL_LIGHTING)
+  }
+}
+
+object Viewer3DGL {
+
+  /** Below this, an axis is pointing so nearly into the screen that its direction on screen is
+    * noise: a pixel of mouse movement would send the mass a long way. */
+  val MinAxisPixels: Float = 6.0f
+
+  /**
+   * How far to move along an axis for a mouse movement, given where that axis points on screen.
+   *
+   * `axisScreenDx/Dy` is the screen vector of one known step along the axis — the handle offset —
+   * and `unit` is that step in model units, so the projection of the mouse movement onto it converts
+   * pixels back into model units. Dragging away from the handle's direction moves the mass forward
+   * along the axis and towards it moves it back, which is what the handle looks like it should do
+   * from any viewpoint.
+   *
+   * An axis seen almost end-on returns 0: it cannot be dragged meaningfully, and refusing is better
+   * than a jump. Rotating the view brings it back.
+   */
+  def axisDragDelta(axisScreenDx: Float, axisScreenDy: Float,
+                    mouseDx: Float, mouseDy: Float, unit: Float): Float = {
+    val lengthSq = axisScreenDx * axisScreenDx + axisScreenDy * axisScreenDy
+    if (lengthSq < MinAxisPixels * MinAxisPixels) 0f
+    else (mouseDx * axisScreenDx + mouseDy * axisScreenDy) / lengthSq * unit
   }
 }

@@ -53,8 +53,9 @@ public abstract class MassObject implements Serializable{
      * and having its mass appear in the middle of the wing is the useful default, and the origin
      * is the nose, which is wrong for everything except a nose-mounted item.
      *
-     * The position is only a starting point. It belongs to the mass from then on and is editable in
-     * the properties table; nothing recomputes it, so moving it sticks.
+     * The position is only a starting point. It belongs to the mass from then on and can be changed
+     * either in the properties table or by dragging the mass in the 3D view; nothing recomputes it,
+     * so moving it sticks.
      */
     public Mass createMass() {
         Mass mass = new Mass();

@@ -47,6 +47,10 @@ Commit messages should be concise, clear, and a maximum of two lines. The first 
 ### Recent UI Changes
 
 - The button to add a new section to a surface has been changed to a `+` button for a more intuitive user experience.
+- Every mass the model states a position for — the geometry's masses and the propulsion components'
+  and fuel tank's own positions — is drawn in the 3D view, sized by weight, and the selected one is
+  moved with an axis handle per direction. A mass with no stated weight still gets a marker: its
+  position is real. See `mass.MassMarkers`.
 
 ## Feature Planning
 

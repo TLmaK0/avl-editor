@@ -162,6 +162,18 @@ object AvlEditor{
           // Select and update body in 3D viewer when properties change
           selectBodyIn3D(body)
           loadAvlBodies()
+        case mass: com.abajar.avleditor.avl.mass.Mass =>
+          // A weight or a coordinate typed into the table moves the marker, and its size says how
+          // heavy it is, so both have to be pushed again.
+          loadMassPoints()
+          selectMassIn3D(mass)
+        case pos: com.abajar.avleditor.crrcsim.Pos =>
+          loadMassPoints()
+          loadCollisionPoints()
+          selectPositionIn3D(pos)
+        case component if com.abajar.avleditor.mass.MassMarkers.indexOf(massMarkers, component).isDefined =>
+          loadMassPoints()
+          selectMassIn3D(component)
         case _ => // Do nothing for other types
       }
       // Refresh the selected tree item name
@@ -218,6 +230,15 @@ object AvlEditor{
       window.display.asyncExec(new Runnable {
         override def run(): Unit = {
           updateCollisionPointFromViewer(pointIdx, x, y, z)
+        }
+      })
+    })
+
+    // Set up mass update callback for 3D editing
+    window.viewer3D.setMassPointUpdateCallback((massIdx: Int, x: Float, y: Float, z: Float) => {
+      window.display.asyncExec(new Runnable {
+        override def run(): Unit = {
+          updateMassFromViewer(massIdx, x, y, z)
         }
       })
     })
@@ -472,6 +493,12 @@ object AvlEditor{
             selectProfilePointIn3D(point)
           case wheel: com.abajar.avleditor.crrcsim.Wheel =>
             selectCollisionPointIn3D(wheel)
+          case mass: com.abajar.avleditor.avl.mass.Mass =>
+            selectMassIn3D(mass)
+          case pos: com.abajar.avleditor.crrcsim.Pos =>
+            selectPositionIn3D(pos)
+          case component if com.abajar.avleditor.mass.MassMarkers.indexOf(massMarkers, component).isDefined =>
+            selectMassIn3D(component)
           case _ =>
         }
         loadPropertiesForTreeItem(data)
@@ -648,6 +675,7 @@ object AvlEditor{
       }
       // Every geometry refresh goes through here, so the markers follow the model.
       loadCollisionPoints()
+      loadMassPoints()
     }
 
     /** Push the model's collision points to the 3D view so they can be seen and placed. */
@@ -683,6 +711,51 @@ object AvlEditor{
         case _ =>
       }
       loadCollisionPoints()
+    }
+
+    /** The masses the 3D view is currently showing, in the order it knows them by. Rebuilt on every
+      * geometry refresh, so an index is only meaningful until the next one — which is why a drag is
+      * applied straight away rather than remembered. */
+    private var massMarkers: IndexedSeq[com.abajar.avleditor.mass.MassMarker] = IndexedSeq.empty
+
+    /** Push every mass the model states a position for to the 3D view, so the positions that decide
+      * the centre of gravity can be seen and moved instead of only typed. */
+    private def loadMassPoints(): Unit = {
+      try {
+        massMarkers = com.abajar.avleditor.mass.MassMarkers.from(crrcsim)
+        window.viewer3D.setMassPoints(massMarkers.map(m => (m.x, m.y, m.z, m.mass)).toArray)
+      } catch {
+        case e: Exception =>
+          logger.log(Level.WARNING, "Error loading masses", e)
+      }
+    }
+
+    /** Applies a mass drag from the 3D view as one undoable step. */
+    private def updateMassFromViewer(massIdx: Int, x: Float, y: Float, z: Float): Unit = {
+      if (massIdx < 0 || massIdx >= massMarkers.size) return
+      val marker = massMarkers(massIdx)
+
+      pushDrag(marker.position, s"Move ${marker.label}", Seq("x", "y", "z")) {
+        marker.moveTo(x, y, z)
+      }
+
+      // The properties table shows the coordinates as numbers: keep the two in step.
+      window.treeNodeSelected.foreach { selected =>
+        if ((selected.asInstanceOf[AnyRef] eq marker.node) || (selected.asInstanceOf[AnyRef] eq marker.position)) {
+          loadPropertiesForTreeItem(selected)
+        }
+      }
+      loadMassPoints()
+      selectMassIn3D(marker.node)
+    }
+
+    /** Highlights the marker a tree node refers to: the mass itself, a propulsion component, or
+      * that component's Position node. */
+    private def selectMassIn3D(node: Any): Unit = {
+      com.abajar.avleditor.mass.MassMarkers.indexOf(massMarkers, node) match {
+        case Some(index) => window.viewer3D.setSelectedMassPoint(index)
+        case None => window.viewer3D.clearSelectedMassPoint()
+      }
     }
 
     private def selectCollisionPointIn3D(wheel: com.abajar.avleditor.crrcsim.Wheel): Unit = {
@@ -1134,10 +1207,7 @@ object AvlEditor{
         clearProperties()
         window.disableAllButtons
         window.help.setText("No AVL results yet. Run AVL first.")
-        window.viewer3D.clearSelectedSection()
-        window.viewer3D.clearSelectedControl()
-        window.viewer3D.clearSelectedBody()
-        window.viewer3D.clearSelectedProfilePoint()
+        clear3DSelections()
         return
       }
 
@@ -1158,7 +1228,11 @@ object AvlEditor{
         window.disableAllButtons
       }
 
-      // Load 3D model if Graphics node is selected
+      // Only one thing is edited in the 3D view at a time, so every selection is dropped first and
+      // then the one this node refers to is set. Clearing branch by branch left a stale selection
+      // behind — a profile point still selected while a section was chosen — and the drag code,
+      // which tests the profile point first, then moved the wrong thing.
+      clear3DSelections()
       data match {
         case graphics: com.abajar.avleditor.crrcsim.Graphics =>
           val modelPath = graphics.getModel
@@ -1179,49 +1253,50 @@ object AvlEditor{
           } else {
             window.viewer3D.clearModel()
           }
-          window.viewer3D.clearSelectedSection()
-          window.viewer3D.clearSelectedControl()
-          window.viewer3D.clearSelectedBody()
-          window.viewer3D.clearSelectedCollisionPoint()
         case section: com.abajar.avleditor.avl.geometry.Section =>
           // Find the parent surface and section index
           selectSectionIn3D(section)
-          window.viewer3D.clearSelectedControl()
-          window.viewer3D.clearSelectedBody()
-          window.viewer3D.clearSelectedCollisionPoint()
         case control: com.abajar.avleditor.avl.geometry.Control =>
           // Find the parent surface, section and control index
           selectControlIn3D(control)
-          window.viewer3D.clearSelectedSection()
-          window.viewer3D.clearSelectedBody()
-          window.viewer3D.clearSelectedCollisionPoint()
         case body: com.abajar.avleditor.avl.geometry.Body =>
           // Find the body index and select it
           selectBodyIn3D(body)
-          window.viewer3D.clearSelectedSection()
-          window.viewer3D.clearSelectedControl()
-          window.viewer3D.clearSelectedProfilePoint()
-          window.viewer3D.clearSelectedCollisionPoint()
         case profilePoint: com.abajar.avleditor.avl.geometry.BodyProfilePoint =>
           // Find the body and point index, select it in 3D
           selectProfilePointIn3D(profilePoint)
-          window.viewer3D.clearSelectedSection()
-          window.viewer3D.clearSelectedControl()
-          window.viewer3D.clearSelectedBody()
-          window.viewer3D.clearSelectedCollisionPoint()
         case wheel: com.abajar.avleditor.crrcsim.Wheel =>
           selectCollisionPointIn3D(wheel)
-          window.viewer3D.clearSelectedSection()
-          window.viewer3D.clearSelectedControl()
-          window.viewer3D.clearSelectedBody()
-          window.viewer3D.clearSelectedProfilePoint()
-        case _ =>
-          // Clear selections for other nodes
-          window.viewer3D.clearSelectedSection()
-          window.viewer3D.clearSelectedControl()
-          window.viewer3D.clearSelectedBody()
-          window.viewer3D.clearSelectedProfilePoint()
-          window.viewer3D.clearSelectedCollisionPoint()
+        case mass: com.abajar.avleditor.avl.mass.Mass =>
+          selectMassIn3D(mass)
+        case pos: com.abajar.avleditor.crrcsim.Pos =>
+          // A Position node belongs either to a propulsion component or to a wheel.
+          selectPositionIn3D(pos)
+        case component if com.abajar.avleditor.mass.MassMarkers.indexOf(massMarkers, component).isDefined =>
+          // A propulsion component: its own position is one of the masses.
+          selectMassIn3D(component)
+        case _ => ()
+      }
+    }
+
+    private def clear3DSelections(): Unit = {
+      window.viewer3D.clearSelectedSection()
+      window.viewer3D.clearSelectedControl()
+      window.viewer3D.clearSelectedBody()
+      window.viewer3D.clearSelectedProfilePoint()
+      window.viewer3D.clearSelectedCollisionPoint()
+      window.viewer3D.clearSelectedMassPoint()
+    }
+
+    /** A Position node is a mass's if a propulsion component owns it, and a collision point's if a
+      * wheel does. */
+    private def selectPositionIn3D(pos: com.abajar.avleditor.crrcsim.Pos): Unit = {
+      if (com.abajar.avleditor.mass.MassMarkers.indexOf(massMarkers, pos).isDefined) {
+        selectMassIn3D(pos)
+      } else {
+        Option(crrcsim.getWheels).map(_.asScala).getOrElse(Nil)
+          .find(wheel => wheel.getPos eq pos)
+          .foreach(selectCollisionPointIn3D)
       }
     }
 
