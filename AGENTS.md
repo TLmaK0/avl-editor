@@ -130,6 +130,15 @@ AVL mass file), `CRRCSim.getAllMasses` (JSBSim mass balance, inertias) and
 `calculateCenterOfMassFromMasses()`. Nothing to keep in step, nothing extra to delete, nothing new in
 the file. See `MassObject.mirrorPlaneY/virtualMirrorOf/getEffectiveMasses` and `MassMirrorCheck`.
 
+Masses live on **surfaces and bodies**, not on sections. A section is a station where the wing's shape
+is defined — leading edge, chord, airfoil — and not a part with weight, so the editor does not offer it
+a mass (a control never did). Models that kept masses there are not dropped: every load moves them
+onto the surface, which changes nothing physically — a mass states an absolute position and a section
+mirrors about its surface's plane — and says so in the log
+(`AVLGeometry.moveSectionMassesToSurfaces`, `SectionMassCheck`). The same load restores the transient
+parent links first (`AVLGeometry.initParents`), because a section that does not know its surface does
+not know which plane it mirrors about.
+
 Two rules keep it honest. A mass **already stated on the other side** is not mirrored again — that is
 how every `+Y`/`-Y` pair written by older versions keeps its weight instead of doubling — and a mass
 **on the plane of symmetry** has no mirror, since it already stands for both halves, which is why

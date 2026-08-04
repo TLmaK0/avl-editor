@@ -485,6 +485,47 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return elements;
     }
 
+    /**
+     * Re-establishes the parent links a load cannot restore, since they are transient: a section's
+     * surface, a control's section, a profile point's body. Without them a section and a control do
+     * not know which plane they mirror about, so a mass on a symmetric wing would quietly not be
+     * mirrored.
+     */
+    public void initParents() {
+        for (Surface surface : getSurfaces()) {
+            surface.initSectionParents();
+        }
+        for (Body body : getBodies()) {
+            body.initProfilePointParents();
+        }
+    }
+
+    /**
+     * Moves every mass a section holds onto the surface it belongs to, and says how many moved.
+     *
+     * A section states where the wing's shape is defined, not a part that weighs something, so the
+     * editor no longer offers it a mass; models written before that still have them, and they are
+     * moved rather than dropped. The move changes nothing physically: a mass states an absolute
+     * position, and a section mirrors about its surface's plane, so on the surface it weighs the
+     * same, sits in the same place and mirrors the same way.
+     */
+    public int moveSectionMassesToSurfaces() {
+        int moved = 0;
+        for (Surface surface : getSurfaces()) {
+            for (Section section : surface.getSections()) {
+                if (section.getMasses().isEmpty()) continue;
+                moved += section.getMasses().size();
+                surface.getMasses().addAll(section.getMasses());
+                section.getMasses().clear();
+            }
+        }
+        if (moved > 0) {
+            logger.log(Level.INFO, "Moved {0} mass(es) from sections onto their surfaces: a section "
+                    + "states the wing's shape, the surface carries the weight", moved);
+        }
+        return moved;
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Surface surface: getSurfaces()){

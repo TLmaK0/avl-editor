@@ -28,7 +28,14 @@ import static com.abajar.avleditor.avl.AVLGeometry.*;
  *
  * @author hfreire
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_CONTROL, ENABLE_BUTTONS.DELETE, ENABLE_BUTTONS.ADD_MASS})
+/**
+ * A section is a station where the wing's shape is defined — a leading edge, a chord, an airfoil —
+ * not a part of the aircraft with weight of its own, so it is not offered a mass: that belongs on the
+ * surface. It still extends {@link MassObject} so a model written before this keeps loading and its
+ * masses can be moved onto the surface, which
+ * {@link com.abajar.avleditor.avl.AVLGeometry#moveSectionMassesToSurfaces()} does on load.
+ */
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_CONTROL, ENABLE_BUTTONS.DELETE})
 public class Section  extends MassObject implements AVLSerializable{
     //TODO: AIRFOIL
     //TODO: DESIGN

@@ -104,6 +104,14 @@ public class CRRCSimRepository {
             }
 
             fixCrrcsimDefaultsNewVersions(crrcsim);
+            // Done here, the one place every load goes through, so the editor, the exports and the
+            // tools all see the same model: the transient parent links, without which a section does
+            // not know which plane it mirrors about, and then the masses a model kept on its sections,
+            // which move onto the surface — a section states the wing's shape, not weight.
+            if (crrcsim.getAvl() != null && crrcsim.getAvl().getGeometry() != null) {
+                crrcsim.getAvl().getGeometry().initParents();
+                crrcsim.getAvl().getGeometry().moveSectionMassesToSurfaces();
+            }
             crrcsim.setOriginPath(file.getParentFile().toPath());
         } catch (Exception ex) {
             ex.printStackTrace();
