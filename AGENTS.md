@@ -99,8 +99,12 @@ Rules:
 - Validation runs in `AvlEditor.withAvlCalculation` (the funnel for every export and launch) and
   in `runAvl`. Refusals go through `MainWindow.showError` — **a refusal that only reaches the log
   is indistinguishable from success**.
-- Derived quantities must be derived: `crrcsim.calculate()` populates mass and inertias from the
-  mass objects, so validate *after* it or every model reports zero mass.
+- Derived quantities must be derived: `crrcsim.calculate()` populates the mass, the inertias **and
+  the centre of gravity** from the mass objects, so validate *after* it or every model reports zero
+  mass. The CG belongs there with the rest: it is written to the reference point, which AVL takes its
+  moments about and which the JSBSim export writes as the CG, so a stale one exports an aircraft with
+  the weight of one model and the balance point of another. A model whose masses total zero keeps the
+  reference point it had.
 - When a physical constant is unavoidable, take it from a reference that demonstrably works and
   record the derivation in a comment. Gear stiffness, for instance, comes from FlightGear's stock
   c172p: total spring ≈ 32 × weight per metre (~3 cm static compression), damping = spring / 3.

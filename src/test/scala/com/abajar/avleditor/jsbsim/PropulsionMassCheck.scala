@@ -87,10 +87,24 @@ object PropulsionMassCheck {
 
     println("the total mass reaches the FDM")
     val m = withPropulsion(0.10f)
+    // Something else entirely, as if it had been left over from an earlier layout.
+    m.getAvl.getGeometry.setXref(0.123f)
     m.calculate()
-    println(f"  mass_inertia total: ${m.getConfig.getMass_inertia.getMass}%.4f kg")
+    println(f"  mass_inertia total: ${m.getConfig.getMass_inertia.getMass}%.4f kg, " +
+      f"reference point x: ${m.getAvl.getGeometry.getXref}%.4f")
     check("mass includes the propulsion",
       math.abs(m.getConfig.getMass_inertia.getMass - 1.74f) < 1e-3)
+    // The reference point is what AVL takes its moments about and what the export writes as the CG:
+    // a stale one means an aircraft with the weight of one model and the balance point of another.
+    check("and the reference point is brought onto the masses' CG",
+      math.abs(m.getAvl.getGeometry.getXref - expected) < 1e-3)
+
+    println("a model whose masses total zero")
+    val weightless = new CRRCSimFactory().create()
+    weightless.getAvl.getGeometry.setXref(0.321f)
+    weightless.calculate()
+    check("keeps the reference point it had, rather than being moved to nowhere",
+      math.abs(weightless.getAvl.getGeometry.getXref - 0.321f) < 1e-6)
 
     println("fuel is not counted twice")
     val fuelled = withPropulsion(0.10f)

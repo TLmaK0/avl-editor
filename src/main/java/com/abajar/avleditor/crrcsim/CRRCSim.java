@@ -186,9 +186,20 @@ public class CRRCSim implements Serializable{
         this(new AVL());
     }
 
-    /** Recomputes mass &amp; inertia from the aircraft masses (needed for the FDM export). */
+    /**
+     * Recomputes what the masses decide, before a model is handed to a simulator: the total weight,
+     * the inertias and the centre of gravity.
+     *
+     * The CG is derived here for the same reason the inertias are. It is written to the reference
+     * point, which AVL takes its moments about and which the JSBSim export writes as the CG, so
+     * leaving it as the user last saw it means an exported aircraft with the weight of one model and
+     * the balance point of another — and derivatives computed about a point the aircraft does not
+     * balance on. A model whose masses total zero is left alone; the requirements refuse it anyway.
+     */
     public void calculate() {
-        this.config.setMass_inertiaFromMasses(getAllMasses(), avl.getLengthUnit(), avl.getMassUnit());
+        ArrayList<Mass> masses = getAllMasses();
+        this.config.setMass_inertiaFromMasses(masses, avl.getLengthUnit(), avl.getMassUnit());
+        avl.getGeometry().calculateCenterOfMassFromMasses(masses);
     }
 
     /**
