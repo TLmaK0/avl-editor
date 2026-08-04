@@ -32,13 +32,8 @@ public class Mass implements Serializable{
 
     protected static final Locale locale = new Locale("en");
 
-    /**
-     * The mass on the other side of a mirrored element, when this one has a twin. Transient, so it
-     * is neither written to the file nor shown in the properties table: the link is rebuilt on load
-     * by {@link MassObject#initMassMirrors()}, which can match the two because a pair is always kept
-     * in step.
-     */
-    private transient Mass mirror;
+    /** Marks the copy a mirrored element implies, so it is never mistaken for a stored mass. */
+    public static final String MirrorSuffix = " (mirror)";
 
     @AvlEditorField(text="name",
         help="name. Mass objects must have absolute position."
@@ -247,36 +242,31 @@ public class Mass implements Serializable{
     }
 
     /**
-     * @return the mass on the other side of the mirror plane, or null when this mass has no twin
+     * This mass as it appears on the other side of a mirrored element: the same weight and station,
+     * y reflected. A fresh object every time, belonging to no list — it exists for the model being
+     * generated and for the marker drawn in the 3D view, never as something to edit or delete.
      */
-    public Mass getMirror() {
-        return mirror;
-    }
-
-    public void setMirror(Mass mirror) {
-        this.mirror = mirror;
+    public Mass mirroredCopy(float planeY) {
+        Mass copy = new Mass();
+        copy.setName(this.getName() + MirrorSuffix);
+        copy.setMass(this.getMass());
+        copy.setX(this.getX());
+        copy.setY(2f * planeY - this.getY());
+        copy.setZ(this.getZ());
+        copy.setxLength(this.getxLength());
+        copy.setyLength(this.getyLength());
+        copy.setzLength(this.getzLength());
+        copy.setInertia(this.isInertia());
+        return copy;
     }
 
     /**
-     * Copies this mass onto its twin, with y reflected about the mirror plane: the two halves of a
-     * mirrored element weigh the same and sit at the same station, on opposite sides. The name is
-     * left alone, so the sides stay tellable apart in the tree.
+     * True when the other mass sits where this one's reflection would. Weight is deliberately not
+     * compared: a model that states both sides has said what it means, whatever the two weigh, and
+     * mirroring it again would count it twice.
      */
-    public void mirrorInto(Mass twin, float planeY) {
-        twin.setMass(this.getMass());
-        twin.setX(this.getX());
-        twin.setY(2f * planeY - this.getY());
-        twin.setZ(this.getZ());
-        twin.setxLength(this.getxLength());
-        twin.setyLength(this.getyLength());
-        twin.setzLength(this.getzLength());
-        twin.setInertia(this.isInertia());
-    }
-
-    /** True when the two are the same weight and station on opposite sides of the plane. */
-    public boolean mirrors(Mass other, float planeY, float tolerance) {
-        return Math.abs(this.getMass() - other.getMass()) <= tolerance
-                && Math.abs(this.getX() - other.getX()) <= tolerance
+    public boolean isAtMirroredPositionOf(Mass other, float planeY, float tolerance) {
+        return Math.abs(this.getX() - other.getX()) <= tolerance
                 && Math.abs(this.getZ() - other.getZ()) <= tolerance
                 && Math.abs((2f * planeY - this.getY()) - other.getY()) <= tolerance;
     }

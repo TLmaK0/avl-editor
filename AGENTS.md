@@ -120,13 +120,22 @@ contents), and the propulsion masses stay out of `getMassesRecursive()`, because
 `YDUPLICATE` mirrors the **geometry, never the masses**: AVL's mass file and JSBSim's mass balance are
 lists of absolute point masses. So a mass off the plane of symmetry of a mirrored element, with
 nothing on the other side, states half the weight the element carries, puts the CG off the centreline
-and understates the roll inertia. Masses on a mirrored element therefore come in pairs — created
-together, moved together (y reflected), deleted together, one undo step each — and a model that
-already carries half a pair is **told**, not repaired: inventing the other half's weight is exactly
-the failure this section is about. Drawing a phantom twin in the 3D view would be the same failure in
-pixels. See `MassObject.mirrorPlaneY/createMass/syncMirrorOf/removeMassWithMirror` and
-`MassMirrorCheck`; a genuinely one-sided item belongs on the geometry's own masses, which are
-absolute.
+and understates the roll inertia.
+
+The other half is therefore **virtual**: the model stores one mass, and the mirrored copy is derived
+— drawn in the 3D view, where it follows whichever half is moved, and written into whatever is
+generated. `getMassesRecursive()` is what the model stores; `getEffectiveMassesRecursive()` is what a
+generated model sees, and it is the one the generation paths use: `MassObject.writeAVLMassData` (the
+AVL mass file), `CRRCSim.getAllMasses` (JSBSim mass balance, inertias) and
+`calculateCenterOfMassFromMasses()`. Nothing to keep in step, nothing extra to delete, nothing new in
+the file. See `MassObject.mirrorPlaneY/virtualMirrorOf/getEffectiveMasses` and `MassMirrorCheck`.
+
+Two rules keep it honest. A mass **already stated on the other side** is not mirrored again — that is
+how every `+Y`/`-Y` pair written by older versions keeps its weight instead of doubling — and a mass
+**on the plane of symmetry** has no mirror, since it already stands for both halves, which is why
+`Surface.geometricCenter()` puts a new mass there. `autoMassesFromVolume()` writes the defined side
+only, with the density taken over the element's whole volume. A genuinely one-sided item belongs on
+the geometry's own masses, which are absolute and never mirrored.
 
 Propulsion is **required**, not optional: without an engine the model cannot take off and
 FlightGear reports `Throttle 0 does not exist! 0 engines exist`. The battery voltage, propeller

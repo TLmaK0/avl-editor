@@ -472,48 +472,17 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
     }
 
     /** Every element that can hold masses, the geometry itself included. */
-    public ArrayList<MassObject> getMassOwners() {
-        ArrayList<MassObject> owners = new ArrayList<MassObject>();
-        owners.add(this);
+    @Override
+    public ArrayList<MassObject> getMassElements() {
+        ArrayList<MassObject> elements = new ArrayList<MassObject>();
+        elements.add(this);
         for (Surface surface : getSurfaces()) {
-            owners.add(surface);
-            for (Section section : surface.getSections()) {
-                owners.add(section);
-                for (Control control : section.getControls()) {
-                    owners.add(control);
-                }
-            }
+            elements.addAll(surface.getMassElements());
         }
         for (Body body : getBodies()) {
-            owners.add(body);
+            elements.addAll(body.getMassElements());
         }
-        return owners;
-    }
-
-    /**
-     * The element a mass belongs to, which is what says whether it is mirrored and where its twin
-     * is. Found by searching rather than stored on the mass: the link would be one more thing to
-     * keep alive across a load.
-     */
-    public MassObject findMassOwner(Mass mass) {
-        for (MassObject owner : getMassOwners()) {
-            for (Mass candidate : owner.getMasses()) {
-                if (candidate == mass) return owner;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Re-pairs the masses of every element after a load, where the transient links are gone. The
-     * geometry itself is skipped: it is one of its own mass owners, and its own masses are absolute,
-     * so pairing them would mean nothing and calling this on itself would not end.
-     */
-    @Override
-    public void initMassMirrors() {
-        for (MassObject owner : getMassOwners()) {
-            if (owner != this) owner.initMassMirrors();
-        }
+        return elements;
     }
 
     public ArrayList<Mass> getMassesRecursive() {
@@ -533,9 +502,12 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
      * The centre of gravity from the geometry's masses alone. Callers that know about the
      * propulsion should use the overload: a motor and a battery move the CG a long way, and
      * leaving them out is what forces ballast into a model.
+     *
+     * From the effective masses, so the CG the editor reports is the CG the exported model has: the
+     * mirrored half of a wing pod is on the aircraft whether or not the file stores it.
      */
     public boolean calculateCenterOfMassFromMasses() {
-        return calculateCenterOfMassFromMasses(getMassesRecursive());
+        return calculateCenterOfMassFromMasses(getEffectiveMassesRecursive());
     }
 
     public boolean calculateCenterOfMassFromMasses(ArrayList<Mass> masses) {
@@ -565,8 +537,15 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return true;
     }
 
+    /**
+     * Spreads the model's weight over its volume, one mass per element.
+     *
+     * A mirrored element gets **one** mass, on the side the model defines, and its mirror supplies
+     * the other half when a model is generated — while the density is taken over the element's whole
+     * volume, both sides included, so the aircraft keeps the weight it had.
+     */
     public boolean autoMassesFromVolume() {
-        float currentTotalMass = getTotalMass(getMassesRecursive());
+        float currentTotalMass = getTotalMass(getEffectiveMassesRecursive());
         ArrayList<VolumeDescriptor> descriptors = new ArrayList<VolumeDescriptor>();
         float totalVolume = 0f;
 
@@ -577,7 +556,6 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
                     VolumeCentroid mirroredSideVolume = mirrorAcrossY(definedSideVolume, 0f);
                     String baseName = "auto mass " + surface.getName();
                     descriptors.add(new VolumeDescriptor(surface, formatAutoMassName(baseName, definedSideVolume.getY()), definedSideVolume));
-                    descriptors.add(new VolumeDescriptor(surface, formatAutoMassName(baseName, mirroredSideVolume.getY()), mirroredSideVolume));
                     totalVolume += definedSideVolume.volume + mirroredSideVolume.volume;
                 } else {
                     descriptors.add(new VolumeDescriptor(surface, "auto mass " + surface.getName(), definedSideVolume));
@@ -594,7 +572,6 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
                     VolumeCentroid mirroredSideVolume = mirrorAcrossY(bodyDefinedSideVolume, mirrorPlaneY);
                     String baseName = "auto mass " + bodyPart.getName();
                     descriptors.add(new VolumeDescriptor(bodyPart, formatAutoMassName(baseName, bodyDefinedSideVolume.getY()), bodyDefinedSideVolume));
-                    descriptors.add(new VolumeDescriptor(bodyPart, formatAutoMassName(baseName, mirroredSideVolume.getY()), mirroredSideVolume));
                     totalVolume += bodyDefinedSideVolume.volume + mirroredSideVolume.volume;
                 } else {
                     descriptors.add(new VolumeDescriptor(bodyPart, "auto mass " + bodyPart.getName(), bodyDefinedSideVolume));
@@ -618,20 +595,14 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         }
 
         for (VolumeDescriptor descriptor : descriptors) {
-            // Both sides are laid out here, so add the masses one by one: createMass() would pair
-            // each half with a twin of its own and the mirrored parts would be counted twice.
             Mass mass = descriptor.owner.addMassAt(descriptor.volumeCentroid.getX(),
                     descriptor.volumeCentroid.getY(), descriptor.volumeCentroid.getZ());
             mass.setName(descriptor.name);
             mass.setMass(descriptor.volumeCentroid.volume * uniformDensity);
         }
 
-        // The two halves of each mirrored part were just generated as a matching pair: link them, so
-        // they move and are deleted together from here on.
-        initMassMirrors();
-
         logger.log(Level.INFO, "Auto masses generated from volume. density={0}, totalVolume={1}, totalMass={2}",
-                new Object[]{uniformDensity, totalVolume, getTotalMass(getMassesRecursive())});
+                new Object[]{uniformDensity, totalVolume, getTotalMass(getEffectiveMassesRecursive())});
         return true;
     }
 

@@ -1,12 +1,16 @@
 /*
- * A mirrored element carries its masses in pairs: AVL and JSBSim mirror geometry but never mass, so
- * one mass on a wing pod that AVL draws twice states half the weight, off the centreline.
+ * A mirrored element stores one mass; the other half is derived. It shows in the 3D view, follows
+ * whichever half is moved, and reaches the aircraft when a model is generated — AVL and JSBSim mirror
+ * geometry but never mass, so the copy has to be written into what they read.
  * Run with:  sbt "test:runMain com.abajar.avleditor.avl.mass.MassMirrorCheck"
  */
 package com.abajar.avleditor.avl.mass
 
 import com.abajar.avleditor.avl.AVLGeometry
 import com.abajar.avleditor.avl.geometry.{Body, BodyProfilePoint, Control, Section, Surface}
+import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory}
+import com.abajar.avleditor.mass.MassMarkers
+import java.io.ByteArrayOutputStream
 import scala.collection.JavaConverters._
 
 object MassMirrorCheck {
@@ -62,83 +66,129 @@ object MassMirrorCheck {
 
     println("a mass created on a mirrored body")
     val body = pod()
-    val left = body.createMass()
-    val right = body.mirrorMassOf(left)
-    check("comes as a pair", body.getMasses.size == 2 && right != null)
-    check("the twin is on the other side", near(right.getY, 0.55) && near(left.getY, -0.55))
-    check("at the same station", near(right.getX, left.getX) && near(right.getZ, left.getZ))
-    // The pod is weighed once and the aircraft carries two of them.
-    left.setMass(0.0765f)
-    body.syncMirrorOf(left)
+    val stored = body.createMass()
+    stored.setName("pod ballast")
+    stored.setMass(0.0765f)
+    check("is stored once", body.getMasses.size == 1)
+    val mirror = body.virtualMirrorOf(stored)
+    check("and implies a mirrored half", mirror != null)
+    check("on the other side, same station and weight",
+      near(mirror.getY, 0.55) && near(mirror.getX, stored.getX) && near(mirror.getZ, stored.getZ) &&
+        near(mirror.getMass, 0.0765))
+    check("named as the mirror it is", mirror.getName.endsWith(Mass.MirrorSuffix))
     check("the weight is stated once and carried twice",
-      near(right.getMass, 0.0765) && near(body.getMassesRecursive.asScala.map(_.getMass).sum, 0.153))
-    check("named by the side they are on",
-      left.getName.endsWith("-Y") && right.getName.endsWith("+Y"))
-    check("and the pair is found from either half", body.mirrorMassOf(right) eq left)
+      near(body.getEffectiveMasses.asScala.map(_.getMass).sum, 0.153))
+    check("while the model still stores one mass", body.getMassesRecursive.size == 1)
 
-    println("a mass created on a symmetric surface")
+    println("moving the stored half")
+    stored.setX(1.25f); stored.setZ(0.03f); stored.setY(-0.6f)
+    val movedMirror = body.virtualMirrorOf(stored)
+    check("the mirror is simply derived again, so it cannot drift",
+      near(movedMirror.getX, 1.25) && near(movedMirror.getZ, 0.03) && near(movedMirror.getY, 0.6))
+    stored.setMass(0.09f)
+    check("weight included", near(body.virtualMirrorOf(stored).getMass, 0.09))
+
+    println("deleting it")
+    body.getMasses.remove(stored)
+    check("takes the mirror with it, there being nothing else to delete",
+      body.getEffectiveMasses.isEmpty)
+
+    println("a mass on the plane of symmetry")
     val symmetricWing = wing(symmetric = true)
     val single = symmetricWing.createMass()
-    check("stays a single mass on the plane of symmetry",
-      symmetricWing.getMasses.size == 1 && near(single.getY, 0.0))
-    check("with no twin, because it already stands for both halves",
-      symmetricWing.mirrorMassOf(single) == null)
-    check("and it is not reported as missing one", !symmetricWing.isMassMissingItsMirror(single))
+    single.setMass(0.2f)
+    check("starts there, since that is the wing's centre", near(single.getY, 0.0))
+    check("and has no mirror: it already stands for both halves",
+      symmetricWing.virtualMirrorOf(single) == null &&
+        near(symmetricWing.getEffectiveMasses.asScala.map(_.getMass).sum, 0.2))
 
-    println("moving one half")
-    left.setX(1.2f); left.setZ(0.04f); left.setY(-0.6f)
-    body.syncMirrorOf(left)
-    check("the other follows, mirrored",
-      near(right.getX, 1.2) && near(right.getZ, 0.04) && near(right.getY, 0.6))
-    left.setMass(0.09f)
-    body.syncMirrorOf(left)
-    check("and so does its weight", near(right.getMass, 0.09))
+    println("a model that states both sides itself")
+    // Every '+Y'/'-Y' pair written before the mirror was implied: mirroring them again would double
+    // the aircraft's weight.
+    val bothSides = pod()
+    val left = bothSides.addMassAt(1.1f, -0.55f, 0.02f); left.setMass(0.05f)
+    val right = bothSides.addMassAt(1.1f, 0.55f, 0.02f); right.setMass(0.05f)
+    check("neither half is mirrored again",
+      bothSides.virtualMirrorOf(left) == null && bothSides.virtualMirrorOf(right) == null)
+    check("so the weight is what the file says",
+      near(bothSides.getEffectiveMasses.asScala.map(_.getMass).sum, 0.1))
+    check("even when the two sides weigh different things", {
+      right.setMass(0.08f)
+      bothSides.virtualMirrorOf(left) == null && bothSides.virtualMirrorOf(right) == null
+    })
 
-    println("deleting one half")
-    val removed = body.removeMassWithMirror(left)
-    check("takes both", removed.size == 2 && body.getMasses.isEmpty)
+    println("what a generated AVL mass file carries")
+    val geometry = new AVLGeometry
+    geometry.getSurfaces.clear(); geometry.getBodies.clear(); geometry.getMasses.clear()
+    geometry.getBodies.add(pod())
+    val podMass = geometry.getBodies.get(0).createMass()
+    podMass.setName("pod ballast"); podMass.setMass(0.0765f)
+    val out = new ByteArrayOutputStream
+    geometry.writeAVLMassData(out)
+    val lines = out.toString.split("\n").filter(_.trim.nonEmpty)
+    lines.foreach(l => println("  " + l.trim))
+    check("both halves are written", lines.length == 2)
+    check("one of them is the mirror", lines.exists(_.contains(Mass.MirrorSuffix.trim)))
+    check("on opposite sides", lines.exists(_.contains("-0.55")) && lines.exists(_.contains(" 0.55")))
 
-    println("a model that already states one side only")
-    val single_sided = pod()
-    val lonely = single_sided.addMassAt(1.1f, -0.55f, 0f)
-    lonely.setName("pod ballast")
-    lonely.setMass(0.0765f)
-    check("is reported as missing its mirror", single_sided.isMassMissingItsMirror(lonely))
-    check("and nothing is invented for it", single_sided.getMasses.size == 1)
+    println("what the exported mass balance and the CG see")
+    val model = flyableModel()
+    val podBody = model.getAvl.getGeometry.getBodies.get(0)
+    val ballast = podBody.createMass()
+    ballast.setName("pod ballast"); ballast.setMass(0.1f)
+    check("the mirrored half counts towards the total",
+      near(model.getAllMasses.asScala.map(_.getMass).sum, 1.2))
+    model.getAvl.getGeometry.calculateCenterOfMassFromMasses()
+    check("and the CG stays on the centreline, as a mirrored pair should leave it",
+      near(model.getAvl.getGeometry.getYref, 0.0))
 
-    println("links survive a reload, where the pointers are gone")
-    val reloaded = pod()
-    val a = reloaded.addMassAt(1.1f, -0.55f, 0.02f); a.setMass(0.05f); a.setName("pod -Y")
-    val b = reloaded.addMassAt(1.1f, 0.55f, 0.02f); b.setMass(0.05f); b.setName("pod +Y")
-    a.setMirror(null); b.setMirror(null)
-    reloaded.initMassMirrors()
-    check("a matching pair is re-paired", (a.getMirror eq b) && (b.getMirror eq a))
-    check("neither is reported as missing a mirror",
-      !reloaded.isMassMissingItsMirror(a) && !reloaded.isMassMissingItsMirror(b))
+    println("both halves reach the 3D view")
+    val markers = MassMarkers.from(model)
+    val storedMarker = MassMarkers.indexOf(markers, ballast).get
+    val mirrorIndexes = MassMarkers.mirrorIndexes(markers)
+    val virtualMarker = mirrorIndexes(storedMarker)
+    check("the stored one and its mirror are both drawn", virtualMarker >= 0)
+    check("the mirror is marked as derived, and only the stored one can be selected",
+      markers(virtualMarker).virtual && !markers(storedMarker).virtual)
+    check("they are on opposite sides",
+      near(markers(virtualMarker).y, -markers(storedMarker).y))
+    check("dragging the mirror moves the stored mass, reflected", {
+      markers(virtualMarker).moveTo(1.3f, 0.6f, 0.05f)
+      near(ballast.getY, -0.6) && near(ballast.getX, 1.3)
+    })
 
     println("masses generated from volume")
-    val geometry = new AVLGeometry
-    geometry.getSurfaces.clear(); geometry.getBodies.clear()
-    geometry.getSurfaces.add(wing(symmetric = true))
-    geometry.getBodies.add(pod())
-    geometry.getMasses.clear()
-    check("are generated", geometry.autoMassesFromVolume())
-    val all = geometry.getMassesRecursive.asScala
-    println(s"  ${all.size} masses: " + all.map(m => f"${m.getName}%s(${m.getY}%.2f)").mkString(", "))
-    check("one per side and no strays: two for the wing, two for the pod", all.size == 4)
-    check("every off-centre one has its mirror",
-      geometry.getMassOwners.asScala.forall(owner =>
-        owner.getMasses.asScala.forall(m => !owner.isMassMissingItsMirror(m))))
-    val podMasses = geometry.getBodies.get(0).getMasses.asScala.map(_.getMass)
-    check("the two halves of the pod weigh the same, and the pod is counted whole",
-      podMasses.size == 2 && near(podMasses(0), podMasses(1)) && podMasses.sum > 0f)
-
-    println("finding the element a mass belongs to")
-    val owner = geometry.findMassOwner(all.head)
-    check("is answered", owner != null)
-    check("and an unrelated mass has no owner", geometry.findMassOwner(new Mass) == null)
+    val auto = new AVLGeometry
+    auto.getSurfaces.clear(); auto.getBodies.clear(); auto.getMasses.clear()
+    auto.getSurfaces.add(wing(symmetric = true))
+    auto.getBodies.add(pod())
+    check("are generated", auto.autoMassesFromVolume())
+    val storedMasses = auto.getMassesRecursive.asScala
+    println("  stored: " + storedMasses.map(m => f"${m.getName}%s(${m.getY}%.2f)").mkString(", "))
+    check("one per element, not one per side", storedMasses.size == 2)
+    val effective = auto.getEffectiveMassesRecursive.asScala
+    check("but both sides reach a generated model", effective.size == 4)
+    check("and the mirrored halves balance about the centreline",
+      near(effective.map(m => m.getMass * m.getY).sum, 0.0))
+    val total = effective.map(_.getMass).sum
+    check("running it again keeps the aircraft's weight", {
+      auto.autoMassesFromVolume()
+      near(auto.getEffectiveMassesRecursive.asScala.map(_.getMass).sum, total)
+    })
 
     println(if (ok) "MASS_MIRROR_OK" else "MASS_MIRROR_FAIL")
     if (!ok) sys.exit(1)
+  }
+
+  /** A model with a mirrored pod and 1 kg on the centreline, so a lateral CG shift would show. */
+  private def flyableModel(): CRRCSim = {
+    val crrcsim = new CRRCSimFactory().create()
+    val geometry = crrcsim.getAvl.getGeometry
+    geometry.getSurfaces.clear(); geometry.getBodies.clear(); geometry.getMasses.clear()
+    geometry.getBodies.add(pod())
+    val fuselage = geometry.addMassAt(0.4f, 0f, 0f)
+    fuselage.setName("airframe")
+    fuselage.setMass(1.0f)
+    crrcsim
   }
 }

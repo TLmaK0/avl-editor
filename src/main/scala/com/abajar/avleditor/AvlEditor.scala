@@ -164,9 +164,8 @@ object AvlEditor{
           loadAvlBodies()
         case mass: com.abajar.avleditor.avl.mass.Mass =>
           // A weight or a coordinate typed into the table moves the marker, and its size says how
-          // heavy it is, so both have to be pushed again. On a mirrored element the other half
-          // follows first, as part of the same edit.
-          syncMirrorFromTable(mass)
+          // heavy it is, so both have to be pushed again. The mirrored half is derived from this
+          // one, so it follows with no work of its own.
           loadMassPoints()
           selectMassIn3D(mass)
         case pos: com.abajar.avleditor.crrcsim.Pos =>
@@ -313,45 +312,11 @@ object AvlEditor{
     }
 
     private def handleDeleteWithUndo(nodeSelected: Any): Unit = {
-      nodeSelected match {
-        case mass: com.abajar.avleditor.avl.mass.Mass if hasMirror(mass) =>
-          deleteMassPair(mass)
-        case _ =>
-          val parent = window.treeNodeSelectedParent.orNull
-          val listAndIndex = findNodeInParentLists(nodeSelected, parent)
-          ENABLE_BUTTONS.DELETE.click(nodeSelected, parent)
-          listAndIndex.foreach { case (list, index) =>
-            undoManager.push(new RemoveCommand(list, nodeSelected, index))
-          }
-      }
-    }
-
-    private def hasMirror(mass: com.abajar.avleditor.avl.mass.Mass): Boolean =
-      massOwnerOf(mass).exists(owner => owner.mirrorMassOf(mass) != null)
-
-    /**
-     * Half a pair cannot be deleted on its own: while the element is mirrored, the mass on the other
-     * side goes with it, in one undo step. Leaving one half behind would state half the weight the
-     * element carries, off the centreline.
-     */
-    private def deleteMassPair(mass: com.abajar.avleditor.avl.mass.Mass): Unit = {
-      massOwnerOf(mass).foreach { owner =>
-        val masses = owner.getMasses
-        val twin = owner.mirrorMassOf(mass)
-        // Descending index order, so undo puts the lower one back first and the higher index is
-        // still within the list when its turn comes.
-        val doomed = Seq(mass, twin).filter(_ != null)
-          .map(m => (m, masses.indexOf(m)))
-          .filter(_._2 >= 0)
-          .sortBy(-_._2)
-
-        owner.removeMassWithMirror(mass)
-
-        val commands = doomed.map { case (m, index) =>
-          new RemoveCommand(masses.asInstanceOf[java.util.ArrayList[Any]], m, index): UndoCommand
-        }
-        if (commands.size == 1) undoManager.push(commands.head)
-        else if (commands.size > 1) undoManager.push(new CompoundCommand(commands, "Delete mirrored mass"))
+      val parent = window.treeNodeSelectedParent.orNull
+      val listAndIndex = findNodeInParentLists(nodeSelected, parent)
+      ENABLE_BUTTONS.DELETE.click(nodeSelected, parent)
+      listAndIndex.foreach { case (list, index) =>
+        undoManager.push(new RemoveCommand(list, nodeSelected, index))
       }
     }
 
@@ -511,7 +476,6 @@ object AvlEditor{
     private def afterUndoRedo(selected: Option[Any]): Unit = {
       initSectionParents()
       initBodyParents()
-      initMassMirrors()
       window.refreshTree
       loadAvlSurfaces()
       loadAvlBodies()
@@ -600,7 +564,6 @@ object AvlEditor{
       crrcsim = new CRRCSimRepository().restoreFromFile(file)
       // Initialize parent references for sections (needed for control creation)
       initSectionParents()
-      initMassMirrors()
       window.refreshTree
       // Auto-load 3D model if available
       load3DModel()
@@ -614,18 +577,6 @@ object AvlEditor{
       }
     }
 
-    /** The link between the two halves of a mirrored mass is not stored in the file, so it is
-      * rebuilt after a load and after an undo put a pair back. Sections come first: a section's and
-      * a control's mirror plane is the surface's, reached through the parent reference. */
-    private def initMassMirrors(): Unit = {
-      geometry().foreach(_.initMassMirrors())
-    }
-
-    private def geometry(): Option[com.abajar.avleditor.avl.AVLGeometry] =
-      Option(crrcsim.getAvl()).flatMap(avl => Option(avl.getGeometry()))
-
-    private def massOwnerOf(mass: com.abajar.avleditor.avl.mass.Mass): Option[com.abajar.avleditor.avl.mass.MassObject] =
-      geometry().flatMap(geo => Option(geo.findMassOwner(mass)))
 
     private def load3DModel(): Unit = {
       val graphics = crrcsim.getGraphics
@@ -777,8 +728,8 @@ object AvlEditor{
         val mirrors = com.abajar.avleditor.mass.MassMarkers.mirrorIndexes(massMarkers)
           .zip(massMarkers)
           .map { case (index, marker) => (index, marker.mirrorPlaneY.getOrElse(0f)) }
-        window.viewer3D.setMassPoints(massMarkers.map(m => (m.x, m.y, m.z, m.mass)).toArray,
-          mirrors.toArray)
+        window.viewer3D.setMassPoints(
+          massMarkers.map(m => (m.x, m.y, m.z, m.mass, m.virtual)).toArray, mirrors.toArray)
       } catch {
         case e: Exception =>
           logger.log(Level.WARNING, "Error loading masses", e)
@@ -793,7 +744,6 @@ object AvlEditor{
       pushDrag(marker.position, s"Move ${marker.label}", Seq("x", "y", "z")) {
         marker.moveTo(x, y, z)
       }
-      mergeMirrorSync(marker, s"Move ${marker.label}")
 
       // The properties table shows the coordinates as numbers: keep the two in step.
       window.treeNodeSelected.foreach { selected =>
@@ -803,48 +753,6 @@ object AvlEditor{
       }
       loadMassPoints()
       selectMassIn3D(marker.node)
-    }
-
-    /**
-     * Copies a dragged mass onto its twin and folds that into the step just pushed. On a mirrored
-     * element the two halves are one thing to the user: they move in parallel and undo together.
-     */
-    private def mergeMirrorSync(marker: com.abajar.avleditor.mass.MassMarker, description: String): Unit = {
-      marker.mirror.foreach { twin =>
-        captureFieldChanges(twin, description)(marker.syncMirror())
-          .foreach(command => undoManager.mergeIntoLast(command, description))
-      }
-    }
-
-    /** A weight or a coordinate typed on one half of a mirrored pair applies to the other half. */
-    private def syncMirrorFromTable(mass: com.abajar.avleditor.avl.mass.Mass): Unit = {
-      massOwnerOf(mass).foreach { owner =>
-        Option(owner.mirrorMassOf(mass)).foreach { twin =>
-          val description = s"Change ${mass.getName}"
-          captureFieldChanges(twin, description)(owner.syncMirrorOf(mass))
-            .foreach(command => undoManager.mergeIntoLast(command, description))
-        }
-      }
-    }
-
-    /**
-     * Records whatever a mutation changed on an object, field by field, as one undoable command.
-     * Used for changes the editor makes on the user's behalf, where the fields touched are not known
-     * in advance — a mirrored mass follows its twin's weight, position and inertia figures alike.
-     */
-    private def captureFieldChanges(target: AnyRef, description: String)(mutate: => Unit): Option[UndoCommand] = {
-      import java.lang.reflect.Modifier
-      val fields = target.getClass.getDeclaredFields
-        .filter(field => !Modifier.isStatic(field.getModifiers) && !Modifier.isTransient(field.getModifiers))
-      fields.foreach(_.setAccessible(true))
-      val before = fields.map(_.get(target))
-      mutate
-      val after = fields.map(_.get(target))
-
-      val commands = fields.indices
-        .filter(i => before(i) != after(i))
-        .map(i => new PropertyChangeCommand(target, fields(i), before(i), after(i)): UndoCommand)
-      if (commands.isEmpty) None else Some(new CompoundCommand(commands, description))
     }
 
     /** Highlights the marker a tree node refers to: the mass itself, a propulsion component, or

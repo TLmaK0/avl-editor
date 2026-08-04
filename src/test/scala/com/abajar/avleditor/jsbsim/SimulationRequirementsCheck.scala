@@ -215,37 +215,19 @@ object SimulationRequirementsCheck {
     check("and no 25 deg default is invented",
       JsbsimExporter.detectControls(noDeflection.getAvl.getGeometry).isEmpty)
 
-    println("a mass on a mirrored element with nothing on the other side")
-    // AVL mirrors the geometry and never the masses, so half a pair states half the weight, off
-    // the centreline: the aircraft rolls on its own and the roll inertia is too small.
-    val halfPair = flyableModel()
-    val pod = halfPair.getAvl.getGeometry.createBody()
+    println("a mass on a mirrored element")
+    // Its mirrored half is implied, so there is nothing to ask the user for: the export supplies it.
+    // See MassMirrorCheck for what a generated model then carries.
+    val withPod = flyableModel()
+    val pod = withPod.getAvl.getGeometry.createBody()
     pod.setName("pod")
     pod.setdY(-0.55f)
-    val lonely = pod.addMassAt(1.0f, -0.55f, 0f)
-    lonely.setName("pod ballast")
-    lonely.setMass(0.08f)
-    val mirrorProblems = SimulationRequirements.validate(halfPair)
-    check("is reported by name", mentions(mirrorProblems, "pod ballast"))
-    check("and says what to do about it", mentions(mirrorProblems, "other side"))
-
-    // Stating the other side clears it: two real masses, which is what the mass file carries.
-    val paired = flyableModel()
-    val pairedPod = paired.getAvl.getGeometry.createBody()
-    pairedPod.setdY(-0.55f)
-    val left = pairedPod.createMass()
-    left.setMass(0.08f)
-    pairedPod.syncMirrorOf(left)
-    check("a pair validates clean", SimulationRequirements.validate(paired).isEmpty)
-
-    // On a symmetric surface the geometric centre is the plane of symmetry, and a mass there
-    // already stands for both halves.
-    val onThePlane = flyableModel()
-    val surface = onThePlane.getAvl.getGeometry.getSurfaces.get(0)
-    surface.setSymmetric(true)
-    surface.createMass().setMass(0.2f)
-    check("a mass on the plane of symmetry needs no twin",
-      SimulationRequirements.validate(onThePlane).isEmpty)
+    val ballast = pod.addMassAt(1.0f, -0.55f, 0f)
+    ballast.setName("pod ballast")
+    ballast.setMass(0.08f)
+    check("does not hold up the export", SimulationRequirements.validate(withPod).isEmpty)
+    check("and both halves are in what the export weighs",
+      withPod.getAllMasses.asScala.count(_.getName.startsWith("pod ballast")) == 2)
 
     println("what AVL itself must produce")
     check("a missing calculation is reported",

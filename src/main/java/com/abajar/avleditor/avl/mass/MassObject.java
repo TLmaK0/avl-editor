@@ -42,13 +42,18 @@ public abstract class MassObject implements Serializable{
         return masses;
     }
 
+    /**
+     * The mass data of a generated AVL model, which is where the mirrored halves appear: the file is
+     * a list of absolute point masses, so what {@code YDUPLICATE} draws twice has to be weighed
+     * twice here.
+     */
     public void writeAVLMassData(OutputStream out) {
-        for(Mass mass : this.getMassesRecursive()){
+        for(Mass mass : this.getEffectiveMassesRecursive()){
             mass.writeAVLMassData(out);
         }
     }
 
-    /** Two masses count as a pair when they agree to within this, in metres and kilograms. */
+    /** How close two masses have to be, in metres, to be the same station. */
     public static final float MIRROR_TOLERANCE = 1.0e-5f;
 
     /**
@@ -60,37 +65,15 @@ public abstract class MassObject implements Serializable{
      * either in the properties table or by dragging the mass in the 3D view; nothing recomputes it,
      * so moving it sticks.
      *
-     * On a mirrored element whose middle is off the plane of symmetry the pair is created, because
-     * the element itself is a pair: AVL and JSBSim mirror the geometry but never the masses, so one
-     * mass would state half the weight, off the centreline. The returned mass is the one on the
-     * defined side; its twin follows it from then on.
+     * One mass is stored even on a mirrored element: the other half is implied, and appears when a
+     * model is generated. See {@link #getEffectiveMasses()}.
      */
     public Mass createMass() {
-        Mass mass = new Mass();
         float[] centre = geometricCenter();
-        mass.setX(centre[0]);
-        mass.setY(centre[1]);
-        mass.setZ(centre[2]);
-        this.getMasses().add(mass);
-
-        Float planeY = mirrorPlaneY();
-        if (planeY != null && Math.abs(centre[1] - planeY) > MIRROR_TOLERANCE) {
-            String baseName = mass.getName();
-            Mass twin = new Mass();
-            mass.mirrorInto(twin, planeY);
-            mass.setName(sideName(baseName, mass.getY() - planeY));
-            twin.setName(sideName(baseName, twin.getY() - planeY));
-            link(mass, twin);
-            this.getMasses().add(twin);
-        }
-        return mass;
+        return addMassAt(centre[0], centre[1], centre[2]);
     }
 
-    /**
-     * Adds a single mass at a stated position, without pairing it. For callers that lay out both
-     * sides themselves — {@link com.abajar.avleditor.avl.AVLGeometry#autoMassesFromVolume()} —
-     * where {@link #createMass()} would add a twin to each half and end up with four.
-     */
+    /** Adds a mass at a stated position. */
     public Mass addMassAt(float x, float y, float z) {
         Mass mass = new Mass();
         mass.setX(x);
@@ -101,97 +84,75 @@ public abstract class MassObject implements Serializable{
     }
 
     /**
-     * The plane in y this element is mirrored about, or null when it is not mirrored. Elements that
-     * are drawn on both sides carry their masses in pairs; the aircraft's own masses are absolute,
-     * which is where a genuinely one-sided item belongs.
+     * The plane in y this element is mirrored about, or null when it is not mirrored. What is drawn
+     * on both sides is weighed on both sides; the aircraft's own masses are absolute, which is where
+     * a genuinely one-sided item belongs.
      */
     public Float mirrorPlaneY() {
         return null;
     }
 
     /**
-     * The twin of a mass: the one on the other side of the mirror plane. A mass sitting on the plane
-     * has none — it already stands for both halves.
+     * The copy of a mass on the other side of this element, or null when there is none: the element
+     * is not mirrored, the mass sits on the plane of symmetry and so already stands for both halves,
+     * or the model states the other side itself.
      *
-     * The link is remembered, and re-derived by matching when it is not: a pair is kept in step, so
-     * at rest the two always have the same weight and station with opposite y.
+     * The copy is derived, not stored. It is built fresh each time, so it cannot drift from the mass
+     * it comes from, there is nothing to keep in step and nothing extra to delete.
      */
-    public Mass mirrorMassOf(Mass mass) {
-        if (mass == null) return null;
+    public Mass virtualMirrorOf(Mass mass) {
         Float planeY = mirrorPlaneY();
-        if (planeY == null) return null;
-
-        Mass linked = mass.getMirror();
-        if (linked != null && linked != mass && this.getMasses().contains(linked)) return linked;
-
+        if (mass == null || planeY == null) return null;
         if (Math.abs(mass.getY() - planeY) <= MIRROR_TOLERANCE) return null;
         for (Mass other : this.getMasses()) {
             if (other == mass) continue;
-            if (mass.mirrors(other, planeY, MIRROR_TOLERANCE)) {
-                link(mass, other);
-                return other;
-            }
+            // Already stated on the other side: mirroring it again would count it twice. This is how
+            // files written before the mirror was implied — every '+Y'/'-Y' pair — keep their weight.
+            if (mass.isAtMirroredPositionOf(other, planeY, MIRROR_TOLERANCE)) return null;
         }
-        return null;
+        return mass.mirroredCopy(planeY);
     }
 
-    /** True when a mass states one side of a mirrored element with no twin: half the weight the
-      * element actually carries. */
-    public boolean isMassMissingItsMirror(Mass mass) {
-        Float planeY = mirrorPlaneY();
-        if (planeY == null) return false;
-        if (Math.abs(mass.getY() - planeY) <= MIRROR_TOLERANCE) return false;
-        return mirrorMassOf(mass) == null;
+    public boolean hasVirtualMirror(Mass mass) {
+        return virtualMirrorOf(mass) != null;
     }
 
-    /** Copies a mass onto its twin, reflected. Does nothing when it has none. */
-    public Mass syncMirrorOf(Mass mass) {
-        Mass twin = mirrorMassOf(mass);
-        if (twin == null) return null;
-        mass.mirrorInto(twin, mirrorPlaneY());
-        return twin;
-    }
-
-    /**
-     * Removes a mass and, when it has one, its twin: while the element is mirrored there is no such
-     * thing as half a pair. Returns every mass removed.
-     */
-    public ArrayList<Mass> removeMassWithMirror(Mass mass) {
-        ArrayList<Mass> removed = new ArrayList<Mass>();
-        Mass twin = mirrorMassOf(mass);
-        if (this.getMasses().remove(mass)) removed.add(mass);
-        if (twin != null && this.getMasses().remove(twin)) removed.add(twin);
-        mass.setMirror(null);
-        if (twin != null) twin.setMirror(null);
-        return removed;
-    }
-
-    /** Re-pairs this element's masses after a load, where the transient links are gone. */
-    public void initMassMirrors() {
-        Float planeY = mirrorPlaneY();
-        if (planeY == null) return;
-        for (Mass mass : this.getMasses()) mass.setMirror(null);
+    /** This element's masses as a generated model sees them: the stored ones and the implied copies. */
+    public ArrayList<Mass> getEffectiveMasses() {
+        ArrayList<Mass> effective = new ArrayList<Mass>();
         for (Mass mass : this.getMasses()) {
-            if (mass.getMirror() != null) continue;
-            if (Math.abs(mass.getY() - planeY) <= MIRROR_TOLERANCE) continue;
-            for (Mass other : this.getMasses()) {
-                if (other == mass || other.getMirror() != null) continue;
-                if (mass.mirrors(other, planeY, MIRROR_TOLERANCE)) {
-                    link(mass, other);
-                    break;
-                }
-            }
+            effective.add(mass);
+            Mass mirror = virtualMirrorOf(mass);
+            if (mirror != null) effective.add(mirror);
         }
-    }
-
-    private static void link(Mass one, Mass other) {
-        one.setMirror(other);
-        other.setMirror(one);
+        return effective;
     }
 
     /**
-     * How a mass names the side it is on. Shared with the masses generated from volume, so a pair
-     * created by hand and a pair generated automatically read the same.
+     * The same over this element and everything under it that can hold masses. This is the list to
+     * generate from — an AVL mass file, a JSBSim mass balance, a centre of gravity — while
+     * {@link #getMassesRecursive()} stays what the model stores.
+     */
+    public ArrayList<Mass> getEffectiveMassesRecursive() {
+        ArrayList<Mass> effective = new ArrayList<Mass>();
+        for (MassObject element : getMassElements()) {
+            effective.addAll(element.getEffectiveMasses());
+        }
+        return effective;
+    }
+
+    /**
+     * This element and every element under it that can hold masses. Each one knows its own mirror
+     * plane, which is why the expansion is done per element rather than over a flattened list.
+     */
+    public ArrayList<MassObject> getMassElements() {
+        ArrayList<MassObject> elements = new ArrayList<MassObject>();
+        elements.add(this);
+        return elements;
+    }
+
+    /**
+     * How a mass names the side it is on, for the masses generated from volume.
      */
     public static String sideName(String baseName, float offsetFromPlane) {
         if (Math.abs(offsetFromPlane) <= MIRROR_TOLERANCE) return baseName + " center";

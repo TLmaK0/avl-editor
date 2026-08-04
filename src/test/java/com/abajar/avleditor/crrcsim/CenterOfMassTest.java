@@ -23,6 +23,9 @@ public class CenterOfMassTest {
         AVLGeometry geometry = avl.getGeometry();
 
         Surface surface = geometry.getSurfaces().get(0);
+        // Not mirrored, so this stays a test of the recursion: on a mirrored element every mass off
+        // the plane of symmetry is counted on both sides, which MassMirrorCheck covers.
+        surface.setSymmetric(false);
         Section section = surface.getSections().get(0);
         Control control = section.createControl();
         Body body = geometry.createBody();
@@ -108,13 +111,15 @@ public class CenterOfMassTest {
         createMass(section, 4f, 1.0f, 0.0f, 0.0f);
         createMass(body, 1f, 0.2f, 0.0f, 0.0f);
 
-        float totalBefore = totalMass(geometry.getMassesRecursive());
+        // The aircraft's weight is the effective one: a mirrored element stores the defined side and
+        // the export mirrors it, so the stored total alone is half that element's weight.
+        float totalBefore = totalMass(geometry.getEffectiveMassesRecursive());
         assertEquals(10.0f, totalBefore, 1.0e-6f);
 
         boolean generated = geometry.autoMassesFromVolume();
         assertTrue(generated);
 
-        float totalAfter = totalMass(geometry.getMassesRecursive());
+        float totalAfter = totalMass(geometry.getEffectiveMassesRecursive());
         assertEquals(totalBefore, totalAfter, 1.0e-4f);
 
         assertEquals(0, geometry.getMasses().size());

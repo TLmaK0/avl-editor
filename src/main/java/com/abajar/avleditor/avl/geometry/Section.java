@@ -394,6 +394,17 @@ public class Section  extends MassObject implements AVLSerializable{
         return this.parentSurface == null ? null : this.parentSurface.mirrorPlaneY();
     }
 
+    @Override
+    public ArrayList<com.abajar.avleditor.avl.mass.MassObject> getMassElements() {
+        ArrayList<com.abajar.avleditor.avl.mass.MassObject> elements =
+            new ArrayList<com.abajar.avleditor.avl.mass.MassObject>();
+        elements.add(this);
+        for (Control control : getControls()) {
+            elements.addAll(control.getMassElements());
+        }
+        return elements;
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Control control: getControls()){

@@ -393,6 +393,16 @@ public class Surface extends MassObject implements AVLSerializable {
         this.dZ = dZ;
     }
 
+    @Override
+    public ArrayList<MassObject> getMassElements() {
+        ArrayList<MassObject> elements = new ArrayList<MassObject>();
+        elements.add(this);
+        for (Section section : getSections()) {
+            elements.addAll(section.getMassElements());
+        }
+        return elements;
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Section section: getSections()){

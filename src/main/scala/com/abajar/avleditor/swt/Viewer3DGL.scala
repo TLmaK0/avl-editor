@@ -88,9 +88,10 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   @volatile private var isDraggingCollisionPoint: Boolean = false
   private var collisionPointUpdateCallback: Option[(Int, Float, Float, Float) => Unit] = None
 
-  // Masses in AVL coordinates with their weight, (x, y, z, kg), and which one the tree has
-  // selected. The selected one is moved one axis at a time, so each axis drags separately.
-  @volatile private var massPoints: Array[(Float, Float, Float, Float)] = Array()
+  // Masses in AVL coordinates with their weight and whether they are the mirrored half of one,
+  // (x, y, z, kg, virtual), and which one the tree has selected. The selected one is moved one axis
+  // at a time, so each axis drags separately.
+  @volatile private var massPoints: Array[(Float, Float, Float, Float, Boolean)] = Array()
   // For each mass, the index of the mass mirroring it and the plane they mirror about, or -1: the
   // two halves of a mirrored element move together while one of them is dragged, rather than the
   // twin jumping into place when the mouse is released.
@@ -285,7 +286,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         isDraggingMassAxisZ = false
         selectedMassPoint.foreach { index =>
           if (index < massPoints.length) {
-            val (x, y, z, _) = massPoints(index)
+            val (x, y, z, _, _) = massPoints(index)
             massPointUpdateCallback.foreach(_(index, x, y, z))
           }
         }
@@ -346,12 +347,12 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         val axis = if (isDraggingMassAxisX) 0 else if (isDraggingMassAxisY) 1 else 2
         selectedMassPoint.foreach { index =>
           if (index < massPoints.length) {
-            val (x, y, z, mass) = massPoints(index)
+            val (x, y, z, mass, virtual) = massPoints(index)
             val delta = massAxisDelta(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
             val moved = axis match {
-              case 0 => (x + delta, y, z, mass)
-              case 1 => (x, y + delta, z, mass)
-              case _ => (x, y, z + delta, mass)
+              case 0 => (x + delta, y, z, mass, virtual)
+              case 1 => (x, y + delta, z, mass, virtual)
+              case _ => (x, y, z + delta, mass, virtual)
             }
             val updated = massPoints.clone()
             updated(index) = moved
@@ -359,9 +360,9 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
             if (index < massMirrors.length) {
               val (twinIndex, planeY) = massMirrors(index)
               if (twinIndex >= 0 && twinIndex < updated.length) {
-                val (nx, ny, nz, _) = moved
-                val (_, _, _, twinMass) = updated(twinIndex)
-                updated(twinIndex) = (nx, 2f * planeY - ny, nz, twinMass)
+                val (nx, ny, nz, _, _) = moved
+                val (_, _, _, twinMass, twinVirtual) = updated(twinIndex)
+                updated(twinIndex) = (nx, 2f * planeY - ny, nz, twinMass, twinVirtual)
               }
             }
             massPoints = updated
@@ -730,7 +731,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     *
     * `mirrors` pairs each mass with the index of its twin and the plane they mirror about, or
     * (-1, 0) when it has none. */
-  def setMassPoints(points: Array[(Float, Float, Float, Float)],
+  def setMassPoints(points: Array[(Float, Float, Float, Float, Boolean)],
                     mirrors: Array[(Int, Float)] = Array()): Unit = {
     massPoints = points
     massMirrors = mirrors
@@ -1008,7 +1009,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
   private def getClosestMassAxisHandle(mouseX: Int, mouseY: Int): String = {
     selectedMassPoint.filter(_ < massPoints.length).map { index =>
-      val (x, y, z, _) = massPoints(index)
+      val (x, y, z, _, _) = massPoints(index)
       val distances = massAxisHandles(x, y, z).zip(Seq("x", "y", "z")).map { case ((hx, hy, hz), axis) =>
         val distance = projectToScreen(hx, hy, hz) match {
           case Some((sx, sy)) =>
@@ -1926,7 +1927,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
     val points = massPoints
     val heaviest = points.foldLeft(0f)((acc, p) => scala.math.max(acc, p._4))
-    points.zipWithIndex.foreach { case ((x, y, z, mass), index) =>
+    points.zipWithIndex.foreach { case ((x, y, z, mass, virtual), index) =>
       val (mx, my, mz) = avlToModel(x, y, z)
       val fraction = if (heaviest > 0f) scala.math.sqrt(scala.math.max(mass, 0f) / heaviest).toFloat else 0f
       val size = 7.0f + 9.0f * fraction
@@ -1934,6 +1935,11 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       if (selectedMassPoint.exists(_ == index)) {
         gl.glColor3f(1.0f, 0.85f, 1.0f) // the same violet, brightened
         gl.glPointSize(size + 5.0f)
+      } else if (virtual) {
+        // The mirrored half: dimmer, because the model does not store it. It is where the mass ends
+        // up in AVL and in JSBSim all the same.
+        gl.glColor3f(0.5f, 0.2f, 0.65f)
+        gl.glPointSize(size)
       } else {
         gl.glColor3f(0.85f, 0.35f, 1.0f) // violet, so masses are not mistaken for collision points
         gl.glPointSize(size)
@@ -1956,7 +1962,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
    */
   private def drawSelectedMassHandles(gl: GL2): Unit = {
     selectedMassPoint.filter(_ < massPoints.length).foreach { index =>
-      val (x, y, z, _) = massPoints(index)
+      val (x, y, z, _, _) = massPoints(index)
 
       gl.glDisable(GLLightingFunc.GL_LIGHTING)
       gl.glDisable(GL.GL_DEPTH_TEST)
