@@ -359,31 +359,53 @@ public class Body extends MassObject implements AVLSerializable  {
      */
     @Override
     public float[] geometricCenter() {
-        float volume = 0f, moment = 0f;
+        VolumeCentroid volume = definedSideVolume();
+        if (volume.isEmpty()) return new float[]{getdX() + 0.5f * getLength(), getdY(), getdZ()};
+        return volume.centre();
+    }
+
+    /**
+     * The volume of the body this one defines, and where it balances — its centre of gravity at
+     * uniform density. A duplicated body's mirrored half is not included, as with a surface: the
+     * mirror of the mass supplies its weight.
+     *
+     * Each piece between consecutive profile points is a truncated cone,
+     * {@code V = pi/3 * h * (r1^2 + r1*r2 + r2^2)}, and its centroid leans towards the wider end,
+     * which is why a fat mid-section pulls the centre towards it rather than to the mid-point.
+     * Profile x is a fraction of the length, so it is scaled, and the points are taken in order of x
+     * whatever order they are held in.
+     */
+    public VolumeCentroid definedSideVolume() {
+        VolumeCentroid volume = new VolumeCentroid();
         ArrayList<BodyProfilePoint> points = getProfilePoints();
-        for (int i = 0; i < points.size() - 1; i++) {
-            BodyProfilePoint from = points.get(i);
-            BodyProfilePoint to = points.get(i + 1);
-            float x1 = from.getX() * getLength();
-            float x2 = to.getX() * getLength();
-            float r1 = Math.max(0f, from.getRadius());
-            float r2 = Math.max(0f, to.getRadius());
+        if (points.size() < 2 || getLength() <= 0f) return volume;
+
+        ArrayList<BodyProfilePoint> sorted = new ArrayList<BodyProfilePoint>(points);
+        java.util.Collections.sort(sorted, new java.util.Comparator<BodyProfilePoint>() {
+            @Override
+            public int compare(BodyProfilePoint a, BodyProfilePoint b) {
+                return Float.compare(a.getX(), b.getX());
+            }
+        });
+
+        for (int i = 0; i < sorted.size() - 1; i++) {
+            float x1 = sorted.get(i).getX() * getLength();
+            float x2 = sorted.get(i + 1).getX() * getLength();
+            float r1 = Math.max(0f, sorted.get(i).getRadius());
+            float r2 = Math.max(0f, sorted.get(i + 1).getRadius());
             float segment = x2 - x1;
             if (segment <= 0f) continue;
 
-            // Truncated cone: V = pi/3 * h * (r1^2 + r1*r2 + r2^2)
             float coneVolume = (float)(Math.PI / 3.0) * segment * (r1 * r1 + r1 * r2 + r2 * r2);
             if (coneVolume <= 0f) continue;
-            // Its centroid, measured from the smaller end.
-            float weighted = r1 * r1 + 2f * r1 * r2 + 3f * r2 * r2;
-            float divisor = 4f * (r1 * r1 + r1 * r2 + r2 * r2);
-            float centroid = divisor > 0f ? segment * weighted / divisor : 0.5f * segment;
 
-            volume += coneVolume;
-            moment += coneVolume * (x1 + centroid);
+            float divisor = 4f * (r1 * r1 + r1 * r2 + r2 * r2);
+            float centroid = divisor > 0f
+                ? segment * (r1 * r1 + 2f * r1 * r2 + 3f * r2 * r2) / divisor
+                : 0.5f * segment;
+            volume.add(coneVolume, getdX() + x1 + centroid, getdY(), getdZ());
         }
-        if (volume <= 0f) return new float[]{getdX() + 0.5f * getLength(), getdY(), getdZ()};
-        return new float[]{getdX() + moment / volume, getdY(), getdZ()};
+        return volume;
     }
 
     /**

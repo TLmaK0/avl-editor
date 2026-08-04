@@ -93,13 +93,19 @@ object MassMirrorCheck {
     check("takes the mirror with it, there being nothing else to delete",
       body.getEffectiveMasses.isEmpty)
 
-    println("a mass on the plane of symmetry")
+    println("a mass on a symmetric wing")
     val symmetricWing = wing(symmetric = true)
-    val single = symmetricWing.createMass()
-    single.setMass(0.2f)
-    check("starts there, since that is the wing's centre", near(single.getY, 0.0))
-    check("and has no mirror: it already stands for both halves",
-      symmetricWing.virtualMirrorOf(single) == null &&
+    val half = symmetricWing.createMass()
+    half.setMass(0.2f)
+    check("starts on the side the wing defines, where that half balances", half.getY > 0.1f)
+    check("so it weighs one wing and its mirror weighs the other",
+      symmetricWing.hasVirtualMirror(half) &&
+        near(symmetricWing.getEffectiveMasses.asScala.map(_.getMass).sum, 0.4))
+
+    println("and one moved onto the plane of symmetry")
+    half.setY(0f)
+    check("has no mirror: it already stands for both halves",
+      symmetricWing.virtualMirrorOf(half) == null &&
         near(symmetricWing.getEffectiveMasses.asScala.map(_.getMass).sum, 0.2))
 
     println("a model that states both sides itself")
@@ -175,6 +181,21 @@ object MassMirrorCheck {
       auto.autoMassesFromVolume()
       near(auto.getEffectiveMassesRecursive.asScala.map(_.getMass).sum, total)
     })
+
+    // A body a hair off the centreline is mirrored by the YDUPLICATE rule, but a mass at its centre
+    // sits on the plane of symmetry and has no mirror. Counting on one anyway loses that body's other
+    // half: its one mass has to weigh the whole thing.
+    println("an element whose defined side balances on the plane of symmetry")
+    val sloppy = new AVLGeometry
+    sloppy.getSurfaces.clear(); sloppy.getBodies.clear(); sloppy.getMasses.clear()
+    val nearlyCentred = pod(); nearlyCentred.setdY(1.0e-6f)
+    sloppy.getBodies.add(nearlyCentred)
+    val seed = sloppy.addMassAt(0f, 0f, 0f); seed.setMass(2.0f)
+    sloppy.autoMassesFromVolume()
+    val sloppyMasses = sloppy.getEffectiveMassesRecursive.asScala
+    println(f"  ${sloppyMasses.size}%d masses, ${sloppyMasses.map(_.getMass).sum}%.4f kg")
+    check("its one mass weighs both halves, so the weight is not lost",
+      near(sloppyMasses.map(_.getMass).sum, 2.0))
 
     println(if (ok) "MASS_MIRROR_OK" else "MASS_MIRROR_FAIL")
     if (!ok) sys.exit(1)

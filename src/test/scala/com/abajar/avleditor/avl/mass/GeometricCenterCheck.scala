@@ -8,6 +8,7 @@ package com.abajar.avleditor.avl.mass
 
 import com.abajar.avleditor.avl.AVLGeometry
 import com.abajar.avleditor.avl.geometry.{Body, BodyProfilePoint, Control, Section, Surface}
+import scala.collection.JavaConverters._
 
 object GeometricCenterCheck {
 
@@ -50,21 +51,32 @@ object GeometricCenterCheck {
     val asymmetric = wing(symmetric = false)
     val wc = asymmetric.geometricCenter()
     println(f"  centre: (${wc(0)}%.4f, ${wc(1)}%.4f, ${wc(2)}%.4f)")
-    check("x is at mid-chord", near(wc(0), 0.5 + 0.2))
+    // Where the wing balances at uniform density: an airfoil carries its area forward, so 42% of the
+    // chord back rather than mid-chord.
+    check("x is at the airfoil's centroid", near(wc(0), 0.5 + 0.42 * 0.4))
     check("y is at mid-span", near(wc(1), 0.5))
     check("z carries the surface offset", near(wc(2), 0.1))
 
     val symmetric = wing(symmetric = true)
     println(f"  symmetric centre y: ${symmetric.geometricCenter()(1)}%.4f")
-    check("a symmetric surface centres on the plane of symmetry",
-      near(symmetric.geometricCenter()(1), 0.0))
+    // On the wing, not on the fuselage: the mass weighs the half the surface defines and its mirror
+    // weighs the other. Both on the centreline would balance the same and roll as if the wings
+    // weighed nothing.
+    check("a symmetric surface centres on the side it defines",
+      near(symmetric.geometricCenter()(1), 0.5))
 
     println("a mass created on it")
     val mass = symmetric.createMass()
     check("starts at the wing's centre",
-      near(mass.getX, symmetric.geometricCenter()(0)) && near(mass.getY, 0.0) &&
-        near(mass.getZ, 0.1))
-    check("and it is the only mass there", symmetric.getMasses.size == 1)
+      near(mass.getX, 0.5 + 0.42 * 0.4) && near(mass.getY, 0.5) && near(mass.getZ, 0.1))
+    check("and it is the only mass stored there", symmetric.getMasses.size == 1)
+    check("with the other half implied", symmetric.hasVirtualMirror(mass))
+    check("so the pair balances on the centreline", {
+      mass.setMass(0.4f)
+      val halves = symmetric.getEffectiveMasses.asScala
+      halves.size == 2 && near(halves.map(m => m.getMass * m.getY).sum, 0.0) &&
+        near(halves.map(_.getMass).sum, 0.8)
+    })
 
     // The position belongs to the mass from then on.
     mass.setX(1.234f)
@@ -107,6 +119,7 @@ object GeometricCenterCheck {
     println(f"  centre: (${ac(0)}%.4f, ${ac(1)}%.4f, ${ac(2)}%.4f)")
     check("it lies between the wing's and the body's centres",
       ac(0) > 0.6 && ac(0) < 1.0)
+    check("and on the centreline, the mirrored halves cancelling", near(ac(1), 0.0))
     check("a mass added to the geometry starts there", near(geo.createMass().getX, ac(0)))
 
     println("an element with no geometry")

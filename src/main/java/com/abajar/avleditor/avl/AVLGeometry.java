@@ -16,6 +16,7 @@ import com.abajar.avleditor.avl.geometry.Body;
 import com.abajar.avleditor.avl.geometry.Control;
 import com.abajar.avleditor.avl.geometry.Section;
 import com.abajar.avleditor.avl.geometry.Surface;
+import com.abajar.avleditor.avl.geometry.VolumeCentroid;
 import com.abajar.avleditor.view.annotations.AvlEditor;
 import com.abajar.avleditor.view.annotations.AvlEditorField;
 import com.abajar.avleditor.view.annotations.AvlEditorNode;
@@ -44,9 +45,6 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
     final static Logger logger = Logger.getLogger(AVLGeometry.class.getName());
     private static final float EPSILON = 1.0e-8f;
     private static final float DEFAULT_UNIFORM_DENSITY = 1.0f;
-    private static final float AIRFOIL_AREA_FACTOR = 0.68f;
-    private static final float AIRFOIL_CENTROID_CHORD_FRACTION = 0.42f;
-    private static final float DEFAULT_THICKNESS_RATIO = 0.12f;
 
 
     @AvlEditorField(text="Name",
@@ -446,29 +444,29 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
     }
 
     /**
-     * The middle of the whole aircraft: every surface's and body's own centre, weighted by the
-     * volume each of them encloses, so a mass added straight to the geometry starts somewhere
-     * defensible instead of on the nose.
+     * Where the whole aircraft balances at uniform density: every element's volume and centre, the
+     * mirrored halves included, since those are on the aircraft too. A mass added straight to the
+     * geometry is absolute — nothing mirrors it — so it starts here, on the centreline of a symmetric
+     * aircraft, rather than on the nose.
      */
     @Override
     public float[] geometricCenter() {
-        float weight = 0f, x = 0f, y = 0f, z = 0f;
+        VolumeCentroid whole = new VolumeCentroid();
         for (Surface surface : getSurfaces()) {
-            VolumeCentroid volume = estimateSurfaceDefinedSideVolume(surface);
-            float w = surface.isSymmetric() ? 2f * volume.volume : volume.volume;
-            if (w <= EPSILON) continue;
-            float[] centre = surface.geometricCenter();
-            weight += w; x += w * centre[0]; y += w * centre[1]; z += w * centre[2];
+            addWithMirror(whole, surface.definedSideVolume(), surface.mirrorPlaneY());
         }
         for (Body body : getBodies()) {
-            VolumeCentroid volume = estimateBodyDefinedSideVolume(body);
-            float w = volume.volume;
-            if (w <= EPSILON) continue;
-            float[] centre = body.geometricCenter();
-            weight += w; x += w * centre[0]; y += w * centre[1]; z += w * centre[2];
+            addWithMirror(whole, body.definedSideVolume(), body.mirrorPlaneY());
         }
-        if (weight <= EPSILON) return new float[]{0f, 0f, 0f};
-        return new float[]{x / weight, y / weight, z / weight};
+        if (whole.isEmpty()) return new float[]{0f, 0f, 0f};
+        return whole.centre();
+    }
+
+    /** Adds an element's defined side and, when it is mirrored, the half YDUPLICATE draws. */
+    private void addWithMirror(VolumeCentroid whole, VolumeCentroid side, Float mirrorPlaneY) {
+        if (side.isEmpty()) return;
+        whole.add(side);
+        if (mirrorPlaneY != null) whole.add(side.mirroredAcrossY(mirrorPlaneY));
     }
 
     /** Every element that can hold masses, the geometry itself included. */
@@ -591,34 +589,13 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         float totalVolume = 0f;
 
         for (Surface surface : getSurfaces()) {
-            VolumeCentroid definedSideVolume = estimateSurfaceDefinedSideVolume(surface);
-            if (definedSideVolume.volume > EPSILON) {
-                if (surface.isSymmetric()) {
-                    VolumeCentroid mirroredSideVolume = mirrorAcrossY(definedSideVolume, 0f);
-                    String baseName = "auto mass " + surface.getName();
-                    descriptors.add(new VolumeDescriptor(surface, formatAutoMassName(baseName, definedSideVolume.getY()), definedSideVolume));
-                    totalVolume += definedSideVolume.volume + mirroredSideVolume.volume;
-                } else {
-                    descriptors.add(new VolumeDescriptor(surface, "auto mass " + surface.getName(), definedSideVolume));
-                    totalVolume += definedSideVolume.volume;
-                }
-            }
+            totalVolume += describeAutoMass(descriptors, surface, surface.definedSideVolume(),
+                "auto mass " + surface.getName());
         }
 
         for (Body bodyPart : getBodies()) {
-            VolumeCentroid bodyDefinedSideVolume = estimateBodyDefinedSideVolume(bodyPart);
-            if (bodyDefinedSideVolume.volume > EPSILON) {
-                if (isBodyDuplicated(bodyPart)) {
-                    float mirrorPlaneY = bodyPart.getYdupl();
-                    VolumeCentroid mirroredSideVolume = mirrorAcrossY(bodyDefinedSideVolume, mirrorPlaneY);
-                    String baseName = "auto mass " + bodyPart.getName();
-                    descriptors.add(new VolumeDescriptor(bodyPart, formatAutoMassName(baseName, bodyDefinedSideVolume.getY()), bodyDefinedSideVolume));
-                    totalVolume += bodyDefinedSideVolume.volume + mirroredSideVolume.volume;
-                } else {
-                    descriptors.add(new VolumeDescriptor(bodyPart, "auto mass " + bodyPart.getName(), bodyDefinedSideVolume));
-                    totalVolume += bodyDefinedSideVolume.volume;
-                }
-            }
+            totalVolume += describeAutoMass(descriptors, bodyPart, bodyPart.definedSideVolume(),
+                "auto mass " + bodyPart.getName());
         }
 
         if (totalVolume <= EPSILON || descriptors.isEmpty()) {
@@ -639,12 +616,48 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
             Mass mass = descriptor.owner.addMassAt(descriptor.volumeCentroid.getX(),
                     descriptor.volumeCentroid.getY(), descriptor.volumeCentroid.getZ());
             mass.setName(descriptor.name);
-            mass.setMass(descriptor.volumeCentroid.volume * uniformDensity);
+            mass.setMass(descriptor.volumeCentroid.getVolume() * uniformDensity);
         }
 
         logger.log(Level.INFO, "Auto masses generated from volume. density={0}, totalVolume={1}, totalMass={2}",
                 new Object[]{uniformDensity, totalVolume, getTotalMass(getEffectiveMassesRecursive())});
         return true;
+    }
+
+    /**
+     * One mass for an element, and the volume that mass has to account for — which is what the
+     * density is then taken over, so the aircraft keeps its weight.
+     *
+     * On a mirrored element the mass is stored on the side the element defines and the mirror of the
+     * mass carries the other half, so the stored mass weighs one half and accounts for both. Unless
+     * the side balances *on* the plane of symmetry — a body a hair off the centreline, a surface whose
+     * defined side straddles it: there is no mirror of a mass that already sits on the plane, so that
+     * one mass weighs the whole element. Deciding this with the same test
+     * {@link MassObject#virtualMirrorOf} uses is the point: assuming a mirror that never appears loses
+     * exactly that element's other half.
+     */
+    private float describeAutoMass(ArrayList<VolumeDescriptor> descriptors, MassObject element,
+                                   VolumeCentroid definedSide, String baseName) {
+        if (definedSide.isEmpty()) return 0f;
+        Float mirrorPlaneY = element.mirrorPlaneY();
+        if (mirrorPlaneY == null) {
+            descriptors.add(new VolumeDescriptor(element, baseName, definedSide));
+            return definedSide.getVolume();
+        }
+
+        float offsetFromPlane = definedSide.getY() - mirrorPlaneY;
+        VolumeCentroid bothSides = new VolumeCentroid();
+        bothSides.add(definedSide);
+        bothSides.add(definedSide.mirroredAcrossY(mirrorPlaneY));
+
+        if (Math.abs(offsetFromPlane) > MassObject.MIRROR_TOLERANCE) {
+            descriptors.add(new VolumeDescriptor(element,
+                formatAutoMassName(baseName, offsetFromPlane), definedSide));
+        } else {
+            descriptors.add(new VolumeDescriptor(element,
+                formatAutoMassName(baseName, offsetFromPlane), bothSides));
+        }
+        return bothSides.getVolume();
     }
 
     private void clearAllMasses() {
@@ -673,167 +686,9 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return total;
     }
 
-    private VolumeCentroid estimateSurfaceDefinedSideVolume(Surface surface) {
-        VolumeCentroid definedSideVolume = new VolumeCentroid();
-        ArrayList<Section> sections = surface.getSections();
-        if (sections.size() < 2) {
-            return definedSideVolume;
-        }
-
-        for (int i = 0; i < sections.size() - 1; i++) {
-            Section root = sections.get(i);
-            Section tip = sections.get(i + 1);
-            float rootChord = Math.max(0f, root.getChord());
-            float tipChord = Math.max(0f, tip.getChord());
-            float span = (float) Math.hypot(
-                tip.getYle() - root.getYle(),
-                tip.getZle() - root.getZle()
-            );
-
-            if (span <= EPSILON || (rootChord <= EPSILON && tipChord <= EPSILON)) {
-                continue;
-            }
-
-            float averageChord = 0.5f * (rootChord + tipChord);
-            float averageThicknessRatio = 0.5f
-                * (estimateSectionThicknessRatio(root) + estimateSectionThicknessRatio(tip));
-
-            float segmentVolume = AIRFOIL_AREA_FACTOR
-                * averageThicknessRatio
-                * averageChord
-                * averageChord
-                * span;
-
-            if (segmentVolume <= EPSILON) {
-                continue;
-            }
-
-            float x = 0.5f * (root.getXle() + tip.getXle())
-                + AIRFOIL_CENTROID_CHORD_FRACTION * averageChord
-                + surface.getdX();
-            float y = 0.5f * (root.getYle() + tip.getYle()) + surface.getdY();
-            float z = 0.5f * (root.getZle() + tip.getZle()) + surface.getdZ();
-
-            definedSideVolume.add(segmentVolume, x, y, z);
-        }
-        return definedSideVolume;
-    }
-
-    private float estimateSectionThicknessRatio(Section section) {
-        String naca = section.getNACA();
-        if (naca == null) {
-            return DEFAULT_THICKNESS_RATIO;
-        }
-
-        String digits = naca.replaceAll("[^0-9]", "");
-        if (digits.length() < 2) {
-            return DEFAULT_THICKNESS_RATIO;
-        }
-
-        try {
-            int thicknessPercent = Integer.parseInt(digits.substring(digits.length() - 2));
-            float ratio = thicknessPercent / 100f;
-            if (ratio > EPSILON) {
-                return ratio;
-            }
-        } catch (NumberFormatException ignored) {
-        }
-        return DEFAULT_THICKNESS_RATIO;
-    }
-
-    private VolumeCentroid estimateBodyDefinedSideVolume(Body bodyPart) {
-        VolumeCentroid definedSideVolume = new VolumeCentroid();
-        ArrayList<com.abajar.avleditor.avl.geometry.BodyProfilePoint> points = bodyPart.getProfilePoints();
-        if (points.size() < 2 || bodyPart.getLength() <= EPSILON) {
-            return definedSideVolume;
-        }
-
-        ArrayList<com.abajar.avleditor.avl.geometry.BodyProfilePoint> sortedPoints =
-            new ArrayList<com.abajar.avleditor.avl.geometry.BodyProfilePoint>(points);
-        java.util.Collections.sort(sortedPoints, new java.util.Comparator<com.abajar.avleditor.avl.geometry.BodyProfilePoint>() {
-            @Override
-            public int compare(com.abajar.avleditor.avl.geometry.BodyProfilePoint a, com.abajar.avleditor.avl.geometry.BodyProfilePoint b) {
-                return Float.compare(a.getX(), b.getX());
-            }
-        });
-
-        for (int i = 0; i < sortedPoints.size() - 1; i++) {
-            com.abajar.avleditor.avl.geometry.BodyProfilePoint p1 = sortedPoints.get(i);
-            com.abajar.avleditor.avl.geometry.BodyProfilePoint p2 = sortedPoints.get(i + 1);
-
-            float x1 = p1.getX();
-            float x2 = p2.getX();
-            if (x2 <= x1) {
-                continue;
-            }
-
-            float length = (x2 - x1) * bodyPart.getLength();
-            float r1 = Math.max(0f, p1.getRadius());
-            float r2 = Math.max(0f, p2.getRadius());
-            float segmentVolume = (float) (Math.PI * length * (r1 * r1 + r1 * r2 + r2 * r2) / 3.0);
-            if (segmentVolume <= EPSILON) {
-                continue;
-            }
-
-            float denominator = 4f * (r1 * r1 + r1 * r2 + r2 * r2);
-            if (Math.abs(denominator) <= EPSILON) {
-                continue;
-            }
-
-            float centroidFromSegmentStart = length * (r1 * r1 + 2f * r1 * r2 + 3f * r2 * r2) / denominator;
-            float x = bodyPart.getdX() + x1 * bodyPart.getLength() + centroidFromSegmentStart;
-            float y = bodyPart.getdY();
-            float z = bodyPart.getdZ();
-            definedSideVolume.add(segmentVolume, x, y, z);
-        }
-        return definedSideVolume;
-    }
-
-    private boolean isBodyDuplicated(Body bodyPart) {
-        return bodyPart.getYdupl() != 0f || bodyPart.getdY() != 0f;
-    }
-
-    private VolumeCentroid mirrorAcrossY(VolumeCentroid source, float mirrorPlaneY) {
-        VolumeCentroid mirrored = new VolumeCentroid();
-        if (source.volume <= EPSILON) {
-            return mirrored;
-        }
-        float x = source.getX();
-        float y = 2f * mirrorPlaneY - source.getY();
-        float z = source.getZ();
-        mirrored.add(source.volume, x, y, z);
-        return mirrored;
-    }
-
     /** The one naming convention for sides, shared with the masses created by hand. */
     private String formatAutoMassName(String baseName, float y) {
         return MassObject.sideName(baseName, y);
-    }
-
-    private static class VolumeCentroid {
-        private float volume;
-        private float xMoment;
-        private float yMoment;
-        private float zMoment;
-
-        void add(float deltaVolume, float x, float y, float z) {
-            volume += deltaVolume;
-            xMoment += deltaVolume * x;
-            yMoment += deltaVolume * y;
-            zMoment += deltaVolume * z;
-        }
-
-        float getX() {
-            return volume <= EPSILON ? 0f : xMoment / volume;
-        }
-
-        float getY() {
-            return volume <= EPSILON ? 0f : yMoment / volume;
-        }
-
-        float getZ() {
-            return volume <= EPSILON ? 0f : zMoment / volume;
-        }
     }
 
     private static class VolumeDescriptor {

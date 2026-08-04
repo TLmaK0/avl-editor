@@ -134,6 +134,23 @@ AVL mass file), `CRRCSim.getAllMasses` (JSBSim mass balance, inertias) and
 `calculateCenterOfMassFromMasses()`. Nothing to keep in step, nothing extra to delete, nothing new in
 the file. See `MassObject.mirrorPlaneY/virtualMirrorOf/getEffectiveMasses` and `MassMirrorCheck`.
 
+There is **one** estimate of where an element balances, and it is the element's own:
+`Surface.definedSideVolume()` and `Body.definedSideVolume()` return a `VolumeCentroid` — the volume of
+the side the element defines and its centroid, which at uniform density is its centre of gravity. Both
+the position a new mass starts at (`geometricCenter()`) and the masses generated from volume come from
+it, so they cannot disagree. They used to: `+ Mass` on a wing put the mass on the fuselage centreline
+at mid-chord (area-weighted, y forced to 0) while the auto mass put it on the wing at 42% of the chord
+(volume-weighted). A mass now starts **on the side the element defines**, where that half balances, and
+its mirror weighs the other half — put both on the centreline instead and the aircraft balances the
+same but rolls as if the wings weighed nothing.
+
+Whatever decides that a mirror will exist has to be the same test everywhere. `autoMassesFromVolume`
+stores one mass per element and counts the volume of *both* sides, so the density comes out over the
+whole aircraft — but for an element whose defined side balances **on** the plane of symmetry (a body a
+hair off the centreline, a surface whose defined side straddles it) there is no mirror, so that single
+mass has to weigh the whole element. Assuming a mirror that never appears silently loses that
+element's other half: `MassMirrorCheck` pins it at 2 kg in, 2 kg out.
+
 Masses live on **surfaces and bodies**, not on sections. A section is a station where the wing's shape
 is defined — leading edge, chord, airfoil — and not a part with weight, so the editor does not offer it
 a mass (a control never did). Models that kept masses there are not dropped: every load moves them

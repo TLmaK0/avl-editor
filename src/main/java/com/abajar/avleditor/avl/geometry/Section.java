@@ -395,6 +395,30 @@ public class Section  extends MassObject implements AVLSerializable{
         return new float[]{getXle() + 0.5f * getChord() + dX, getYle() + dY, getZle() + dZ};
     }
 
+    /** What a section says about its own thickness when its airfoil does not name one. */
+    private static final float DEFAULT_THICKNESS_RATIO = 0.12f;
+
+    /**
+     * The airfoil's thickness as a fraction of the chord, read from the NACA number's last two
+     * digits — a 2412 is 12% thick. Without a number, 12%: the common case for a model, and a stated
+     * assumption rather than a substitute for something the user should have entered.
+     */
+    public float thicknessRatio() {
+        String naca = getNACA();
+        if (naca == null) return DEFAULT_THICKNESS_RATIO;
+
+        String digits = naca.replaceAll("[^0-9]", "");
+        if (digits.length() < 2) return DEFAULT_THICKNESS_RATIO;
+
+        try {
+            int thicknessPercent = Integer.parseInt(digits.substring(digits.length() - 2));
+            float ratio = thicknessPercent / 100f;
+            if (ratio > 0f) return ratio;
+        } catch (NumberFormatException ignored) {
+        }
+        return DEFAULT_THICKNESS_RATIO;
+    }
+
     /** A section is mirrored with the surface it belongs to. */
     @Override
     public Float mirrorPlaneY() {

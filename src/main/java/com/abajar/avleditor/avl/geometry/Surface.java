@@ -246,33 +246,58 @@ public class Surface extends MassObject implements AVLSerializable {
     }
 
     // Initialize parent references for all sections and controls (call after loading from file)
+    /** An airfoil's cross-section is about this fraction of the box its thickness and chord span. */
+    private static final float AIRFOIL_AREA_FACTOR = 0.68f;
+    /** And it balances about this far back along the chord: an airfoil carries its area forward. */
+    private static final float AIRFOIL_CENTROID_CHORD_FRACTION = 0.42f;
+
     /**
-     * The middle of the surface: the area-weighted centroid of the trapezoidal panels between
-     * consecutive sections, at mid-chord, plus the surface's offsets. A symmetric surface centres
-     * on the plane of symmetry, because the mirrored half cancels the defined half's y.
+     * The volume of the side this surface defines, and where it balances — its centre of gravity at
+     * uniform density.
+     *
+     * Each panel between consecutive sections is a wing box: the airfoil's cross-section is
+     * {@link #AIRFOIL_AREA_FACTOR} of thickness times chord, so the panel's volume goes with the
+     * chord squared, which is why a wide root counts for far more than a narrow tip. The mirrored
+     * half is not included: `YDUPLICATE` draws it, and the mirror of the mass supplies its weight.
      */
-    @Override
-    public float[] geometricCenter() {
-        float area = 0f, x = 0f, y = 0f, z = 0f;
+    public VolumeCentroid definedSideVolume() {
+        VolumeCentroid volume = new VolumeCentroid();
         ArrayList<Section> sections = getSections();
         for (int i = 0; i < sections.size() - 1; i++) {
             Section root = sections.get(i);
             Section tip = sections.get(i + 1);
+            float rootChord = Math.max(0f, root.getChord());
+            float tipChord = Math.max(0f, tip.getChord());
             float span = (float) Math.hypot(tip.getYle() - root.getYle(), tip.getZle() - root.getZle());
-            float panelArea = 0.5f * (Math.max(0f, root.getChord()) + Math.max(0f, tip.getChord())) * span;
-            if (panelArea <= 0f) continue;
-            float midChord = 0.25f * (root.getChord() + tip.getChord());
-            area += panelArea;
-            x += panelArea * (0.5f * (root.getXle() + tip.getXle()) + midChord);
-            y += panelArea * 0.5f * (root.getYle() + tip.getYle());
-            z += panelArea * 0.5f * (root.getZle() + tip.getZle());
-        }
-        if (area <= 0f) return new float[]{getdX(), getdY(), getdZ()};
+            if (span <= 0f || (rootChord <= 0f && tipChord <= 0f)) continue;
 
-        float cy = y / area;
-        // The mirrored half is the same area at -y, so the pair balances on the symmetry plane.
-        if (isSymmetric()) cy = 0f;
-        return new float[]{x / area + getdX(), cy + getdY(), z / area + getdZ()};
+            float averageChord = 0.5f * (rootChord + tipChord);
+            float averageThicknessRatio = 0.5f * (root.thicknessRatio() + tip.thicknessRatio());
+            float panelVolume = AIRFOIL_AREA_FACTOR * averageThicknessRatio
+                * averageChord * averageChord * span;
+            if (panelVolume <= 0f) continue;
+
+            float x = 0.5f * (root.getXle() + tip.getXle())
+                + AIRFOIL_CENTROID_CHORD_FRACTION * averageChord + getdX();
+            float y = 0.5f * (root.getYle() + tip.getYle()) + getdY();
+            float z = 0.5f * (root.getZle() + tip.getZle()) + getdZ();
+            volume.add(panelVolume, x, y, z);
+        }
+        return volume;
+    }
+
+    /**
+     * Where the surface balances: the centre of gravity of the side it defines, at uniform density.
+     *
+     * On the side it defines, not on the plane of symmetry. A mass here weighs one half of a mirrored
+     * wing and its mirror weighs the other, so each sits where the wing actually is — put both on the
+     * centreline instead and the aircraft balances the same but rolls as if the wings weighed nothing.
+     */
+    @Override
+    public float[] geometricCenter() {
+        VolumeCentroid volume = definedSideVolume();
+        if (volume.isEmpty()) return new float[]{getdX(), getdY(), getdZ()};
+        return volume.centre();
     }
 
     /**
