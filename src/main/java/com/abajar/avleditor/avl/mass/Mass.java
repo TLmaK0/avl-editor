@@ -32,6 +32,13 @@ public class Mass implements Serializable{
 
     protected static final Locale locale = new Locale("en");
 
+    /**
+     * The mass on the other side of a mirrored element, when this one has a twin. Transient, so it
+     * is neither written to the file nor shown in the properties table: the link is rebuilt on load
+     * by {@link MassObject#initMassMirrors()}, which can match the two because a pair is always kept
+     * in step.
+     */
+    private transient Mass mirror;
 
     @AvlEditorField(text="name",
         help="name. Mass objects must have absolute position."
@@ -237,6 +244,41 @@ public class Mass implements Serializable{
      */
     public void setzLength(float zLength) {
         this.zLength = zLength;
+    }
+
+    /**
+     * @return the mass on the other side of the mirror plane, or null when this mass has no twin
+     */
+    public Mass getMirror() {
+        return mirror;
+    }
+
+    public void setMirror(Mass mirror) {
+        this.mirror = mirror;
+    }
+
+    /**
+     * Copies this mass onto its twin, with y reflected about the mirror plane: the two halves of a
+     * mirrored element weigh the same and sit at the same station, on opposite sides. The name is
+     * left alone, so the sides stay tellable apart in the tree.
+     */
+    public void mirrorInto(Mass twin, float planeY) {
+        twin.setMass(this.getMass());
+        twin.setX(this.getX());
+        twin.setY(2f * planeY - this.getY());
+        twin.setZ(this.getZ());
+        twin.setxLength(this.getxLength());
+        twin.setyLength(this.getyLength());
+        twin.setzLength(this.getzLength());
+        twin.setInertia(this.isInertia());
+    }
+
+    /** True when the two are the same weight and station on opposite sides of the plane. */
+    public boolean mirrors(Mass other, float planeY, float tolerance) {
+        return Math.abs(this.getMass() - other.getMass()) <= tolerance
+                && Math.abs(this.getX() - other.getX()) <= tolerance
+                && Math.abs(this.getZ() - other.getZ()) <= tolerance
+                && Math.abs((2f * planeY - this.getY()) - other.getY()) <= tolerance;
     }
 
     /**

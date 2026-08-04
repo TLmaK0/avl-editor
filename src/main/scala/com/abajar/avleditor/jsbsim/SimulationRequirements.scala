@@ -45,8 +45,30 @@ object SimulationRequirements {
 
   /** One message per unmet requirement; empty when the model can be simulated. */
   def validate(crrcsim: CRRCSim): Seq[String] =
-    massProblems(crrcsim) ++ referenceProblems(crrcsim) ++ contactProblems(crrcsim) ++
-      controlProblems(crrcsim) ++ propulsionProblems(crrcsim)
+    massProblems(crrcsim) ++ mirroredMassProblems(crrcsim) ++ referenceProblems(crrcsim) ++
+      contactProblems(crrcsim) ++ controlProblems(crrcsim) ++ propulsionProblems(crrcsim)
+
+  /**
+   * `YDUPLICATE` mirrors the geometry, never the masses: AVL's mass file and JSBSim's mass balance
+   * are lists of absolute point masses. So a mass off the plane of symmetry of a mirrored element,
+   * with nothing on the other side, states half the weight the element carries and puts the centre
+   * of gravity off the centreline — the aircraft then rolls on its own and the roll inertia is too
+   * small. The missing half is not invented here: it is asked for.
+   */
+  private def mirroredMassProblems(crrcsim: CRRCSim): Seq[String] = {
+    val owners = Option(crrcsim.getAvl).map(_.getGeometry)
+      .map(_.getMassOwners.asScala.toSeq).getOrElse(Nil)
+    owners.flatMap { owner =>
+      Option(owner.mirrorPlaneY()).toSeq.flatMap { plane =>
+        owner.getMasses.asScala.filter(owner.isMassMissingItsMirror).map { mass =>
+          s"'${mass.getName}' on $owner sits at y = ${mass.getY} but $owner is mirrored about " +
+            f"y = ${plane.floatValue()}%.3f, so the other side carries no mass. State the mass on " +
+            "the other side, move this one onto the plane of symmetry so it stands for both, or " +
+            "hang it on the aircraft's own masses if it really is one-sided."
+        }
+      }
+    }
+  }
 
   /**
    * Propulsion is required, not optional. Without an engine the exported model cannot take off

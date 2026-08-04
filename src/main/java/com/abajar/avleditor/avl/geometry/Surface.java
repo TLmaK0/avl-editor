@@ -275,6 +275,15 @@ public class Surface extends MassObject implements AVLSerializable {
         return new float[]{x / area + getdX(), cy + getdY(), z / area + getdZ()};
     }
 
+    /**
+     * A symmetric surface is mirrored about y = 0: {@link #writeAVL} emits {@code YDUPLICATE 0.0}
+     * whatever the surface's own offset, so that is the plane its masses pair up about.
+     */
+    @Override
+    public Float mirrorPlaneY() {
+        return isSymmetric() ? Float.valueOf(0f) : null;
+    }
+
     public void initSectionParents() {
         for (Section section : this.getSections()) {
             section.setParentSurface(this);

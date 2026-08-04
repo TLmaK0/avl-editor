@@ -91,6 +91,10 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   // Masses in AVL coordinates with their weight, (x, y, z, kg), and which one the tree has
   // selected. The selected one is moved one axis at a time, so each axis drags separately.
   @volatile private var massPoints: Array[(Float, Float, Float, Float)] = Array()
+  // For each mass, the index of the mass mirroring it and the plane they mirror about, or -1: the
+  // two halves of a mirrored element move together while one of them is dragged, rather than the
+  // twin jumping into place when the mouse is released.
+  @volatile private var massMirrors: Array[(Int, Float)] = Array()
   @volatile private var selectedMassPoint: Option[Int] = None
   @volatile private var isDraggingMassAxisX: Boolean = false
   @volatile private var isDraggingMassAxisY: Boolean = false
@@ -351,6 +355,15 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
             }
             val updated = massPoints.clone()
             updated(index) = moved
+            // A mirrored element carries its masses in pairs, so the twin follows as it is dragged.
+            if (index < massMirrors.length) {
+              val (twinIndex, planeY) = massMirrors(index)
+              if (twinIndex >= 0 && twinIndex < updated.length) {
+                val (nx, ny, nz, _) = moved
+                val (_, _, _, twinMass) = updated(twinIndex)
+                updated(twinIndex) = (nx, 2f * planeY - ny, nz, twinMass)
+              }
+            }
             massPoints = updated
           }
         }
@@ -713,9 +726,14 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   }
 
   /** Every mass the model has a position for, as (x, y, z, kg) in AVL coordinates. They decide the
-    * centre of gravity, so they are drawn where they are and the selected one can be moved. */
-  def setMassPoints(points: Array[(Float, Float, Float, Float)]): Unit = {
+    * centre of gravity, so they are drawn where they are and the selected one can be moved.
+    *
+    * `mirrors` pairs each mass with the index of its twin and the plane they mirror about, or
+    * (-1, 0) when it has none. */
+  def setMassPoints(points: Array[(Float, Float, Float, Float)],
+                    mirrors: Array[(Int, Float)] = Array()): Unit = {
     massPoints = points
+    massMirrors = mirrors
   }
 
   def setSelectedMassPoint(index: Int): Unit = {

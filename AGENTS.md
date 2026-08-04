@@ -117,6 +117,17 @@ things to keep right: the fuel is not part of the empty weight (JSBSim adds it f
 contents), and the propulsion masses stay out of `getMassesRecursive()`, because
 `autoMassesFromVolume()` redistributes that total by volume and would otherwise count them twice.
 
+`YDUPLICATE` mirrors the **geometry, never the masses**: AVL's mass file and JSBSim's mass balance are
+lists of absolute point masses. So a mass off the plane of symmetry of a mirrored element, with
+nothing on the other side, states half the weight the element carries, puts the CG off the centreline
+and understates the roll inertia. Masses on a mirrored element therefore come in pairs — created
+together, moved together (y reflected), deleted together, one undo step each — and a model that
+already carries half a pair is **told**, not repaired: inventing the other half's weight is exactly
+the failure this section is about. Drawing a phantom twin in the 3D view would be the same failure in
+pixels. See `MassObject.mirrorPlaneY/createMass/syncMirrorOf/removeMassWithMirror` and
+`MassMirrorCheck`; a genuinely one-sided item belongs on the geometry's own masses, which are
+absolute.
+
 Propulsion is **required**, not optional: without an engine the model cannot take off and
 FlightGear reports `Throttle 0 does not exist! 0 engines exist`. The battery voltage, propeller
 diameter, blade count and the motor's data curve are all validated, and `buildPropulsion` no

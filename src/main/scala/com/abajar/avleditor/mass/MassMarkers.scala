@@ -10,7 +10,7 @@
 
 package com.abajar.avleditor.mass
 
-import com.abajar.avleditor.avl.mass.Mass
+import com.abajar.avleditor.avl.mass.{Mass, MassObject}
 import com.abajar.avleditor.crrcsim.{CRRCSim, Pos}
 import scala.collection.JavaConverters._
 
@@ -23,6 +23,10 @@ import scala.collection.JavaConverters._
  *
  * `moveTo` writes to the model, so a drag in the viewer changes the aircraft rather than a copy of
  * it.
+ *
+ * A mass on a mirrored element has a `mirror`: its twin on the other side, which follows it about
+ * `mirrorPlaneY` whenever `syncMirror` is called. The two are one thing to the user and two real
+ * masses to AVL and JSBSim, which mirror geometry but never mass.
  */
 case class MassMarker(node: AnyRef,
                       position: AnyRef,
@@ -31,7 +35,10 @@ case class MassMarker(node: AnyRef,
                       x: Float,
                       y: Float,
                       z: Float,
-                      moveTo: (Float, Float, Float) => Unit)
+                      moveTo: (Float, Float, Float) => Unit,
+                      mirror: Option[AnyRef] = None,
+                      mirrorPlaneY: Option[Float] = None,
+                      syncMirror: () => Unit = () => ())
 
 /**
  * Every mass the model states a position for, as a flat list for the 3D view.
@@ -48,18 +55,22 @@ object MassMarkers {
   def from(crrcsim: CRRCSim): IndexedSeq[MassMarker] =
     if (crrcsim == null) IndexedSeq.empty else geometryMasses(crrcsim) ++ propulsionMasses(crrcsim)
 
-  /** The masses on the geometry: the aircraft's own, and every surface's, section's and body's. */
+  /** The masses on the geometry: the aircraft's own, and every surface's, section's, control's and
+    * body's, each alongside the element that owns it — which is what knows about mirroring. */
   private def geometryMasses(crrcsim: CRRCSim): IndexedSeq[MassMarker] =
     Option(crrcsim.getAvl)
       .flatMap(avl => Option(avl.getGeometry))
-      .map(_.getMassesRecursive.asScala.toIndexedSeq)
+      .map(_.getMassOwners.asScala.toIndexedSeq)
       .getOrElse(IndexedSeq.empty)
-      .map(fromMass)
+      .flatMap(owner => owner.getMasses.asScala.toIndexedSeq.map(mass => fromMass(owner, mass)))
 
-  private def fromMass(mass: Mass): MassMarker =
+  private def fromMass(owner: MassObject, mass: Mass): MassMarker =
     MassMarker(mass, mass, Option(mass.getName).getOrElse("mass"), mass.getMass,
       mass.getX, mass.getY, mass.getZ,
-      (x, y, z) => { mass.setX(x); mass.setY(y); mass.setZ(z) })
+      (x, y, z) => { mass.setX(x); mass.setY(y); mass.setZ(z) },
+      mirror = Option(owner.mirrorMassOf(mass)),
+      mirrorPlaneY = Option(owner.mirrorPlaneY()).map(_.floatValue),
+      syncMirror = () => owner.syncMirrorOf(mass))
 
   /**
    * The propulsion components' own positions. The fuel tank is listed with its contents, which
@@ -99,4 +110,11 @@ object MassMarkers {
     val found = markers.indexWhere(m => (m.node eq target) || (m.position eq target))
     if (found == -1) None else Some(found)
   }
+
+  /** For each marker, the index of the marker holding its twin, or -1. The viewer uses it to move
+    * both halves of a pair together while one of them is being dragged. */
+  def mirrorIndexes(markers: IndexedSeq[MassMarker]): IndexedSeq[Int] =
+    markers.map { marker =>
+      marker.mirror.map(twin => markers.indexWhere(_.position eq twin)).getOrElse(-1)
+    }
 }

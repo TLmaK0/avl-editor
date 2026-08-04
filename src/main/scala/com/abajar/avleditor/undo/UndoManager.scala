@@ -25,6 +25,17 @@ class UndoManager(val maxHistory: Int = 50) {
     notifyListeners()
   }
 
+  /** Folds an extra change into the command just pushed, so one user action stays one undo step
+    * even when the editor completes it — a mirrored mass following its twin, for instance. */
+  def mergeIntoLast(command: UndoCommand, description: String): Unit = {
+    if (undoStack.isEmpty) push(command)
+    else {
+      val last = undoStack.remove(undoStack.size - 1)
+      undoStack += new CompoundCommand(Seq(last, command), description)
+      notifyListeners()
+    }
+  }
+
   def undo(): Unit = {
     if (canUndo) {
       val command = undoStack.remove(undoStack.size - 1)

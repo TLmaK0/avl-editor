@@ -388,6 +388,12 @@ public class Section  extends MassObject implements AVLSerializable{
         return new float[]{getXle() + 0.5f * getChord() + dX, getYle() + dY, getZle() + dZ};
     }
 
+    /** A section is mirrored with the surface it belongs to. */
+    @Override
+    public Float mirrorPlaneY() {
+        return this.parentSurface == null ? null : this.parentSurface.mirrorPlaneY();
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Control control: getControls()){

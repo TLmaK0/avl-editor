@@ -268,6 +268,13 @@ public class Control extends MassObject implements AVLSerializable {
         return centre;
     }
 
+    /** A control is mirrored with the surface its section belongs to. */
+    @Override
+    public Float mirrorPlaneY() {
+        Section section = getParentSection();
+        return section == null ? null : section.mirrorPlaneY();
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         return new ArrayList<Mass>(getMasses());
     }

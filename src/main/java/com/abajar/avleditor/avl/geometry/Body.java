@@ -386,6 +386,17 @@ public class Body extends MassObject implements AVLSerializable  {
         return new float[]{getdX() + moment / volume, getdY(), getdZ()};
     }
 
+    /**
+     * A body is mirrored when it says so or when it sits off the centreline — the same rule
+     * {@link #writeAVL} uses to emit {@code YDUPLICATE}, so what AVL draws twice carries its masses
+     * in pairs.
+     */
+    @Override
+    public Float mirrorPlaneY() {
+        if (getYdupl() == 0.0f && getdY() == 0.0f) return null;
+        return Float.valueOf(getYdupl());
+    }
+
     public ArrayList<Mass> getMassesRecursive(){
         return new ArrayList<Mass>(getMasses());
     }

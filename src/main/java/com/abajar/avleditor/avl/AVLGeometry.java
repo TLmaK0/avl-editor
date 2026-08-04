@@ -471,6 +471,51 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return new float[]{x / weight, y / weight, z / weight};
     }
 
+    /** Every element that can hold masses, the geometry itself included. */
+    public ArrayList<MassObject> getMassOwners() {
+        ArrayList<MassObject> owners = new ArrayList<MassObject>();
+        owners.add(this);
+        for (Surface surface : getSurfaces()) {
+            owners.add(surface);
+            for (Section section : surface.getSections()) {
+                owners.add(section);
+                for (Control control : section.getControls()) {
+                    owners.add(control);
+                }
+            }
+        }
+        for (Body body : getBodies()) {
+            owners.add(body);
+        }
+        return owners;
+    }
+
+    /**
+     * The element a mass belongs to, which is what says whether it is mirrored and where its twin
+     * is. Found by searching rather than stored on the mass: the link would be one more thing to
+     * keep alive across a load.
+     */
+    public MassObject findMassOwner(Mass mass) {
+        for (MassObject owner : getMassOwners()) {
+            for (Mass candidate : owner.getMasses()) {
+                if (candidate == mass) return owner;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Re-pairs the masses of every element after a load, where the transient links are gone. The
+     * geometry itself is skipped: it is one of its own mass owners, and its own masses are absolute,
+     * so pairing them would mean nothing and calling this on itself would not end.
+     */
+    @Override
+    public void initMassMirrors() {
+        for (MassObject owner : getMassOwners()) {
+            if (owner != this) owner.initMassMirrors();
+        }
+    }
+
     public ArrayList<Mass> getMassesRecursive() {
         ArrayList<Mass> masses = new ArrayList<Mass>(getMasses());
         for(Surface surface: getSurfaces()){
@@ -573,13 +618,17 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         }
 
         for (VolumeDescriptor descriptor : descriptors) {
-            Mass mass = descriptor.owner.createMass();
+            // Both sides are laid out here, so add the masses one by one: createMass() would pair
+            // each half with a twin of its own and the mirrored parts would be counted twice.
+            Mass mass = descriptor.owner.addMassAt(descriptor.volumeCentroid.getX(),
+                    descriptor.volumeCentroid.getY(), descriptor.volumeCentroid.getZ());
             mass.setName(descriptor.name);
             mass.setMass(descriptor.volumeCentroid.volume * uniformDensity);
-            mass.setX(descriptor.volumeCentroid.getX());
-            mass.setY(descriptor.volumeCentroid.getY());
-            mass.setZ(descriptor.volumeCentroid.getZ());
         }
+
+        // The two halves of each mirrored part were just generated as a matching pair: link them, so
+        // they move and are deleted together from here on.
+        initMassMirrors();
 
         logger.log(Level.INFO, "Auto masses generated from volume. density={0}, totalVolume={1}, totalMass={2}",
                 new Object[]{uniformDensity, totalVolume, getTotalMass(getMassesRecursive())});
@@ -744,11 +793,9 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return mirrored;
     }
 
+    /** The one naming convention for sides, shared with the masses created by hand. */
     private String formatAutoMassName(String baseName, float y) {
-        if (Math.abs(y) <= EPSILON) {
-            return baseName + " center";
-        }
-        return y > 0f ? baseName + " +Y" : baseName + " -Y";
+        return MassObject.sideName(baseName, y);
     }
 
     private static class VolumeCentroid {
