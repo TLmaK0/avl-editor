@@ -24,7 +24,7 @@ import javax.xml.bind.annotation.XmlRootElement;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SHAFT})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SHAFT, ENABLE_BUTTONS.DELETE})
 public class Battery implements Serializable {
     static final long serialVersionUID = -2002346996816014100L;
 

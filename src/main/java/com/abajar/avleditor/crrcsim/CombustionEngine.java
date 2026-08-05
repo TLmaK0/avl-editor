@@ -10,8 +10,10 @@
 
 package com.abajar.avleditor.crrcsim;
 
+import com.abajar.avleditor.view.annotations.AvlEditor;
 import com.abajar.avleditor.view.annotations.AvlEditorField;
 import com.abajar.avleditor.view.annotations.AvlEditorNode;
+import com.abajar.avleditor.view.avl.SelectorMutableTreeNode.ENABLE_BUTTONS;
 import java.io.Serializable;
 import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.XmlElement;
@@ -27,6 +29,7 @@ import javax.xml.bind.annotation.XmlElement;
  *
  * @author Hugo
  */
+@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
 public class CombustionEngine implements Serializable {
     static final long serialVersionUID = 6011938471223905011L;
 

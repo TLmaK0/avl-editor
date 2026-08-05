@@ -10,7 +10,9 @@
 
 package com.abajar.avleditor.crrcsim;
 
+import com.abajar.avleditor.view.annotations.AvlEditor;
 import com.abajar.avleditor.view.annotations.AvlEditorField;
+import com.abajar.avleditor.view.avl.SelectorMutableTreeNode.ENABLE_BUTTONS;
 import java.io.Serializable;
 import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.XmlTransient;
@@ -19,6 +21,7 @@ import javax.xml.bind.annotation.XmlTransient;
  *
  * @author Hugo
  */
+@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
 public class EngineData implements Serializable {
 
     @Override

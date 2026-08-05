@@ -157,28 +157,43 @@ class AddCollisionPoint implements TreeModificator{
   }
 }
 
+/**
+ * Removes a node from whatever list of its parent holds it.
+ *
+ * Found by reflection over the parent's {@code @AvlEditorNode} lists, which are the same lists the tree
+ * shows the node in — so anything the tree can show, the tree can delete. This replaced a chain of
+ * instanceof cases naming each parent and child type: everything the chain did not name fell through to
+ * a message on stderr and nothing was removed, which is how a battery, a shaft, an engine, a propeller,
+ * a fuel tank, a data row and a Simple Trust all became impossible to delete while looking deletable.
+ */
 class Delete implements TreeModificator{
   public void modify(Object node, Object parent){
-    if (parent instanceof ArrayList) {
-      ((ArrayList)parent).remove(node);
-    } else if (parent instanceof com.abajar.avleditor.avl.AVLGeometry && node instanceof com.abajar.avleditor.avl.geometry.Surface) {
-      ((com.abajar.avleditor.avl.AVLGeometry)parent).getSurfaces().remove(node);
-    } else if (parent instanceof com.abajar.avleditor.avl.AVLGeometry && node instanceof com.abajar.avleditor.avl.geometry.Body) {
-      ((com.abajar.avleditor.avl.AVLGeometry)parent).getBodies().remove(node);
-    } else if (parent instanceof com.abajar.avleditor.avl.geometry.Body && node instanceof com.abajar.avleditor.avl.geometry.BodyProfilePoint) {
-      ((com.abajar.avleditor.avl.geometry.Body)parent).getProfilePoints().remove(node);
-    } else if (parent instanceof com.abajar.avleditor.avl.geometry.Body && node instanceof com.abajar.avleditor.avl.mass.Mass) {
-      ((com.abajar.avleditor.avl.geometry.Body)parent).getMasses().remove(node);
-    } else if (parent instanceof com.abajar.avleditor.avl.geometry.Surface && node instanceof com.abajar.avleditor.avl.geometry.Section) {
-      ((com.abajar.avleditor.avl.geometry.Surface)parent).getSections().remove(node);
-    } else if (parent instanceof com.abajar.avleditor.avl.geometry.Section && node instanceof com.abajar.avleditor.avl.geometry.Control) {
-      ((com.abajar.avleditor.avl.geometry.Section)parent).getControls().remove(node);
-    } else if (parent instanceof com.abajar.avleditor.avl.mass.MassObject && node instanceof com.abajar.avleditor.avl.mass.Mass) {
-      ((com.abajar.avleditor.avl.mass.MassObject)parent).getMasses().remove(node);
-    } else {
-      // Fallback - try to remove from parent if it's a list
-      System.err.println("Delete: Unhandled parent type " + parent.getClass().getName() + " for node " + node.getClass().getName());
+    if (parent == null || node == null) return;
+
+    // The tree sometimes selects a list itself as the parent.
+    if (parent instanceof java.util.List) {
+      ((java.util.List)parent).remove(node);
+      return;
     }
+
+    for (java.lang.reflect.Method method : parent.getClass().getMethods()) {
+      if (!method.isAnnotationPresent(AvlEditorNode.class) || method.getParameterCount() > 0) continue;
+      try {
+        Object value = method.invoke(parent);
+        if (!(value instanceof java.util.List)) continue;
+        java.util.List<?> list = (java.util.List<?>) value;
+        for (Object candidate : list) {
+          if (candidate == node) {
+            list.remove(node);
+            return;
+          }
+        }
+      } catch (Exception ignored) {
+        // A node that cannot be read cannot hold what we are deleting either.
+      }
+    }
+    System.err.println("Delete: " + node.getClass().getName() + " is not in any list of "
+        + parent.getClass().getName());
   }
 }
 

@@ -243,6 +243,17 @@ power as shaft power. Replace one only with a better-sourced derivation, never w
 `SimpleTrust` is a CRRCsim thrust model, and with the CRRCsim export gone it has no destination at
 all, so the editor no longer offers to create one: the `+ Trust` button is removed. The node and
 its serialization stay, so files saved with one still load and save it unchanged
-(`LegacyRoundTripCheck` pins that), and a model that has one is told plainly that it cannot be
-exported. **Do not offer a control that builds something no export can consume** — that is the same
-failure as an invented default, moved into the UI.
+(`LegacyRoundTripCheck` pins that with a model it builds itself — a compatibility guarantee cannot rest
+on a sample nobody tidies up), and a model that has one is told plainly that it cannot be exported.
+**Do not offer a control that builds something no export can consume** — that is the same failure as an
+invented default, moved into the UI.
+
+And whatever the tree can add, the tree can **delete**. A node is deletable when its class asks for
+`ENABLE_BUTTONS.DELETE`, and `Delete` then removes it from whichever `@AvlEditorNode` list of its parent
+holds it — found by reflection, so the rule needs no maintenance. It used to be a chain of instanceof
+cases naming each parent and child type, and everything the chain did not name fell through to a message
+on stderr while the tree looked as if the delete had simply not worked: a battery, a shaft, an engine, a
+propeller, a fuel tank, a data row and a Simple Trust were all addable and none of them removable. A
+component's own `Pos` or `Gearing` is not a list item and stays undeletable — without one it is broken,
+not lighter. `DeleteKeyCheck` pins both halves: which classes offer it, and that deleting really removes
+from every list the tree shows.
