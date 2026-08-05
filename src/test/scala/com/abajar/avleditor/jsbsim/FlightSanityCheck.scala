@@ -135,6 +135,10 @@ object FlightSanityCheck {
     })
     check("and it never refuses: the requirements are what refuse",
       SimulationRequirements.validate(model(1.0f, 3.2f, 1.0f, 0.10f)).isEmpty)
+    // The editor asks whether to go on when — and only when — there is something to say, so a model
+    // with nothing wrong is never interrupted by a dialog.
+    check("a model with nothing wrong raises no question at all",
+      FlightSanity.warnings(model(1.0f, 11.1f, 12f, 0.20f), stableRun()).isEmpty)
     check("no AVL run yet is not something to complain about",
       !mentions(FlightSanity.warnings(model(1.0f, 11.1f, 12f, 0.20f), null), "AVL reports"))
 

@@ -221,8 +221,10 @@ after it (the span efficiency comes from AVL's totals and used to be replaced by
 question from the requirements: nothing is missing, every figure is one the user chose, and the editor
 is only doing the arithmetic they would do on paper — static thrust against weight (momentum theory,
 `T = (2 ρ A P²)^(1/3)`, times a 0.6 static figure of merit), watts per kilogram, wing loading in g/dm²,
-and what AVL says about stability in each axis. They are shown once in a dialog and the launch goes
-ahead. This exists because 3 W through a 10 cm propeller on a kilogram of aeroplane looks, from inside
+and what AVL says about stability in each axis. They are put to the user as a question — go on, or stop
+and fix it — with 'no' as the safe default, and a model with nothing wrong is never interrupted. Both
+answers reach the log, so the footer says what was decided and a cancelled launch cannot be mistaken
+for a finished one. This exists because 3 W through a 10 cm propeller on a kilogram of aeroplane looks, from inside
 FlightGear, exactly like a simulator that ignores the throttle — an hour went into the keyboard before
 anyone questioned the motor. Every threshold is a model-flying rule of thumb, quoted in the message so
 it can be argued with, and never applied to the model itself.

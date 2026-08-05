@@ -961,8 +961,8 @@ object AvlEditor{
         // once it has run. They are not substituted with typical values either.
         if (!reportModelProblems("simulated", SimulationRequirements.validateCalculation(calc))) return
         // Whether it will fly is a different question from whether it can be simulated, and the answer
-        // is the user's to act on: said once, plainly, and the launch goes ahead either way.
-        reportFlightDoubts(com.abajar.avleditor.jsbsim.FlightSanity.warnings(crrcsim, calc))
+        // is the user's: they are told and they choose.
+        if (!flightDoubtsAccepted(com.abajar.avleditor.jsbsim.FlightSanity.warnings(crrcsim, calc))) return
         val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
         action(name, calc)
       } catch {
@@ -971,16 +971,24 @@ object AvlEditor{
     }
 
     /**
-     * Doubts about whether the aircraft would fly, shown and then left behind. Not a refusal: every
-     * figure involved is one the user chose, and the arithmetic is what they would otherwise do on
-     * paper. The log keeps a copy, but the dialog is what makes it visible.
+     * Doubts about whether the aircraft would fly, put to the user: true to go on, false to stop here.
+     *
+     * Not a refusal — every figure involved is one the user chose, and the arithmetic is what they
+     * would otherwise do on paper — but worth stopping for, which is why it is a question and not a
+     * notice. A model with nothing wrong is never interrupted. Both answers reach the log, so the
+     * footer says what was decided.
      */
-    private def reportFlightDoubts(doubts: Seq[String]): Unit = {
-      if (doubts.isEmpty) return
+    private def flightDoubtsAccepted(doubts: Seq[String]): Boolean = {
+      if (doubts.isEmpty) return true
       doubts.foreach(doubt => logger.log(Level.WARNING, doubt))
-      window.showWarning("This may not fly",
-        "The model can be simulated, and it is about to be. Before you blame the simulator:\n\n" +
-          doubts.map("- " + _).mkString("\n\n"))
+      val goOn = window.confirmWarning("This may not fly",
+        "The model can be simulated, but it looks like it will not fly:\n\n" +
+          doubts.map("- " + _).mkString("\n\n") +
+          "\n\nGo on anyway?")
+      logger.log(Level.INFO,
+        if (goOn) s"Going on with ${doubts.size} warning(s) about whether this will fly"
+        else s"Stopped after ${doubts.size} warning(s) about whether this will fly; nothing was exported")
+      goOn
     }
 
     private def geometryProblems(avl: com.abajar.avleditor.avl.AVL): Seq[String] = {

@@ -339,15 +339,17 @@ class MainWindow(
   }
 
   /**
-   * A dialog for something worth knowing that is not a refusal: the action goes ahead when it closes.
-   * Visible for the same reason a refusal is — an aircraft that will not leave the runway looks, from
-   * inside FlightGear, exactly like a simulator that ignores the throttle.
+   * A warning the user answers: true to go on, false to call it off. Not a refusal — the editor has
+   * nothing against the model — but not a notice to be clicked away either, since the whole point is
+   * that the user may want to stop and fix the thing before watching it fail.
+   *
+   * 'No' is the safe answer, so it is the one focused when the dialog opens.
    */
-  def showWarning(title: String, message: String): Unit = {
-    val box = new MessageBox(shell, SWT.ICON_WARNING | SWT.OK)
+  def confirmWarning(title: String, message: String): Boolean = {
+    val box = new MessageBox(shell, SWT.ICON_WARNING | SWT.YES | SWT.NO)
     box.setText(title)
     box.setMessage(message)
-    box.open()
+    box.open() == SWT.YES
   }
 
   /**
