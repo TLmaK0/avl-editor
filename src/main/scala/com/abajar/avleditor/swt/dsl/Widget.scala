@@ -19,7 +19,7 @@ import org.eclipse.swt.events._
 import org.eclipse.swt.graphics.{Color, Font}
 import java.io.File
 import org.eclipse.swt.widgets.{Button, Composite}
-import com.abajar.avleditor.undo.{UndoManager, PropertyChangeCommand, OptionsChangeCommand}
+import com.abajar.avleditor.undo.{UndoManager, PropertyChangeCommand, OptionsChangeCommand, NamedChoiceChangeCommand}
 
 object Widget{
   implicit class SetLayoutDataWrapper[T <: Control](val subject:T) {
@@ -86,6 +86,8 @@ object Widget{
                 if (boolField.booleanValue) "☑" else "☐"
               case optionsField: TableFieldOptions =>
                 optionsField.value
+              case namedOptions: TableFieldNamedOptions =>
+                namedOptions.value
               case _ => tableField.value
             }
             item.setText(1, displayValue)
@@ -198,6 +200,33 @@ object Widget{
               editor.setEditor(combo, item, columnNumber)
               combo.setFocus()
               // Open dropdown immediately
+              combo.setListVisible(true)
+
+            case namedOptions: TableFieldNamedOptions =>
+              val combo = new CCombo(table, SWT.READ_ONLY | SWT.FLAT)
+              namedOptions.options.foreach(combo.add)
+              val oldValue = namedOptions.value
+              val current = namedOptions.options.indexOf(oldValue)
+              if (current >= 0) combo.select(current)
+              combo.addSelectionListener(new SelectionAdapter {
+                override def widgetSelected(e: SelectionEvent): Unit = {
+                  val chosen = combo.getText
+                  namedOptions.value = chosen
+                  item.setText(columnNumber, namedOptions.value)
+                  combo.dispose()
+                  _undoManager.foreach(_.push(
+                    new NamedChoiceChangeCommand(namedOptions.instance.asInstanceOf[AnyRef],
+                      namedOptions.setterMethod, namedOptions.field, oldValue, chosen)))
+                  propertyChangeCallback.foreach(callback => callback())
+                }
+              })
+              combo.addListener(SWT.FocusOut, new Listener {
+                override def handleEvent(e: Event): Unit = {
+                  if (!combo.isDisposed) combo.dispose()
+                }
+              })
+              editor.setEditor(combo, item, columnNumber)
+              combo.setFocus()
               combo.setListVisible(true)
 
             case f: TableField if !f.editable =>

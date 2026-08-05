@@ -12,6 +12,7 @@ package com.abajar.avleditor.avl;
 
 import com.abajar.avleditor.avl.mass.Mass;
 import com.abajar.avleditor.avl.mass.MassObject;
+import com.abajar.avleditor.avl.mass.MaterialElement;
 import com.abajar.avleditor.avl.geometry.Body;
 import com.abajar.avleditor.avl.geometry.Control;
 import com.abajar.avleditor.avl.geometry.Section;
@@ -40,11 +41,10 @@ import com.abajar.avleditor.avl.mass.Mass;
 @XmlSeeAlso({
     MassObject.class
 })
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SURFACE, ENABLE_BUTTONS.ADD_MASS, ENABLE_BUTTONS.ADD_BODY, ENABLE_BUTTONS.CALCULATE_CG, ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SURFACE, ENABLE_BUTTONS.ADD_MASS, ENABLE_BUTTONS.ADD_BODY, ENABLE_BUTTONS.CALCULATE_CG, ENABLE_BUTTONS.MASSES_FROM_MATERIALS})
 public class AVLGeometry extends MassObject implements AVLSerializable{
     final static Logger logger = Logger.getLogger(AVLGeometry.class.getName());
     private static final float EPSILON = 1.0e-8f;
-    private static final float DEFAULT_UNIFORM_DENSITY = 1.0f;
 
 
     @AvlEditorField(text="Name",
@@ -577,92 +577,60 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
     }
 
     /**
-     * Spreads the model's weight over its volume, one mass per element.
+     * One mass per element, weighing what that element is made of.
      *
-     * A mirrored element gets **one** mass, on the side the model defines, and its mirror supplies
-     * the other half when a model is generated — while the density is taken over the element's whole
-     * volume, both sides included, so the aircraft keeps the weight it had.
+     * This replaces spreading a stated all-up weight over the volume: the weight now comes from the
+     * material, the fill percentage and the skin of each surface and body, so the total is a result —
+     * what the aircraft would weigh if it were built as described — rather than something the user has
+     * to know in advance and the editor redistributes.
+     *
+     * The mass goes on the side the element defines, at the centre of gravity of that side, and its
+     * mirror carries the other half; an element whose side balances on the plane of symmetry gets one
+     * mass weighing the whole of it. {@link MaterialElement#materialWeight()} applies that rule, so
+     * this method does not repeat it.
+     *
+     * Masses stated by hand on the geometry itself are left alone: they are not made of anything the
+     * geometry knows about.
      */
-    public boolean autoMassesFromVolume() {
-        float currentTotalMass = getTotalMass(getEffectiveMassesRecursive());
-        ArrayList<VolumeDescriptor> descriptors = new ArrayList<VolumeDescriptor>();
-        float totalVolume = 0f;
+    public boolean massesFromMaterials() {
+        ArrayList<MaterialElement> elements = new ArrayList<MaterialElement>();
+        elements.addAll(getSurfaces());
+        elements.addAll(getBodies());
 
-        for (Surface surface : getSurfaces()) {
-            totalVolume += describeAutoMass(descriptors, surface, surface.definedSideVolume(),
-                "auto mass " + surface.getName());
+        boolean anyVolume = false;
+        for (MaterialElement element : elements) {
+            if (!element.definedSideVolume().isEmpty()) anyVolume = true;
         }
-
-        for (Body bodyPart : getBodies()) {
-            totalVolume += describeAutoMass(descriptors, bodyPart, bodyPart.definedSideVolume(),
-                "auto mass " + bodyPart.getName());
-        }
-
-        if (totalVolume <= EPSILON || descriptors.isEmpty()) {
-            logger.log(Level.WARNING, "Auto masses from volume failed: zero total volume");
+        if (!anyVolume) {
+            logger.log(Level.WARNING, "Masses from materials failed: the model encloses no volume");
             return false;
         }
 
-        clearAllMasses();
+        clearElementMasses();
 
-        float uniformDensity;
-        if (currentTotalMass > EPSILON) {
-            uniformDensity = currentTotalMass / totalVolume;
-        } else {
-            uniformDensity = DEFAULT_UNIFORM_DENSITY;
+        for (MaterialElement element : elements) {
+            VolumeCentroid side = element.definedSideVolume();
+            if (side.isEmpty()) continue;
+            Mass mass = element.addMassAt(side.getX(), side.getY(), side.getZ());
+            mass.setName(massNameFor(element, side));
+            mass.setMass(element.materialWeight());
         }
 
-        for (VolumeDescriptor descriptor : descriptors) {
-            Mass mass = descriptor.owner.addMassAt(descriptor.volumeCentroid.getX(),
-                    descriptor.volumeCentroid.getY(), descriptor.volumeCentroid.getZ());
-            mass.setName(descriptor.name);
-            mass.setMass(descriptor.volumeCentroid.getVolume() * uniformDensity);
-        }
-
-        logger.log(Level.INFO, "Auto masses generated from volume. density={0}, totalVolume={1}, totalMass={2}",
-                new Object[]{uniformDensity, totalVolume, getTotalMass(getEffectiveMassesRecursive())});
+        logger.log(Level.INFO, "Masses from materials: {0} kg over {1} elements",
+                new Object[]{getTotalMass(getEffectiveMassesRecursive()), elements.size()});
         return true;
     }
 
-    /**
-     * One mass for an element, and the volume that mass has to account for — which is what the
-     * density is then taken over, so the aircraft keeps its weight.
-     *
-     * On a mirrored element the mass is stored on the side the element defines and the mirror of the
-     * mass carries the other half, so the stored mass weighs one half and accounts for both. Unless
-     * the side balances *on* the plane of symmetry — a body a hair off the centreline, a surface whose
-     * defined side straddles it: there is no mirror of a mass that already sits on the plane, so that
-     * one mass weighs the whole element. Deciding this with the same test
-     * {@link MassObject#virtualMirrorOf} uses is the point: assuming a mirror that never appears loses
-     * exactly that element's other half.
-     */
-    private float describeAutoMass(ArrayList<VolumeDescriptor> descriptors, MassObject element,
-                                   VolumeCentroid definedSide, String baseName) {
-        if (definedSide.isEmpty()) return 0f;
+    /** Which side of a mirrored element the mass is on, so the two read differently in the tree. */
+    private String massNameFor(MaterialElement element, VolumeCentroid side) {
+        String baseName = element.toString() + " material";
         Float mirrorPlaneY = element.mirrorPlaneY();
-        if (mirrorPlaneY == null) {
-            descriptors.add(new VolumeDescriptor(element, baseName, definedSide));
-            return definedSide.getVolume();
-        }
-
-        float offsetFromPlane = definedSide.getY() - mirrorPlaneY;
-        VolumeCentroid bothSides = new VolumeCentroid();
-        bothSides.add(definedSide);
-        bothSides.add(definedSide.mirroredAcrossY(mirrorPlaneY));
-
-        if (Math.abs(offsetFromPlane) > MassObject.MIRROR_TOLERANCE) {
-            descriptors.add(new VolumeDescriptor(element,
-                formatAutoMassName(baseName, offsetFromPlane), definedSide));
-        } else {
-            descriptors.add(new VolumeDescriptor(element,
-                formatAutoMassName(baseName, offsetFromPlane), bothSides));
-        }
-        return bothSides.getVolume();
+        if (mirrorPlaneY == null) return baseName;
+        return MassObject.sideName(baseName, side.getY() - mirrorPlaneY);
     }
 
-    private void clearAllMasses() {
-        getMasses().clear();
-
+    /** The masses of the elements that are made of something, leaving the aircraft's own alone. */
+    private void clearElementMasses() {
         for (Surface surface : getSurfaces()) {
             surface.getMasses().clear();
             for (Section section : surface.getSections()) {
@@ -691,17 +659,6 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         return MassObject.sideName(baseName, y);
     }
 
-    private static class VolumeDescriptor {
-        private final MassObject owner;
-        private final String name;
-        private final VolumeCentroid volumeCentroid;
-
-        VolumeDescriptor(MassObject owner, String name, VolumeCentroid volumeCentroid) {
-            this.owner = owner;
-            this.name = name;
-            this.volumeCentroid = volumeCentroid;
-        }
-    }
 
     /**
      * Validates the geometry for AVL analysis.

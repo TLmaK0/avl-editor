@@ -55,9 +55,9 @@ class CalculateCenterOfMass implements TreeModificator{
   }
 }
 
-class AutoMassesFromVolume implements TreeModificator{
+class MassesFromMaterials implements TreeModificator{
   public void modify(Object node, Object parent){
-    ((AVLGeometry)node).autoMassesFromVolume();
+    ((AVLGeometry)node).massesFromMaterials();
   }
 }
 

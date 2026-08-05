@@ -163,12 +163,12 @@ object MassMirrorCheck {
       near(ballast.getY, -0.6) && near(ballast.getX, 1.3)
     })
 
-    println("masses generated from volume")
+    println("masses generated from materials")
     val auto = new AVLGeometry
     auto.getSurfaces.clear(); auto.getBodies.clear(); auto.getMasses.clear()
     auto.getSurfaces.add(wing(symmetric = true))
     auto.getBodies.add(pod())
-    check("are generated", auto.autoMassesFromVolume())
+    check("are generated", auto.massesFromMaterials())
     val storedMasses = auto.getMassesRecursive.asScala
     println("  stored: " + storedMasses.map(m => f"${m.getName}%s(${m.getY}%.2f)").mkString(", "))
     check("one per element, not one per side", storedMasses.size == 2)
@@ -177,8 +177,8 @@ object MassMirrorCheck {
     check("and the mirrored halves balance about the centreline",
       near(effective.map(m => m.getMass * m.getY).sum, 0.0))
     val total = effective.map(_.getMass).sum
-    check("running it again keeps the aircraft's weight", {
-      auto.autoMassesFromVolume()
+    check("running it again gives the same answer", {
+      auto.massesFromMaterials()
       near(auto.getEffectiveMassesRecursive.asScala.map(_.getMass).sum, total)
     })
 
@@ -189,13 +189,15 @@ object MassMirrorCheck {
     val sloppy = new AVLGeometry
     sloppy.getSurfaces.clear(); sloppy.getBodies.clear(); sloppy.getMasses.clear()
     val nearlyCentred = pod(); nearlyCentred.setdY(1.0e-6f)
+    nearlyCentred.setFillPercent(100f)
     sloppy.getBodies.add(nearlyCentred)
-    val seed = sloppy.addMassAt(0f, 0f, 0f); seed.setMass(2.0f)
-    sloppy.autoMassesFromVolume()
+    val onOneSide = nearlyCentred.definedSideVolume().getVolume * 1000f * nearlyCentred.getMaterialDensity
+    sloppy.massesFromMaterials()
     val sloppyMasses = sloppy.getEffectiveMassesRecursive.asScala
-    println(f"  ${sloppyMasses.size}%d masses, ${sloppyMasses.map(_.getMass).sum}%.4f kg")
-    check("its one mass weighs both halves, so the weight is not lost",
-      near(sloppyMasses.map(_.getMass).sum, 2.0))
+    println(f"  ${sloppyMasses.size}%d mass(es), ${sloppyMasses.map(_.getMass).sum}%.4f kg, " +
+      f"one side would be ${onOneSide}%.4f kg")
+    check("its one mass weighs both halves, so the body is not counted once",
+      sloppyMasses.size == 1 && near(sloppyMasses.map(_.getMass).sum, 2 * onOneSide, 1e-3))
 
     println(if (ok) "MASS_MIRROR_OK" else "MASS_MIRROR_FAIL")
     if (!ok) sys.exit(1)

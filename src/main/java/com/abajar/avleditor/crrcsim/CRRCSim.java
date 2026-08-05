@@ -206,9 +206,9 @@ public class CRRCSim implements Serializable{
      * Every mass in the generated model: the geometry's own — the mirrored halves of its mirrored
      * elements included, since that is what an exported model carries — plus the propulsion
      * components'. The two groups are kept apart deliberately:
-     * {@link com.abajar.avleditor.avl.AVLGeometry#autoMassesFromVolume()} redistributes the geometry
-     * total by volume, and a motor swept into that would be counted twice. This is the list to use
-     * for the mass, the inertias and the centre of gravity.
+     * {@link com.abajar.avleditor.avl.AVLGeometry#massesFromMaterials()} rewrites the mass of every
+     * element from what that element is made of, and a motor swept into that would be replaced by
+     * balsa. This is the list to use for the mass, the inertias and the centre of gravity.
      */
     public ArrayList<Mass> getAllMasses() {
         ArrayList<Mass> masses = new ArrayList<Mass>(avl.getGeometry().getEffectiveMassesRecursive());

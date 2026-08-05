@@ -16,6 +16,7 @@ import com.abajar.avleditor.view.avl.SelectorMutableTreeNode.ENABLE_BUTTONS;
 import com.abajar.avleditor.view.annotations.AvlEditor;
 import com.abajar.avleditor.avl.AVLSerializable;
 import com.abajar.avleditor.avl.mass.MassObject;
+import com.abajar.avleditor.avl.mass.MaterialElement;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import static com.abajar.avleditor.avl.AVLGeometry.formatFloat;
@@ -31,7 +32,7 @@ import javax.xml.bind.annotation.XmlElementWrapper;
  * @author hfreire
  */
 @AvlEditor(buttons={ENABLE_BUTTONS.ADD_PROFILE_POINT, ENABLE_BUTTONS.IMPORT_BFILE, ENABLE_BUTTONS.DELETE, ENABLE_BUTTONS.ADD_MASS})
-public class Body extends MassObject implements AVLSerializable  {
+public class Body extends MaterialElement implements AVLSerializable  {
     static final long serialVersionUID = -8843371548047761516L;
 
     private final ArrayList<BodyProfilePoint> profilePoints = new ArrayList<>();
@@ -364,6 +365,35 @@ public class Body extends MassObject implements AVLSerializable  {
         return volume.centre();
     }
 
+    public Body() {
+        setFillPercent(DEFAULT_BODY_FILL_PERCENT);
+    }
+
+    /**
+     * The area a skin covers on this body: the outside of the surface of revolution its profile
+     * sweeps, piece by piece — a truncated cone's side is pi (r1 + r2) x its slant length. The
+     * mirrored half is not included, as with the volume.
+     */
+    @Override
+    public float wettedArea() {
+        ArrayList<BodyProfilePoint> points = getProfilePoints();
+        if (points.size() < 2 || getLength() <= 0f) return 0f;
+
+        ArrayList<BodyProfilePoint> sorted = new ArrayList<BodyProfilePoint>(points);
+        sorted.sort(Comparator.comparingDouble(BodyProfilePoint::getX));
+
+        float area = 0f;
+        for (int i = 0; i < sorted.size() - 1; i++) {
+            float segment = (sorted.get(i + 1).getX() - sorted.get(i).getX()) * getLength();
+            float r1 = Math.max(0f, sorted.get(i).getRadius());
+            float r2 = Math.max(0f, sorted.get(i + 1).getRadius());
+            if (segment <= 0f) continue;
+            float slant = (float) Math.hypot(segment, r2 - r1);
+            area += (float) Math.PI * (r1 + r2) * slant;
+        }
+        return area;
+    }
+
     /**
      * The volume of the body this one defines, and where it balances — its centre of gravity at
      * uniform density. A duplicated body's mirrored half is not included, as with a surface: the
@@ -375,6 +405,7 @@ public class Body extends MassObject implements AVLSerializable  {
      * Profile x is a fraction of the length, so it is scaled, and the points are taken in order of x
      * whatever order they are held in.
      */
+    @Override
     public VolumeCentroid definedSideVolume() {
         VolumeCentroid volume = new VolumeCentroid();
         ArrayList<BodyProfilePoint> points = getProfilePoints();

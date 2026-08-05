@@ -17,6 +17,7 @@ import com.abajar.avleditor.view.annotations.AvlEditor;
 import javax.xml.bind.annotation.XmlElement;
 import com.abajar.avleditor.avl.AVLSerializable;
 import com.abajar.avleditor.avl.mass.MassObject;
+import com.abajar.avleditor.avl.mass.MaterialElement;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -30,7 +31,7 @@ import com.abajar.avleditor.avl.mass.Mass;
  * @author hfreire
  */
 @AvlEditor(buttons={ENABLE_BUTTONS.ADD_SECTION, ENABLE_BUTTONS.DELETE, ENABLE_BUTTONS.ADD_MASS})
-public class Surface extends MassObject implements AVLSerializable {
+public class Surface extends MaterialElement implements AVLSerializable {
     static final long serialVersionUID = 1138674039288253507L;
     //TODO: NOWAKE
     //TODO: NOALBE
@@ -260,6 +261,7 @@ public class Surface extends MassObject implements AVLSerializable {
      * chord squared, which is why a wide root counts for far more than a narrow tip. The mirrored
      * half is not included: `YDUPLICATE` draws it, and the mirror of the mass supplies its weight.
      */
+    @Override
     public VolumeCentroid definedSideVolume() {
         VolumeCentroid volume = new VolumeCentroid();
         ArrayList<Section> sections = getSections();
@@ -284,6 +286,30 @@ public class Surface extends MassObject implements AVLSerializable {
             volume.add(panelVolume, x, y, z);
         }
         return volume;
+    }
+
+    /**
+     * The area a skin covers on the side this surface defines: both faces of every panel, with the
+     * airfoil's curvature adding a little to the flat planform — the usual thin-airfoil figure of
+     * 2 x area x (1 + 0.25 t/c). The mirrored half is not included, as with the volume.
+     */
+    @Override
+    public float wettedArea() {
+        float area = 0f;
+        ArrayList<Section> sections = getSections();
+        for (int i = 0; i < sections.size() - 1; i++) {
+            Section root = sections.get(i);
+            Section tip = sections.get(i + 1);
+            float rootChord = Math.max(0f, root.getChord());
+            float tipChord = Math.max(0f, tip.getChord());
+            float span = (float) Math.hypot(tip.getYle() - root.getYle(), tip.getZle() - root.getZle());
+            if (span <= 0f || (rootChord <= 0f && tipChord <= 0f)) continue;
+
+            float averageChord = 0.5f * (rootChord + tipChord);
+            float averageThicknessRatio = 0.5f * (root.thicknessRatio() + tip.thicknessRatio());
+            area += 2f * averageChord * span * (1f + 0.25f * averageThicknessRatio);
+        }
+        return area;
     }
 
     /**

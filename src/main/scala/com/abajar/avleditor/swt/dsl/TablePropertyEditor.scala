@@ -163,3 +163,42 @@ class TableFieldOptions(
     if (idx >= 0) selectedIndex = idx
   }
 }
+
+/**
+ * A dropdown whose choices come from the object itself, at the moment the cell is opened, and whose
+ * value is the chosen **name**. `TableFieldOptions` stores an index into a constant array, which cannot
+ * work for a list the user edits: the same index would mean a different thing after an edit.
+ */
+class TableFieldNamedOptions(
+    val instance: Any,
+    val field: Field,
+    val textArg: String,
+    helpArg: String,
+    val options: Array[String]
+) extends TableField {
+  def text(): String = textArg
+  def help(): String = helpArg
+
+  /** Set through the setter when there is one: choosing a material writes its figures onto the
+    * element, and that only happens if the setter runs. */
+  val setterMethod: Option[Method] =
+    try {
+      Some(instance.getClass.getMethod("set" + field.getName.capitalize, classOf[String]))
+    } catch {
+      case _: NoSuchMethodException => None
+    }
+
+  def value: String = {
+    field.setAccessible(true)
+    Option(field.get(instance)).map(_.toString).getOrElse("")
+  }
+
+  def value_=(value: String): Unit = {
+    setterMethod match {
+      case Some(setter) => setter.invoke(instance, value)
+      case None =>
+        field.setAccessible(true)
+        field.set(instance, value)
+    }
+  }
+}

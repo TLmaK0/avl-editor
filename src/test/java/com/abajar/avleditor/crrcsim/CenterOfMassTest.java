@@ -99,7 +99,7 @@ public class CenterOfMassTest {
     }
 
     @Test
-    public void testAutoMassesFromVolumePreservesTotalMass() {
+    public void testMassesFromMaterialsWeighsEachElementFromWhatItIsMadeOf() {
         AVL avl = new AVL();
         AVLGeometry geometry = avl.getGeometry();
         Surface surface = geometry.getSurfaces().get(0);
@@ -111,27 +111,25 @@ public class CenterOfMassTest {
         createMass(section, 4f, 1.0f, 0.0f, 0.0f);
         createMass(body, 1f, 0.2f, 0.0f, 0.0f);
 
-        // The aircraft's weight is the effective one: a mirrored element stores the defined side and
-        // the export mirrors it, so the stored total alone is half that element's weight.
-        float totalBefore = totalMass(geometry.getEffectiveMassesRecursive());
-        assertEquals(10.0f, totalBefore, 1.0e-6f);
-
-        boolean generated = geometry.autoMassesFromVolume();
+        // The weight is no longer redistributed from what the model happened to hold: it is what the
+        // material, the fill and the skin of each element come to.
+        boolean generated = geometry.massesFromMaterials();
         assertTrue(generated);
 
-        float totalAfter = totalMass(geometry.getEffectiveMassesRecursive());
-        assertEquals(totalBefore, totalAfter, 1.0e-4f);
+        // The geometry's own masses are not made of anything the geometry knows about, so they stay.
+        assertEquals(1, geometry.getMasses().size());
+        assertEquals(2.0f, geometry.getMasses().get(0).getMass(), 1.0e-6f);
 
-        assertEquals(0, geometry.getMasses().size());
-        assertTrue(surface.getMasses().size() > 0);
+        assertEquals(1, surface.getMasses().size());
         assertEquals(0, section.getMasses().size());
-        assertTrue(body.getMasses().size() > 0);
-        assertTrue(surface.getMasses().get(0).getName().startsWith("auto mass "));
-        assertTrue(body.getMasses().get(0).getName().startsWith("auto mass "));
+        assertEquals(1, body.getMasses().size());
+        assertEquals(surface.materialWeight(), surface.getMasses().get(0).getMass(), 1.0e-6f);
+        assertEquals(body.materialWeight(), body.getMasses().get(0).getMass(), 1.0e-6f);
+        assertTrue(surface.getMasses().get(0).getName().contains("material"));
     }
 
     @Test
-    public void testAutoMassesFromVolumeDoesNotDeleteMassesOnFailure() {
+    public void testMassesFromMaterialsDoesNotDeleteMassesOnFailure() {
         AVL avl = new AVL();
         AVLGeometry geometry = avl.getGeometry();
         Surface surface = geometry.getSurfaces().get(0);
@@ -145,7 +143,7 @@ public class CenterOfMassTest {
         int massesBefore = surface.getMasses().size();
         float totalBefore = totalMass(geometry.getMassesRecursive());
 
-        boolean generated = geometry.autoMassesFromVolume();
+        boolean generated = geometry.massesFromMaterials();
         assertFalse(generated);
 
         assertEquals(massesBefore, surface.getMasses().size());

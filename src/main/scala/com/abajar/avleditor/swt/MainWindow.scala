@@ -31,7 +31,7 @@ import java.io.File;
 
 object MenuOption extends Enumeration {
   type MenuOption = Value
-  val Save, SaveAs, Open, ExportAsAvl, ExportAsJsbsim, ExportForFlightGear, FlyInFlightGear, RunAvl, SetAvlExecutable, ClearAvlConfiguration = Value
+  val Save, SaveAs, Open, ExportAsAvl, ExportAsJsbsim, ExportForFlightGear, FlyInFlightGear, RunAvl, SetAvlExecutable, ClearAvlConfiguration, EditMaterials = Value
 }
 
 import MenuOption._
@@ -172,6 +172,7 @@ class MainWindow(
           .addItem("Run AVL", notifyMenuClick(MenuOption.RunAvl))
 
         menu.addSubmenu("Edit")
+          .addItem("Materials...", notifyMenuClick(MenuOption.EditMaterials))
           .addItem("Set AVL executable", notifyMenuClick(MenuOption.SetAvlExecutable))
           .addItem("Clear AVL configuration", notifyMenuClick(MenuOption.ClearAvlConfiguration))
      })
@@ -190,7 +191,7 @@ class MainWindow(
 
     // Mass actions
     addToolItem(toolbar, "+ Mass", "Add a mass element", ENABLE_BUTTONS.ADD_MASS)
-    addToolItem(toolbar, "Auto Masses", "Generate masses from geometry volumes", ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME)
+    addToolItem(toolbar, "Masses", "Set every element's mass from what it is made of: material, fill and skin", ENABLE_BUTTONS.MASSES_FROM_MATERIALS)
     addToolItem(toolbar, "Calc CG", "Calculate center of gravity from masses", ENABLE_BUTTONS.CALCULATE_CG)
     new ToolItem(toolbar, SWT.SEPARATOR)
 

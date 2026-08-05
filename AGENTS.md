@@ -119,7 +119,8 @@ These masses are **optional**: a component may be accounted for elsewhere or be 
 zero is a stated value rather than missing data, so it is accepted and contributes nothing. Two
 things to keep right: the fuel is not part of the empty weight (JSBSim adds it from the tank's
 contents), and the propulsion masses stay out of `getMassesRecursive()`, because
-`autoMassesFromVolume()` redistributes that total by volume and would otherwise count them twice.
+`massesFromMaterials()` rewrites the mass of every element from what that element is made of, and a
+motor swept into that would come back as balsa.
 
 `YDUPLICATE` mirrors the **geometry, never the masses**: AVL's mass file and JSBSim's mass balance are
 lists of absolute point masses. So a mass off the plane of symmetry of a mirrored element, with
@@ -144,12 +145,13 @@ at mid-chord (area-weighted, y forced to 0) while the auto mass put it on the wi
 its mirror weighs the other half — put both on the centreline instead and the aircraft balances the
 same but rolls as if the wings weighed nothing.
 
-Whatever decides that a mirror will exist has to be the same test everywhere. `autoMassesFromVolume`
-stores one mass per element and counts the volume of *both* sides, so the density comes out over the
-whole aircraft — but for an element whose defined side balances **on** the plane of symmetry (a body a
-hair off the centreline, a surface whose defined side straddles it) there is no mirror, so that single
-mass has to weigh the whole element. Assuming a mirror that never appears silently loses that
-element's other half: `MassMirrorCheck` pins it at 2 kg in, 2 kg out.
+Whatever decides that a mirror will exist has to be the same test everywhere. One mass per element is
+stored, weighing the side that element defines, and its mirror carries the other half — but for an
+element whose defined side balances **on** the plane of symmetry (a body a hair off the centreline, a
+surface whose defined side straddles it) there is no mirror, so that single mass has to weigh the whole
+element. Assuming a mirror that never appears silently loses that element's other half.
+`MaterialElement.massVolume()` and `massWettedArea()` apply that rule once, and everything that needs
+it — the weight from materials, the masses generated from them — asks them rather than deciding again.
 
 Masses live on **surfaces and bodies**, not on sections. A section is a station where the wing's shape
 is defined — leading edge, chord, airfoil — and not a part with weight, so the editor does not offer it
@@ -163,9 +165,38 @@ not know which plane it mirrors about.
 Two rules keep it honest. A mass **already stated on the other side** is not mirrored again — that is
 how every `+Y`/`-Y` pair written by older versions keeps its weight instead of doubling — and a mass
 **on the plane of symmetry** has no mirror, since it already stands for both halves, which is why
-`Surface.geometricCenter()` puts a new mass there. `autoMassesFromVolume()` writes the defined side
-only, with the density taken over the element's whole volume. A genuinely one-sided item belongs on
-the geometry's own masses, which are absolute and never mirrored.
+`Surface.geometricCenter()` puts a new mass there. A genuinely one-sided item belongs on the
+geometry's own masses, which are absolute and never mirrored.
+
+## What an aircraft is made of
+
+A surface and a body state their **material**: a density in g/cm³ for what the part is filled with, a
+**fill percentage** for how much of the volume it encloses is actually structure, and a **skin** weighed
+by the area it covers, because a 0.2 mm carbon laminate weighs about 310 g/m² whatever it is wrapped
+around and a single density could only approximate that. The weight follows:
+`kg = m³ × 1000 × g/cm³ × fill + m² × g/m² ÷ 1000`, both conversions pinned by `MaterialWeightCheck`.
+
+The element stores **the figures, not a reference to a library entry**. Choosing a material copies its
+density onto the surface; the name is a label. A model has to weigh the same on a machine whose library
+differs or was edited since, and a model naming a material this machine has never heard of keeps its
+weight (`MaterialLibraryCheck`). The library itself lives in `~/.avleditor/materials.yaml`, seeded with
+about thirty entries the first time it is asked for and editable under **Edit > Materials…**; a file
+that cannot be read falls back to the built-in list rather than to nothing.
+
+This **replaced** spreading a stated all-up weight over the volume. `massesFromMaterials()` gives every
+element one mass weighing what it is made of, so the total is a result — what the aircraft would weigh
+if it were built as described — instead of a figure the user has to know in advance for the editor to
+redistribute. Masses stated by hand on the geometry itself are left alone: they are not made of
+anything the geometry knows about. The defaults are stated assumptions, documented where they are
+defined: balsa medium at 15% for a surface, 12% for a body, since a built-up structure of ribs, spars
+and sheeting is mostly air. An old file has no material fields, so it loads with those defaults and
+nothing changes weight until the button is pressed.
+
+A dropdown whose entries the user can edit cannot be an index into a constant array, which is what
+`@AvlEditorField(options=…)` gives: `optionsFrom` names a method on the object that returns the choices
+when the cell is opened, and the field keeps the chosen **name** (`TableFieldNamedOptions`). Undo goes
+through the setter (`NamedChoiceChangeCommand`), because choosing a material writes its density too and
+putting only the name back would leave an element named one thing and weighing another.
 
 Propulsion is **required**, not optional: without an engine the model cannot take off and
 FlightGear reports `Throttle 0 does not exist! 0 engines exist`. The battery voltage, propeller

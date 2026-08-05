@@ -54,6 +54,7 @@ import swt.dsl.TableFieldWritable
 import swt.dsl.TableFieldReadOnly
 import swt.dsl.TableFieldFile
 import swt.dsl.TableFieldOptions
+import swt.dsl.TableFieldNamedOptions
 import swt.dsl.TableFieldEmpty
 import com.abajar.avleditor.jsbsim.SimulationRequirements
 import com.abajar.avleditor.view.annotations
@@ -93,6 +94,11 @@ object AvlEditor{
 
     val dir = new File(CONFIGURATION_ROOT)
     if (!dir.exists) dir.mkdir
+
+    /** The materials live next to the rest of the configuration, seeded the first time they are asked
+      * for so the file is there to be edited. */
+    val MATERIALS_PATH = CONFIGURATION_ROOT + "/materials.yaml"
+    com.abajar.avleditor.material.Materials.useFile(new File(MATERIALS_PATH))
 
     var crrcsim = new CRRCSimFactory().create()
     var currentFile: Option[File] = None
@@ -299,8 +305,8 @@ object AvlEditor{
             handleDeleteWithUndo(nodeSelected)
           } else if (button == ENABLE_BUTTONS.CALCULATE_CG) {
             handleCalculateCGWithUndo(nodeSelected)
-          } else if (button == ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME) {
-            handleAutoMassesWithUndo(nodeSelected)
+          } else if (button == ENABLE_BUTTONS.MASSES_FROM_MATERIALS) {
+            handleMassesFromMaterialsWithUndo(nodeSelected)
           } else {
             handleAddWithUndo(button, nodeSelected)
           }
@@ -376,16 +382,16 @@ object AvlEditor{
       }
     }
 
-    private def handleAutoMassesWithUndo(nodeSelected: Any): Unit = {
+    private def handleMassesFromMaterialsWithUndo(nodeSelected: Any): Unit = {
       val parent = window.treeNodeSelectedParent.orNull
       val massLists = collectAllMassLists()
       val before = ListSnapshotCommand.snapshot(massLists)
 
-      ENABLE_BUTTONS.AUTO_MASSES_FROM_VOLUME.click(nodeSelected, parent)
+      ENABLE_BUTTONS.MASSES_FROM_MATERIALS.click(nodeSelected, parent)
 
       val after = massLists.map(list => new java.util.ArrayList[Any](list))
       val snapshots = before.zip(after).map { case ((list, old), neu) => (list, old, neu) }
-      undoManager.push(new ListSnapshotCommand(snapshots, "Auto Masses"))
+      undoManager.push(new ListSnapshotCommand(snapshots, "Masses from materials"))
     }
 
     private def collectListsToTrack(button: ENABLE_BUTTONS, nodeSelected: Any): Seq[java.util.ArrayList[_]] = {
@@ -548,8 +554,20 @@ object AvlEditor{
       case ExportForFlightGear => exportForFlightGear
       case FlyInFlightGear => flyInFlightGear
       case RunAvl => runAvl
+      case EditMaterials => editMaterials
       case SetAvlExecutable => setAvlExecutable
       case ClearAvlConfiguration => clearAvlConfiguration
+    }
+
+    /**
+     * The materials on offer. Editing them changes what the dropdowns offer from now on; a model keeps
+     * the figures it was given, so nothing already saved changes weight behind the user's back.
+     */
+    private def editMaterials: Unit = {
+      new swt.MaterialsDialog(window.getShell).open()
+      // A surface showing its material rereads the list when the cell is opened, but the row that
+      // spells out the weight is rendered now.
+      window.properties.clearAll()
     }
 
     def exportAsAVL(avlFile: Path): Unit = {
@@ -1120,15 +1138,48 @@ object AvlEditor{
       )
     }
 
+    /** The annotated fields of a class and of everything it inherits from, the class's own first: a
+      * surface's geometry reads before the material fields it gets from `MaterialElement`. */
+    private def annotatedFields(objClass: Class[_]): Seq[Field] = {
+      def upwards(cls: Class[_]): Seq[Field] =
+        if (cls == null) Seq.empty
+        else cls.getDeclaredFields.toSeq ++ upwards(cls.getSuperclass)
+      upwards(objClass).filter(_.isAnnotationPresent(classOf[annotations.AvlEditorField]))
+    }
+
+    /** The choices a field's `optionsFrom` method offers, asked for now rather than fixed when the
+      * class was written: the materials are a list the user edits. */
+    private def dynamicOptions(data: Any, methodName: String): Option[Array[String]] =
+      try {
+        val method = data.getClass.getMethod(methodName)
+        method.invoke(data) match {
+          case names: Array[String] => Some(names)
+          case names: java.util.List[_] => Some(names.asScala.map(String.valueOf).toArray)
+          case _ => None
+        }
+      } catch {
+        case e: Exception =>
+          logger.log(Level.WARNING, s"No options from '$methodName' on ${data.getClass.getSimpleName}", e)
+          None
+      }
+
     private def extractProperties(data: Any) = {
       val objClass = data.getClass
       val regularFields = for{
-        field <- objClass.getDeclaredFields
-        if (field.isAnnotationPresent(classOf[annotations.AvlEditorField]))
+        field <- annotatedFields(objClass)
       } yield {
         val annotation = field.getAnnotation(classOf[AvlEditorField])
         val options = annotation.options()
-        if (options.nonEmpty) {
+        val named = if (annotation.optionsFrom().nonEmpty) dynamicOptions(data, annotation.optionsFrom()) else None
+        if (named.nonEmpty) {
+          new TableFieldNamedOptions(
+            data,
+            field,
+            annotation.text(),
+            annotation.help(),
+            named.get
+          )
+        } else if (options.nonEmpty) {
           new TableFieldOptions(
             data,
             field,
@@ -1168,7 +1219,7 @@ object AvlEditor{
         method.getAnnotation(classOf[AvlEditorReadOnly]).text(),
         method.getAnnotation(classOf[AvlEditorReadOnly]).help()
       )
-      regularFields ++ fileFields ++ readOnlyFields
+      (regularFields ++ fileFields ++ readOnlyFields).toArray
     }
 
     /** Object the properties table currently shows. Held explicitly rather than read back

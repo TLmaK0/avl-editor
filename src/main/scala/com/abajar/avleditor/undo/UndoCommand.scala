@@ -88,6 +88,33 @@ class RemoveCommand[T](
   }
 }
 
+/**
+ * Restores a chosen name through the object's own setter, so whatever that setter derives comes back
+ * with it: choosing a material writes its density onto the element, and an undo that only put the name
+ * back would leave the element named one thing and weighing another.
+ */
+class NamedChoiceChangeCommand(
+    instance: AnyRef,
+    setter: Option[java.lang.reflect.Method],
+    field: Field,
+    oldValue: String,
+    newValue: String
+) extends UndoCommand {
+
+  def description: String = s"Change ${field.getName}"
+
+  private def apply(value: String): Unit = setter match {
+    case Some(method) => method.invoke(instance, value)
+    case None =>
+      field.setAccessible(true)
+      field.set(instance, value)
+  }
+
+  def undo(): Unit = apply(oldValue)
+
+  def redo(): Unit = apply(newValue)
+}
+
 class CompoundCommand(
     commands: Seq[UndoCommand],
     val description: String

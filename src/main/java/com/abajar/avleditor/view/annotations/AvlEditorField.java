@@ -25,4 +25,10 @@ public @interface AvlEditorField {
     String text();
     String help() default "No help";
     String[] options() default {};
+    /**
+     * Name of a no-argument method on the same object returning the choices, for a list that is not
+     * known when the class is written: the materials the user can edit and add to. The field holds the
+     * chosen name, not an index into a list that can change under it.
+     */
+    String optionsFrom() default "";
 }
