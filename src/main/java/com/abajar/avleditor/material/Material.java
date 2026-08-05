@@ -15,10 +15,10 @@ import java.io.Serializable;
 /**
  * What a part is made of, as the library holds it.
  *
- * A material is either something a part is filled with, weighed by volume — balsa, foam, a solid print
- * — or a skin, weighed by the area it covers: a 0.2 mm carbon laminate weighs about 310 g per square
- * metre whatever it is wrapped around, so its thickness reaches the aircraft through the area, not
- * through the volume. A material may state both, and one of the two is zero for most of them.
+ * Every material states a **density**, because that is what a material is. A material meant as a skin
+ * states a **thickness** as well, and its weight per square metre follows from the two: 0.2 mm of a
+ * 1.55 g/cm³ laminate is 310 g/m². That is derived rather than stored, so a skin cannot say one thing
+ * with its density and thickness and another with its weight.
  *
  * `notes` says where the figure comes from, so it can be judged rather than trusted.
  */
@@ -30,34 +30,42 @@ public class Material implements Serializable {
     /** Weight of the material itself, in grams per cubic centimetre. */
     private float density;
 
-    /** Weight of one covering of the material, in grams per square metre. */
-    private float arealWeight;
+    /** How thick a covering of it is, in millimetres. Zero for a material that is not used as a skin. */
+    private float thicknessMm;
 
     private String notes = "";
 
     public Material() {
     }
 
-    public Material(String name, float density, float arealWeight, String notes) {
+    public Material(String name, float density, float thicknessMm, String notes) {
         this.name = name;
         this.density = density;
-        this.arealWeight = arealWeight;
+        this.thicknessMm = thicknessMm;
         this.notes = notes;
     }
 
-    /** A material weighed by volume. */
+    /** A material with no thickness of its own: what a part is filled with. */
     public static Material solid(String name, float density, String notes) {
         return new Material(name, density, 0f, notes);
     }
 
-    /** A material weighed by the area it covers, from a thickness of a material of known density. */
+    /** A material used as a covering, of a stated thickness. */
     public static Material skin(String name, float thicknessMm, float density, String notes) {
-        // 1 mm of a material at 1 g/cm3 weighs 1000 g/m2: 1 m2 x 1 mm = 1000 cm3.
-        return new Material(name, 0f, thicknessMm * density * 1000f, notes);
+        return new Material(name, density, thicknessMm, notes);
     }
 
+    /** A skin is a material with a thickness; without one there is no area to spread it over. */
     public boolean isSkin() {
-        return arealWeight > 0f;
+        return thicknessMm > 0f && density > 0f;
+    }
+
+    /**
+     * What one covering of this material weighs per square metre, from its density and thickness:
+     * a millimetre of a 1 g/cm³ material over a square metre is 1000 g, since 1 m² x 1 mm = 1000 cm³.
+     */
+    public float arealWeight() {
+        return thicknessMm * density * 1000f;
     }
 
     @Override
@@ -81,12 +89,12 @@ public class Material implements Serializable {
         this.density = density;
     }
 
-    public float getArealWeight() {
-        return arealWeight;
+    public float getThicknessMm() {
+        return thicknessMm;
     }
 
-    public void setArealWeight(float arealWeight) {
-        this.arealWeight = arealWeight;
+    public void setThicknessMm(float thicknessMm) {
+        this.thicknessMm = Math.max(0f, thicknessMm);
     }
 
     public String getNotes() {

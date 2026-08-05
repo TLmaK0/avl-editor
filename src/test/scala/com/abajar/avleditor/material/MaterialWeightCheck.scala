@@ -57,16 +57,19 @@ object MaterialWeightCheck {
     cube.getProfilePoints.add(new BodyProfilePoint(1.0f, radius))
     cube.setMaterialDensity(1.0f)
     cube.setFillPercent(100f)
-    cube.setSkinArealWeight(0f)
+    cube.setSkinName("None")
     println(f"  1 m3 at 1 g/cm3: ${cube.materialWeight()}%.2f kg")
     check("a cubic metre at 1 g/cm3 weighs 1000 kg", near(cube.materialWeight(), 1000.0, 1.0))
 
     val skinOnly = wing(symmetric = false)
     skinOnly.setMaterialDensity(0f)
-    skinOnly.setSkinArealWeight(1000f)
-    println(f"  wetted area ${skinOnly.wettedArea()}%.4f m2 at 1000 g/m2: ${skinOnly.materialWeight()}%.4f kg")
-    check("a square metre of skin at 1000 g/m2 weighs a kilogram",
-      near(skinOnly.materialWeight(), skinOnly.wettedArea()))
+    // A millimetre of a 1 g/cm3 material over a square metre is a kilogram: 1 m2 x 1 mm = 1000 cm3.
+    skinOnly.setSkinDensity(1.0f)
+    skinOnly.setSkinThicknessMm(1.0f)
+    println(f"  wetted ${skinOnly.wettedArea()}%.4f m2 x 1 mm x 1 g/cm3: ${skinOnly.materialWeight()}%.4f kg" +
+      f" (${skinOnly.skinArealWeight()}%.0f g/m2)")
+    check("a square metre of a millimetre at 1 g/cm3 weighs a kilogram",
+      near(skinOnly.materialWeight(), skinOnly.wettedArea()) && near(skinOnly.skinArealWeight(), 1000.0))
 
     println("a wing's own figures")
     val panel = wing(symmetric = false)
@@ -97,13 +100,32 @@ object MaterialWeightCheck {
     composite.setFillPercent(100f)
     composite.setSkinName("Carbon skin 0.20 mm")
     check("choosing a material writes its density", near(composite.getMaterialDensity, 0.035))
-    check("choosing a skin writes its areal weight", near(composite.getSkinArealWeight, 310.0))
+    check("choosing a skin writes the material and the thickness it weighs by",
+      near(composite.getSkinDensity, 1.55) && near(composite.getSkinThicknessMm, 0.20))
+    check("and the weight per square metre follows from those two",
+      near(composite.skinArealWeight(), 310.0, 0.5))
     val core = 0.013056 * 1000 * 0.035
     val skin = 0.824 * 310 / 1000
     println(f"  core ${core}%.4f kg + skin ${skin}%.4f kg = ${composite.materialWeight()}%.4f kg")
     check("the two add up", near(composite.materialWeight(), core + skin, 1e-3))
-    check("'None' clears the skin",
-      { composite.setSkinName("None"); near(composite.getSkinArealWeight, 0.0) })
+    check("'None' clears the skin", {
+      composite.setSkinName("None")
+      near(composite.getSkinDensity, 0.0) && near(composite.getSkinThicknessMm, 0.0) &&
+        near(composite.skinArealWeight(), 0.0)
+    })
+    check("a thicker skin of the same material weighs proportionally more", {
+      composite.setSkinName("Carbon skin 0.40 mm")
+      near(composite.getSkinDensity, 1.55) && near(composite.getSkinThicknessMm, 0.40) &&
+        near(composite.skinArealWeight(), 620.0, 1.0)
+    })
+
+    println("changing the material changes the density with it")
+    val changing = wing(symmetric = false)
+    Seq(("Balsa, light", 0.11), ("Steel", 7.85), ("EPS foam", 0.020), ("Aluminium 6061", 2.70))
+      .foreach { case (name, density) =>
+        changing.setMaterialName(name)
+        check(s"$name -> $density g/cm3", near(changing.getMaterialDensity, density))
+      }
 
     println("a material the library does not have")
     val exotic = wing(symmetric = false)

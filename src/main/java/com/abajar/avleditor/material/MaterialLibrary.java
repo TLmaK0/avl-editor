@@ -108,16 +108,16 @@ public class MaterialLibrary implements Serializable {
         return names;
     }
 
-    /** The materials weighed by volume, for choosing what a part is filled with. */
+    /**
+     * What a part can be filled with: every material, since every one states a density. A carbon skin
+     * used as a filling is simply carbon at 1.55 g/cm³ — its thickness only matters when it covers
+     * something.
+     */
     public ArrayList<String> solidNames() {
-        ArrayList<String> names = new ArrayList<String>();
-        for (Material material : materials) {
-            if (!material.isSkin()) names.add(material.getName());
-        }
-        return names;
+        return names();
     }
 
-    /** The materials weighed by area, for choosing what a part is covered with. */
+    /** What a part can be covered with: the materials that state a thickness, and nothing. */
     public ArrayList<String> skinNames() {
         ArrayList<String> names = new ArrayList<String>();
         names.add("None");
@@ -143,6 +143,13 @@ public class MaterialLibrary implements Serializable {
             LoaderOptions options = new LoaderOptions();
             options.setTagInspector(tag -> true);
             Constructor constructor = new Constructor(MaterialLibrary.class, options);
+            // A key this version does not know is skipped rather than fatal: the file is meant to be
+            // edited by hand, and one stray line must not cost the user the whole list.
+            org.yaml.snakeyaml.introspector.PropertyUtils properties =
+                new org.yaml.snakeyaml.introspector.PropertyUtils();
+            properties.setSkipMissingProperties(true);
+            properties.setBeanAccess(BeanAccess.FIELD);
+            constructor.setPropertyUtils(properties);
             Yaml yaml = new Yaml(constructor);
             yaml.setBeanAccess(BeanAccess.FIELD);
             in = new FileInputStream(file);

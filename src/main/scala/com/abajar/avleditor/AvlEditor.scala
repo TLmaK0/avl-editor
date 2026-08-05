@@ -183,6 +183,10 @@ object AvlEditor{
           selectMassIn3D(component)
         case _ => // Do nothing for other types
       }
+      // Some rows are derived from others: choosing a material writes its density, choosing a skin
+      // writes the density and thickness it weighs by, and the row that spells out the weight follows
+      // all of them. Re-render, or the table would show what the user typed and not what it did.
+      window.properties.clearAll()
       // Refresh the selected tree item name
       val selection = window.tree.getSelection()
       if (selection.nonEmpty) {

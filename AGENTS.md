@@ -173,8 +173,18 @@ geometry's own masses, which are absolute and never mirrored.
 A surface and a body state their **material**: a density in g/cm³ for what the part is filled with, a
 **fill percentage** for how much of the volume it encloses is actually structure, and a **skin** weighed
 by the area it covers, because a 0.2 mm carbon laminate weighs about 310 g/m² whatever it is wrapped
-around and a single density could only approximate that. The weight follows:
-`kg = m³ × 1000 × g/cm³ × fill + m² × g/m² ÷ 1000`, both conversions pinned by `MaterialWeightCheck`.
+around and a single density could only approximate that.
+
+A skin is a **material of a thickness**, not a weight out of nowhere: it states its own density in g/cm³
+and how thick it is in mm, and the weight per square metre is derived from the two, so they cannot
+disagree with a third stored figure. The whole weight is then
+`kg = m³ × 1000 × g/cm³ × fill + m² × mm × g/cm³`, both conversions pinned by `MaterialWeightCheck`: a
+cubic metre at 1 g/cm³ is 1000 kg, and a square metre of a millimetre at 1 g/cm³ is 1 kg.
+
+Choosing a material writes **its** density onto the element, and choosing a skin writes its density and
+its thickness. Rows derived from other rows have to be re-rendered when one changes, or the table shows
+what the user chose and not what the choice did — the properties table clears itself after every
+property change for that reason.
 
 The element stores **the figures, not a reference to a library entry**. Choosing a material copies its
 density onto the surface; the name is a label. A model has to weigh the same on a machine whose library

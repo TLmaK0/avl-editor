@@ -72,10 +72,18 @@ public abstract class MaterialElement extends MassObject {
     )
     private String skinName = NO_SKIN;
 
-    @AvlEditorField(text = "Skin weight (g/m2)",
-        help = "Weight of one covering of the skin. Set by choosing a skin, and editable on its own."
+    @AvlEditorField(text = "Skin density (g/cm3)",
+        help = "Weight of the skin material itself. Set by choosing a skin, and editable on its own for\n"
+            + "a laminate that is not in the list."
     )
-    private float skinArealWeight = 0f;
+    private float skinDensity = 0f;
+
+    @AvlEditorField(text = "Skin thickness (mm)",
+        help = "How thick the covering is. With the density, this is what the skin weighs per square\n"
+            + "metre: 0.2 mm of a 1.55 g/cm3 laminate is 310 g/m2. Both are needed, since a skin is a\n"
+            + "material of a thickness rather than a weight out of nowhere."
+    )
+    private float skinThicknessMm = 0f;
 
     /** The volume of the side this element defines, and where it balances. */
     public abstract VolumeCentroid definedSideVolume();
@@ -109,16 +117,22 @@ public abstract class MaterialElement extends MassObject {
         return offThePlane ? 1f : 2f;
     }
 
+    /** What one covering of this element's skin weighs per square metre: its density over its
+      * thickness, derived so the two cannot disagree with a third figure. */
+    public float skinArealWeight() {
+        return skinThicknessMm * skinDensity * 1000f;
+    }
+
     /**
      * What this element weighs, in the model's mass unit: its filling plus its covering.
      *
-     * A cubic metre of a material at 1 g/cm³ weighs 1000 kg, and a square metre of a skin at 1000 g/m²
+     * A cubic metre at 1 g/cm³ weighs 1000 kg, and a square metre of a millimetre of a 1 g/cm³ material
      * weighs 1 kg — the two conversions this rests on, both pinned by MaterialWeightCheck.
      */
     public float materialWeight() {
         float fill = Math.max(0f, Math.min(100f, fillPercent)) / 100f;
         float filling = massVolume() * 1000f * materialDensity * fill;
-        float covering = massWettedArea() * skinArealWeight / 1000f;
+        float covering = massWettedArea() * skinThicknessMm * skinDensity;
         return filling + covering;
     }
 
@@ -145,9 +159,9 @@ public abstract class MaterialElement extends MassObject {
         float sides = sidesOneMassStandsFor(side);
         String bothSides = sides > 1f ? " (both sides)" : "";
         return String.format(locale,
-            "%.4f kg = %.6f m3%s x %.3f g/cm3 x %.0f%% + %.4f m2 x %.0f g/m2",
+            "%.4f kg = %.6f m3%s x %.3f g/cm3 x %.0f%% + %.4f m2 x %.2f mm x %.3f g/cm3 (%.0f g/m2)",
             materialWeight(), massVolume(), bothSides, materialDensity, fillPercent,
-            massWettedArea(), skinArealWeight);
+            massWettedArea(), skinThicknessMm, skinDensity, skinArealWeight());
     }
 
     /** The filling materials the library offers, for the properties table's dropdown. */
@@ -194,22 +208,38 @@ public abstract class MaterialElement extends MassObject {
         return skinName;
     }
 
-    /** Choosing a skin writes its areal weight onto the element; 'None' clears it. */
+    /**
+     * Choosing a skin writes its material and its thickness onto the element, the two figures its
+     * weight per square metre comes from; 'None' clears them. A name the library does not have leaves
+     * them alone, as with the filling.
+     */
     public void setSkinName(String skinName) {
         this.skinName = skinName;
         if (skinName == null || NO_SKIN.equals(skinName)) {
-            this.skinArealWeight = 0f;
+            this.skinDensity = 0f;
+            this.skinThicknessMm = 0f;
             return;
         }
         Material material = Materials.library().find(skinName);
-        if (material != null) this.skinArealWeight = material.getArealWeight();
+        if (material != null) {
+            this.skinDensity = material.getDensity();
+            this.skinThicknessMm = material.getThicknessMm();
+        }
     }
 
-    public float getSkinArealWeight() {
-        return skinArealWeight;
+    public float getSkinDensity() {
+        return skinDensity;
     }
 
-    public void setSkinArealWeight(float skinArealWeight) {
-        this.skinArealWeight = Math.max(0f, skinArealWeight);
+    public void setSkinDensity(float skinDensity) {
+        this.skinDensity = Math.max(0f, skinDensity);
+    }
+
+    public float getSkinThicknessMm() {
+        return skinThicknessMm;
+    }
+
+    public void setSkinThicknessMm(float skinThicknessMm) {
+        this.skinThicknessMm = Math.max(0f, skinThicknessMm);
     }
 }

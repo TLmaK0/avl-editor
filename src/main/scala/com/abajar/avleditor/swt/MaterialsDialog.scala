@@ -27,7 +27,7 @@ import scala.collection.JavaConverters._
  */
 class MaterialsDialog(parent: Shell) {
 
-  private val ColumnWidths = Seq(220, 120, 140, 320)
+  private val ColumnWidths = Seq(220, 130, 130, 130, 300)
 
   def open(): Unit = {
     val library = Materials.library()
@@ -38,9 +38,9 @@ class MaterialsDialog(parent: Shell) {
 
     val explain = new Label(shell, SWT.WRAP)
     explain.setText(
-      "A material is either weighed by volume — its density, for what a part is filled with — or by " +
-      "the area it covers, for a skin whose thickness is the point. Editing the list leaves saved " +
-      "models as they are: a model keeps the figures it was given.")
+      "Every material has a density. Give it a thickness as well and it can be used as a skin, whose " +
+      "weight per square metre follows from the two — 0.2 mm of a 1.55 g/cm3 laminate is 310 g/m2. " +
+      "Editing the list leaves saved models as they are: a model keeps the figures it was given.")
     val explainData = new GridData(SWT.FILL, SWT.CENTER, true, false)
     explainData.widthHint = 840
     explain.setLayoutData(explainData)
@@ -49,19 +49,26 @@ class MaterialsDialog(parent: Shell) {
     table.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true))
     table.setHeaderVisible(true)
     table.setLinesVisible(true)
-    Seq("Material", "Density (g/cm3)", "Skin weight (g/m2)", "Notes").zip(ColumnWidths).foreach {
+    Seq("Material", "Density (g/cm3)", "Thickness (mm)", "Weight (g/m2)", "Notes").zip(ColumnWidths).foreach {
       case (title, width) =>
         val column = new TableColumn(table, SWT.NONE)
         column.setText(title)
         column.setWidth(width)
     }
 
+    /** The weight per square metre is derived, so it is shown and not edited. */
+    def cells(material: Material): Array[String] = Array(
+      material.getName,
+      f"${material.getDensity}%.3f",
+      f"${material.getThicknessMm}%.2f",
+      if (material.isSkin) f"${material.arealWeight()}%.0f" else "-",
+      Option(material.getNotes).getOrElse(""))
+
     def show(materials: Seq[Material]): Unit = {
       table.removeAll()
       materials.foreach { material =>
         val item = new TableItem(table, SWT.NONE)
-        item.setText(Array(material.getName, f"${material.getDensity}%.3f",
-          f"${material.getArealWeight}%.0f", Option(material.getNotes).getOrElse("")))
+        item.setText(cells(material))
         item.setData(material)
       }
     }
@@ -78,7 +85,8 @@ class MaterialsDialog(parent: Shell) {
         val item = table.getItem(point)
         if (item == null) return
         val column = (0 until table.getColumnCount).find(c => item.getBounds(c).contains(point))
-        column.foreach { columnIndex =>
+        // The weight per square metre comes from the density and the thickness: edit those.
+        column.filter(_ != 3).foreach { columnIndex =>
           val material = item.getData.asInstanceOf[Material]
           val text = new Text(table, SWT.NONE)
           text.setText(item.getText(columnIndex))
@@ -90,11 +98,10 @@ class MaterialsDialog(parent: Shell) {
                 columnIndex match {
                   case 0 => if (typed.nonEmpty) material.setName(typed)
                   case 1 => material.setDensity(asFloat(typed, material.getDensity))
-                  case 2 => material.setArealWeight(asFloat(typed, material.getArealWeight))
+                  case 2 => material.setThicknessMm(asFloat(typed, material.getThicknessMm))
                   case _ => material.setNotes(typed)
                 }
-                item.setText(Array(material.getName, f"${material.getDensity}%.3f",
-                  f"${material.getArealWeight}%.0f", Option(material.getNotes).getOrElse("")))
+                item.setText(cells(material))
                 text.dispose()
               }
             }
@@ -130,7 +137,7 @@ class MaterialsDialog(parent: Shell) {
       table.getSelection.headOption.foreach { item =>
         val source = item.getData.asInstanceOf[Material]
         library.getMaterials.add(new Material(source.getName + " (copy)", source.getDensity,
-          source.getArealWeight, source.getNotes))
+          source.getThicknessMm, source.getNotes))
         show(library.getMaterials.asScala)
         table.setSelection(table.getItemCount - 1)
       }

@@ -43,8 +43,10 @@ object MaterialLibraryCheck {
     println(s"  ${materials.size} materials, ${materials.count(_.isSkin)} of them skins")
     check("twenty or more to choose from", materials.size >= 20)
     check("no two share a name", materials.map(_.getName).distinct.size == materials.size)
-    check("every one states either a density or an areal weight",
-      materials.forall(m => m.getDensity > 0f || m.getArealWeight > 0f || m.getName == "None"))
+    check("every one states a density, since that is what a material is",
+      materials.forall(m => m.getDensity > 0f || m.getName == "None"))
+    check("and a skin states a thickness as well",
+      materials.filter(_.isSkin).forall(m => m.getThicknessMm > 0f && m.getDensity > 0f))
     check("the densities are plausible, from foam to steel",
       materials.filter(_.getDensity > 0f).forall(m => m.getDensity >= 0.01f && m.getDensity <= 8f))
     check("balsa is there, at the usual 0.16", near(library.find("Balsa, medium").getDensity, 0.16))
@@ -53,14 +55,23 @@ object MaterialLibraryCheck {
     println("a skin states the weight of its thickness")
     val carbon = library.find("Carbon skin 0.20 mm")
     // 0.2 mm of a 1.55 g/cm3 laminate over a square metre: 0.2 mm x 1 m2 = 200 cm3 -> 310 g.
-    println(f"  ${carbon.getName}: ${carbon.getArealWeight}%.0f g/m2")
-    check("0.20 mm of carbon is 310 g/m2", near(carbon.getArealWeight, 310.0, 0.5))
+    println(f"  ${carbon.getName}: ${carbon.getDensity}%.2f g/cm3 x ${carbon.getThicknessMm}%.2f mm" +
+      f" = ${carbon.arealWeight()}%.0f g/m2")
+    check("it states the material it is made of", near(carbon.getDensity, 1.55))
+    check("and how thick it is", near(carbon.getThicknessMm, 0.20))
+    check("0.20 mm of carbon is 310 g/m2", near(carbon.arealWeight(), 310.0, 0.5))
     check("twice the thickness is twice the weight",
-      near(library.find("Carbon skin 0.40 mm").getArealWeight, 2 * carbon.getArealWeight, 0.5))
-    check("a skin has no density of its own to confuse it with", near(carbon.getDensity, 0.0))
-    check("skins and solids are offered separately",
-      library.solidNames.asScala.forall(n => !n.startsWith("Carbon skin")) &&
-        library.skinNames.asScala.contains("Carbon skin 0.20 mm"))
+      near(library.find("Carbon skin 0.40 mm").arealWeight(), 2 * carbon.arealWeight(), 0.5))
+    check("editing the density moves the weight with it", {
+      val copy = Material.skin("test", 0.20f, 1.55f, "")
+      copy.setDensity(3.10f)
+      near(copy.arealWeight(), 620.0, 0.5)
+    })
+    check("a skin can also be used as a filling: it is a material with a density",
+      library.solidNames.asScala.contains("Carbon skin 0.20 mm"))
+    check("and the skin list is the ones with a thickness",
+      library.skinNames.asScala.contains("Carbon skin 0.20 mm") &&
+        !library.skinNames.asScala.contains("Balsa, medium"))
     check("and 'None' is always an option for a skin", library.skinNames.asScala.contains("None"))
 
     println("editing the list")
@@ -132,7 +143,8 @@ object MaterialLibraryCheck {
     val rows = com.abajar.avleditor.view.PropertyRows.rowLabels(classOf[Surface])
     println("  surface rows: " + rows.mkString(", "))
     check("a surface's rows include what it is made of, inherited and all",
-      Seq("Material", "Density (g/cm3)", "Fill (%)", "Skin", "Skin weight (g/m2)").forall(rows.contains))
+      Seq("Material", "Density (g/cm3)", "Fill (%)", "Skin", "Skin density (g/cm3)",
+        "Skin thickness (mm)").forall(rows.contains))
     check("its own geometry reads first", rows.indexOf("surface name") < rows.indexOf("Material"))
     check("a body offers the same", {
       val bodyRows = com.abajar.avleditor.view.PropertyRows.rowLabels(classOf[com.abajar.avleditor.avl.geometry.Body])
@@ -159,7 +171,8 @@ object MaterialLibraryCheck {
     check("carries its material, fill and skin",
       reloadedSurface.getMaterialName == "EPP foam" && near(reloadedSurface.getFillPercent, 95.0) &&
         near(reloadedSurface.getMaterialDensity, 0.030) &&
-        near(reloadedSurface.getSkinArealWeight, 380.0))
+        near(reloadedSurface.getSkinDensity, 1.90) && near(reloadedSurface.getSkinThicknessMm, 0.20) &&
+        near(reloadedSurface.skinArealWeight(), 380.0, 0.5))
     modelFile.delete()
 
     println(if (ok) "MATERIAL_LIBRARY_OK" else "MATERIAL_LIBRARY_FAIL")
