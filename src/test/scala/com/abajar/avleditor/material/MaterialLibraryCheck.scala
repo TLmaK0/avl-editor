@@ -129,6 +129,17 @@ object MaterialLibraryCheck {
       wing().materialOptions().toSeq == library.solidNames.asScala.toSeq)
     check("and the skin row offers the skins",
       wing().skinOptions().toSeq == library.skinNames.asScala.toSeq)
+    val rows = com.abajar.avleditor.view.PropertyRows.rowLabels(classOf[Surface])
+    println("  surface rows: " + rows.mkString(", "))
+    check("a surface's rows include what it is made of, inherited and all",
+      Seq("Material", "Density (g/cm3)", "Fill (%)", "Skin", "Skin weight (g/m2)").forall(rows.contains))
+    check("its own geometry reads first", rows.indexOf("surface name") < rows.indexOf("Material"))
+    check("a body offers the same", {
+      val bodyRows = com.abajar.avleditor.view.PropertyRows.rowLabels(classOf[com.abajar.avleditor.avl.geometry.Body])
+      Seq("Material", "Fill (%)", "Skin").forall(bodyRows.contains)
+    })
+    check("a section does not: it is not made of anything, it states a shape",
+      !com.abajar.avleditor.view.PropertyRows.rowLabels(classOf[Section]).contains("Material"))
     check("the row that spells out the weight says where it comes from", {
       val summary = wing().getMaterialWeightSummary
       println(s"  $summary")

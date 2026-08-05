@@ -1138,39 +1138,17 @@ object AvlEditor{
       )
     }
 
-    /** The annotated fields of a class and of everything it inherits from, the class's own first: a
-      * surface's geometry reads before the material fields it gets from `MaterialElement`. */
-    private def annotatedFields(objClass: Class[_]): Seq[Field] = {
-      def upwards(cls: Class[_]): Seq[Field] =
-        if (cls == null) Seq.empty
-        else cls.getDeclaredFields.toSeq ++ upwards(cls.getSuperclass)
-      upwards(objClass).filter(_.isAnnotationPresent(classOf[annotations.AvlEditorField]))
-    }
-
-    /** The choices a field's `optionsFrom` method offers, asked for now rather than fixed when the
-      * class was written: the materials are a list the user edits. */
-    private def dynamicOptions(data: Any, methodName: String): Option[Array[String]] =
-      try {
-        val method = data.getClass.getMethod(methodName)
-        method.invoke(data) match {
-          case names: Array[String] => Some(names)
-          case names: java.util.List[_] => Some(names.asScala.map(String.valueOf).toArray)
-          case _ => None
-        }
-      } catch {
-        case e: Exception =>
-          logger.log(Level.WARNING, s"No options from '$methodName' on ${data.getClass.getSimpleName}", e)
-          None
-      }
-
     private def extractProperties(data: Any) = {
       val objClass = data.getClass
       val regularFields = for{
-        field <- annotatedFields(objClass)
+        field <- com.abajar.avleditor.view.PropertyRows.annotatedFields(objClass)
       } yield {
         val annotation = field.getAnnotation(classOf[AvlEditorField])
         val options = annotation.options()
-        val named = if (annotation.optionsFrom().nonEmpty) dynamicOptions(data, annotation.optionsFrom()) else None
+        val named =
+          if (annotation.optionsFrom().nonEmpty)
+            com.abajar.avleditor.view.PropertyRows.dynamicOptions(data, annotation.optionsFrom())
+          else None
         if (named.nonEmpty) {
           new TableFieldNamedOptions(
             data,
