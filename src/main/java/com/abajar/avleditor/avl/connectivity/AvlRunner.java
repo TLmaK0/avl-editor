@@ -454,7 +454,9 @@ public class AvlRunner {
             writeModeCommand(modeIn, "w\n");
             writeModeCommand(modeIn, eigenFile + "\n");
             writeModeCommand(modeIn, "\n");
-            writeModeCommand(modeIn, "q\n");
+            // Out of the mode menu, out of OPER, then quit: see runPlotGeneration for why 'q' is not it.
+            writeModeCommand(modeIn, "\n");
+            writeModeCommand(modeIn, "quit\n");
             modeIn.flush();
             modeIn.close();
 
@@ -495,6 +497,52 @@ public class AvlRunner {
         return modeStates;
     }
 
+    /**
+     * What is typed at AVL to get the geometry and Trefftz hardcopies, as a list so it can be read and
+     * checked without running AVL.
+     *
+     * The ending is the part that matters. Xplot11 finishes a page — 'showpage' and the PostScript
+     * trailer — when the plot file is closed, and that happens when AVL exits. AVL exits on 'quit' at
+     * its top-level prompt, which is reached with a blank line from the plot menu and another from OPER.
+     * Sending 'q' instead printed 'Option not recognized' and left AVL to die on end-of-input, so the
+     * Trefftz page stayed half written and Ghostscript produced nothing from it; the geometry page
+     * survived only because opening the second hardcopy had flushed it.
+     */
+    static List<String> plotCommands(int elevatorPosition, float velocity, float liftCoefficient,
+                                     float viewAzimuth, float viewElevation) {
+        List<String> commands = new ArrayList<String>();
+        commands.add("oper");
+        if (elevatorPosition != -1) {
+            commands.add("d" + (elevatorPosition + 1) + " pm 0");
+        }
+        commands.add("c1");
+        commands.add("v");
+        commands.add(velocity + "\n");
+        commands.add("a c " + liftCoefficient);
+        commands.add("x");
+
+        // Plotting options: no interactive window, colour PostScript, one appended file.
+        commands.add("plop");
+        commands.add("g");
+        commands.add("c");
+        commands.add("i");
+        commands.add("");
+
+        commands.add("g");
+        commands.add("v");
+        commands.add(String.format("%.1f %.1f", viewAzimuth, viewElevation));
+        commands.add("h");
+        commands.add("");
+
+        commands.add("t");
+        commands.add("h");
+        commands.add("");
+
+        commands.add("");
+        commands.add("quit");
+        return commands;
+    }
+
     private void runPlotGeneration(int elevatorPosition) throws IOException, InterruptedException {
         logger.log(Level.INFO, "Starting plot pass for geometry and Trefftz images...");
         ProcessBuilder pb = new ProcessBuilder(avlPath, this.avlFileName.toString());
@@ -505,33 +553,10 @@ public class AvlRunner {
         try (OutputStream plotIn = plotProcess.getOutputStream();
              BufferedReader plotOut = new BufferedReader(new InputStreamReader(plotProcess.getInputStream()))) {
 
-            writeModeCommand(plotIn, "oper\n");
-            if (elevatorPosition != -1) {
-                writeModeCommand(plotIn, "d" + (elevatorPosition + 1) + " pm 0\n");
+            for (String command : plotCommands(elevatorPosition, avl.getVelocity(),
+                    this.avl.getLiftCoefficient(), viewAzimuth, viewElevation)) {
+                writeModeCommand(plotIn, command + "\n");
             }
-            writeModeCommand(plotIn, "c1\n");
-            writeModeCommand(plotIn, "v\n");
-            writeModeCommand(plotIn, avl.getVelocity() + "\n\n");
-            writeModeCommand(plotIn, "a c " + this.avl.getLiftCoefficient() + "\n");
-            writeModeCommand(plotIn, "x\n");
-
-            writeModeCommand(plotIn, "plop\n");
-            writeModeCommand(plotIn, "g\n");
-            writeModeCommand(plotIn, "c\n");
-            writeModeCommand(plotIn, "i\n");
-            writeModeCommand(plotIn, "\n");
-
-            writeModeCommand(plotIn, "g\n");
-            writeModeCommand(plotIn, "v\n");
-            writeModeCommand(plotIn, String.format("%.1f %.1f\n", viewAzimuth, viewElevation));
-            writeModeCommand(plotIn, "h\n");
-            writeModeCommand(plotIn, "\n");
-
-            writeModeCommand(plotIn, "t\n");
-            writeModeCommand(plotIn, "h\n");
-            writeModeCommand(plotIn, "\n");
-
-            writeModeCommand(plotIn, "q\n");
             plotIn.flush();
             plotIn.close();
 

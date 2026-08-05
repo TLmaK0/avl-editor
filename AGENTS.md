@@ -217,6 +217,14 @@ Validation runs in **two stages**, because some inputs are AVL's outputs rather 
 fields: `SimulationRequirements.validate(model)` before AVL runs, and `validateCalculation(calc)`
 after it (the span efficiency comes from AVL's totals and used to be replaced by 0.85).
 
+Driving another program through its keyboard menus is not a place to guess. AVL's plot pass used to end
+with `q`, which OPER does not know: it printed `Option not recognized`, AVL died on end-of-input, and the
+Trefftz page — drawn and appended to `plot.ps` — never got its `showpage`, so Ghostscript produced nothing
+and the results window showed one plot instead of two. Xplot11 closes the file when AVL **exits**, so the
+sequence has to leave the plot menu, leave OPER (both with a blank line) and `quit`. The keystrokes live
+in `AvlRunner.plotCommands` as a list, so they can be read and checked without running AVL, and
+`AvlPlotCheck` then runs AVL for real and asserts two pages, two `showpage`s and a closed file.
+
 An empty result has to say what the analysis **answered**, not what the user might have forgotten. The
 modal table used to read *'No oscillatory eigenmodes available. Define mass/inertia and run AVL again'*
 whenever it came out empty — including when AVL had the masses, had answered, and the answer was eight
