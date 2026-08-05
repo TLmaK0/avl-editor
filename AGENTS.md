@@ -217,6 +217,14 @@ Validation runs in **two stages**, because some inputs are AVL's outputs rather 
 fields: `SimulationRequirements.validate(model)` before AVL runs, and `validateCalculation(calc)`
 after it (the span efficiency comes from AVL's totals and used to be replaced by 0.85).
 
+An empty result has to say what the analysis **answered**, not what the user might have forgotten. The
+modal table used to read *'No oscillatory eigenmodes available. Define mass/inertia and run AVL again'*
+whenever it came out empty — including when AVL had the masses, had answered, and the answer was eight
+real roots with one divergent: an aircraft trimmed far from where it balances has no oscillatory pitch
+mode at all. `MilF8785cEvaluator.whyNoModes` reports what came back, names each divergence with the time
+its motion doubles in, and points at the centre of gravity (`ModalReportCheck`). A message that sends the
+reader after an input that is already there costs more than no message at all.
+
 **Whether it will fly is a warning, never a refusal.** `FlightSanity.warnings` answers a different
 question from the requirements: nothing is missing, every figure is one the user chose, and the editor
 is only doing the arithmetic they would do on paper — static thrust against weight (momentum theory,

@@ -30,6 +30,37 @@ object MilF8785cEvaluator {
       .sortBy(e => -e.getNaturalFrequency)
   }
 
+  /**
+   * Why there is nothing to judge, when there is nothing to judge — in the aircraft's own terms.
+   *
+   * 'No oscillatory eigenmodes, define mass/inertia' used to be said whenever the modal table came out
+   * empty, and it sent the reader after the masses even when AVL had been given them and had answered:
+   * an aircraft trimmed far from where it balances has no oscillatory pitch mode at all, its short
+   * period having split into two real roots with one of them running away. That is a finding, not a
+   * missing input, and it is worth saying out loud.
+   */
+  def whyNoModes(calculation: AvlCalculation): List[String] = {
+    val all = Option(calculation).map(_.getEigenvalues).map(_.asScala.toList).getOrElse(Nil)
+    if (all.isEmpty)
+      return List("AVL returned no eigenvalues for this run. It computes them from the mass and the " +
+        "inertias, so check that the model has masses and that the run converged.")
+
+    val divergent = all.filter(_.getSigma > 0f).sortBy(e => -e.getSigma)
+    val header = s"AVL returned ${all.size} modes and none of them oscillates, so there is no short " +
+      "period, phugoid or dutch roll to measure: this aircraft's motions grow or decay without " +
+      "swinging. The mass and the inertias did reach AVL — the eigenvalues below are its answer."
+
+    val divergences = divergent.map { mode =>
+      // A real positive root doubles every ln(2)/sigma seconds.
+      val doublingTime = math.log(2.0) / mode.getSigma.toDouble
+      f"sigma = +${mode.getSigma}%.3f /s is a divergence: the motion doubles every " +
+        f"${doublingTime}%.2f s. Nothing damps it, so it is not a mode a pilot flies through. The " +
+        "usual cause is a centre of gravity too far aft; move it forward and run AVL again."
+    }
+
+    header :: divergences
+  }
+
   def evaluate(calculation: AvlCalculation): List[ModalNormRow] = {
     val modes = oscillatoryPositiveModes(calculation)
     val longitudinalModes = longitudinalOscillatoryModes(modes)

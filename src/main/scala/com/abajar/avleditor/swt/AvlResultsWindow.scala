@@ -101,11 +101,15 @@ class AvlResultsWindow(display: Display) {
 
     val modes = MilF8785cEvaluator.oscillatoryPositiveModes(calculation)
     if (modes.isEmpty) {
-      val noData = new Label(modalGroup, SWT.WRAP)
-      noData.setText("No oscillatory eigenmodes available. Define mass/inertia and run AVL again.")
-      val noDataGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
-      noDataGrid.horizontalSpan = 5
-      noData.setLayoutData(noDataGrid)
+      // What AVL actually answered, not a guess at what the user forgot.
+      MilF8785cEvaluator.whyNoModes(calculation).foreach { line =>
+        val label = new Label(modalGroup, SWT.WRAP)
+        label.setText(line)
+        val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
+        grid.horizontalSpan = 5
+        grid.widthHint = 640
+        label.setLayoutData(grid)
+      }
     } else {
       addModalHeader(modalGroup, "Mode")
       addModalHeader(modalGroup, "wn [rad/s]")
