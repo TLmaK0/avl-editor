@@ -210,7 +210,7 @@ class MainWindow(
     new ToolItem(toolbar, SWT.SEPARATOR)
 
     // Delete
-    addToolItem(toolbar, "Delete", "Delete the selected element", ENABLE_BUTTONS.DELETE)
+    addToolItem(toolbar, "Delete", "Delete the selected element (Del)", ENABLE_BUTTONS.DELETE)
     new ToolItem(toolbar, SWT.SEPARATOR)
 
     // Undo/Redo
@@ -264,6 +264,19 @@ class MainWindow(
     tree = new Tree(sash, SWT.VIRTUAL | SWT.BORDER)
     tree.addSelectionListener(new SelectionAdapter {
       override def widgetSelected(se: SelectionEvent) = notifyTreeClick(se)
+    })
+    // Del deletes the selected element, through the same handler as the Delete button and only while
+    // that button is enabled: what can be deleted is the model's business, not the keyboard's. The
+    // listener is on the tree rather than on the display, because in the properties table Del means
+    // "delete a character".
+    tree.addKeyListener(new KeyAdapter {
+      override def keyPressed(e: KeyEvent): Unit = {
+        val deleteEnabled = toolItems.get(ENABLE_BUTTONS.DELETE).exists(_.isEnabled)
+        if (MainWindow.deletesSelection(e.keyCode, deleteEnabled)) {
+          buttonClickHandler(ENABLE_BUTTONS.DELETE)
+          e.doit = false
+        }
+      }
     })
     tree.layoutData(new GridData(GridData.FILL_BOTH))
       .setSourceHandler(treeUpdateHandler)
@@ -339,4 +352,15 @@ class MainWindow(
   def getShell: org.eclipse.swt.widgets.Shell = shell
 
   def show: Unit = shell.start
+}
+
+object MainWindow {
+
+  /**
+   * Whether a keypress on the tree means "delete the selected element": the Del key, and only while
+   * the Delete button is enabled. The button follows the selected node's own `@AvlEditor(buttons=…)`,
+   * so a node that cannot be deleted is not deleted by a stray keypress either.
+   */
+  def deletesSelection(keyCode: Int, deleteEnabled: Boolean): Boolean =
+    keyCode == SWT.DEL && deleteEnabled
 }
