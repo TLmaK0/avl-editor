@@ -339,6 +339,18 @@ class MainWindow(
   }
 
   /**
+   * A dialog for something worth knowing that is not a refusal: the action goes ahead when it closes.
+   * Visible for the same reason a refusal is — an aircraft that will not leave the runway looks, from
+   * inside FlightGear, exactly like a simulator that ignores the throttle.
+   */
+  def showWarning(title: String, message: String): Unit = {
+    val box = new MessageBox(shell, SWT.ICON_WARNING | SWT.OK)
+    box.setText(title)
+    box.setMessage(message)
+    box.open()
+  }
+
+  /**
    * Blocking error dialog. Used when an action the user asked for cannot be carried out — a
    * refusal has to be visible: writing it to the log only makes a failed export look like a
    * successful one.

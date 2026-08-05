@@ -960,11 +960,27 @@ object AvlEditor{
         // A second stage: some inputs come from AVL's own output, so they can only be checked
         // once it has run. They are not substituted with typical values either.
         if (!reportModelProblems("simulated", SimulationRequirements.validateCalculation(calc))) return
+        // Whether it will fly is a different question from whether it can be simulated, and the answer
+        // is the user's to act on: said once, plainly, and the launch goes ahead either way.
+        reportFlightDoubts(com.abajar.avleditor.jsbsim.FlightSanity.warnings(crrcsim, calc))
         val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
         action(name, calc)
       } catch {
         case ex: Throwable => logger.log(Level.SEVERE, s"Export failed: ${ex.getMessage}", ex)
       }
+    }
+
+    /**
+     * Doubts about whether the aircraft would fly, shown and then left behind. Not a refusal: every
+     * figure involved is one the user chose, and the arithmetic is what they would otherwise do on
+     * paper. The log keeps a copy, but the dialog is what makes it visible.
+     */
+    private def reportFlightDoubts(doubts: Seq[String]): Unit = {
+      if (doubts.isEmpty) return
+      doubts.foreach(doubt => logger.log(Level.WARNING, doubt))
+      window.showWarning("This may not fly",
+        "The model can be simulated, and it is about to be. Before you blame the simulator:\n\n" +
+          doubts.map("- " + _).mkString("\n\n"))
     }
 
     private def geometryProblems(avl: com.abajar.avleditor.avl.AVL): Seq[String] = {

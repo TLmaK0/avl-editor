@@ -217,6 +217,16 @@ Validation runs in **two stages**, because some inputs are AVL's outputs rather 
 fields: `SimulationRequirements.validate(model)` before AVL runs, and `validateCalculation(calc)`
 after it (the span efficiency comes from AVL's totals and used to be replaced by 0.85).
 
+**Whether it will fly is a warning, never a refusal.** `FlightSanity.warnings` answers a different
+question from the requirements: nothing is missing, every figure is one the user chose, and the editor
+is only doing the arithmetic they would do on paper — static thrust against weight (momentum theory,
+`T = (2 ρ A P²)^(1/3)`, times a 0.6 static figure of merit), watts per kilogram, wing loading in g/dm²,
+and what AVL says about stability in each axis. They are shown once in a dialog and the launch goes
+ahead. This exists because 3 W through a 10 cm propeller on a kilogram of aeroplane looks, from inside
+FlightGear, exactly like a simulator that ignores the throttle — an hour went into the keyboard before
+anyone questioned the motor. Every threshold is a model-flying rule of thumb, quoted in the message so
+it can be argued with, and never applied to the model itself.
+
 No silent fallbacks remain in the export path. The last two were removed: `detectControls` no
 longer flies a control with an invented 25° deflection, and `buildAero` derives the aspect ratio
 from the reference geometry instead of assuming 5.0.
