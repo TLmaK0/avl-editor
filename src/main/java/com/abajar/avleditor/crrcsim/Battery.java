@@ -78,9 +78,67 @@ public class Battery implements Serializable {
     )
     private float mass;
 
+    /**
+     * The pack's size, in millimetres, along the aircraft's own axes: length down the fuselage, width
+     * across, height up. Millimetres because that is how a battery is described — a 3S 2200 mAh pack is
+     * 105 x 34 x 24 mm — and nobody states one in metres.
+     *
+     * The defaults are a real small pack: a 3S 1000 mAh, about 90 g. A model saved before the pack had a
+     * size loads with them, which changes nothing physical — the mass stays a point mass at the centre of
+     * the box — only what the 3D view draws.
+     */
+    public static final float DEFAULT_LENGTH_MM = 75f;
+    public static final float DEFAULT_WIDTH_MM = 35f;
+    public static final float DEFAULT_HEIGHT_MM = 22f;
+
+    /** Below this a box is a point, and dragging a face must stop rather than turn it inside out. */
+    public static final float MIN_SIZE_MM = 1f;
+
+    @AvlEditorField(text="Length (mm)",
+        help="The pack's length along the fuselage, in mm. Drawn in the 3D view as a box centred on the\n"
+        + "mass, so it can be seen whether it fits where it is being put. A 3S 2200 mAh pack is about\n"
+        + "105 mm long. It does not change the mass or the inertias: the weight stays a point at the\n"
+        + "centre of the box."
+    )
+    private float lengthMm = DEFAULT_LENGTH_MM;
+
+    @AvlEditorField(text="Width (mm)",
+        help="The pack's width across the fuselage, in mm. About 34 mm on a 3S 2200 mAh pack."
+    )
+    private float widthMm = DEFAULT_WIDTH_MM;
+
+    @AvlEditorField(text="Height (mm)",
+        help="The pack's height, in mm. About 24 mm on a 3S 2200 mAh pack."
+    )
+    private float heightMm = DEFAULT_HEIGHT_MM;
+
     private Pos pos = new Pos();
 
     public Battery() {
+    }
+
+    public float getLengthMm() {
+        return lengthMm;
+    }
+
+    public void setLengthMm(float lengthMm) {
+        this.lengthMm = Math.max(MIN_SIZE_MM, lengthMm);
+    }
+
+    public float getWidthMm() {
+        return widthMm;
+    }
+
+    public void setWidthMm(float widthMm) {
+        this.widthMm = Math.max(MIN_SIZE_MM, widthMm);
+    }
+
+    public float getHeightMm() {
+        return heightMm;
+    }
+
+    public void setHeightMm(float heightMm) {
+        this.heightMm = Math.max(MIN_SIZE_MM, heightMm);
     }
 
     /**

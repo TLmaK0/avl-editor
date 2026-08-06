@@ -144,8 +144,28 @@ public abstract class MaterialElement extends MassObject {
     @Override
     public Mass createMass() {
         Mass mass = super.createMass();
-        mass.setMass(materialWeight());
+        // materialWeight() is kilograms, from a density in g/cm3; a Mass holds whatever unit the model
+        // states, so it goes through the model's units rather than being written down raw.
+        mass.setMass(units().fromKilograms(materialWeight()));
         return mass;
+    }
+
+    /**
+     * Where this element reads the model's units from: the geometry it belongs to, which reads them from the
+     * AVL node, which is where the user sets them. One source, followed rather than copied.
+     *
+     * The link is transient and restored by {@link com.abajar.avleditor.avl.AVLGeometry#initParents()},
+     * alongside the other links a load cannot bring back. An element with none — a surface a check built on
+     * its own — falls back to the defaults, which is what an all-defaults model would state anyway.
+     */
+    private transient com.abajar.avleditor.avl.AVLGeometry unitsSource;
+
+    public void setUnitsSource(com.abajar.avleditor.avl.AVLGeometry geometry) {
+        this.unitsSource = geometry;
+    }
+
+    public com.abajar.avleditor.ModelUnits units() {
+        return unitsSource == null ? com.abajar.avleditor.ModelUnits.DEFAULTS : unitsSource.units();
     }
 
     @AvlEditorReadOnly(text = "Weight from material",

@@ -68,6 +68,21 @@ public class AvlCalculation {
         return trimControlDeflections;
     }
 
+    /**
+     * The aircraft measured across a range of attitudes, controls neutral: the curve the exported flight
+     * model states instead of a single tangent. Empty when the sweep did not run, in which case the export
+     * writes the constants it always wrote.
+     */
+    private List<AlphaSweepPoint> alphaSweep = new ArrayList<AlphaSweepPoint>();
+
+    public List<AlphaSweepPoint> getAlphaSweep() {
+        return alphaSweep;
+    }
+
+    public void setAlphaSweep(List<AlphaSweepPoint> alphaSweep) {
+        this.alphaSweep = alphaSweep == null ? new ArrayList<AlphaSweepPoint>() : alphaSweep;
+    }
+
     @AvlEditorNode(name = "Eigenvalues")
     public List<AvlEigenvalue> getEigenvalues() {
         return eigenvalues;

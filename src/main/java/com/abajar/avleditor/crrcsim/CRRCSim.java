@@ -198,8 +198,33 @@ public class CRRCSim implements Serializable{
      */
     public void calculate() {
         ArrayList<Mass> masses = getAllMasses();
-        this.config.setMass_inertiaFromMasses(masses, avl.getLengthUnit(), avl.getMassUnit());
+        this.config.setMass_inertiaFromMasses(masses, avl.units());
         avl.getGeometry().calculateCenterOfMassFromMasses(masses);
+        // The operating point AVL is asked for follows from the weight, so it belongs to the same funnel:
+        // derive it here and the analysis cannot run against a weight the model no longer has.
+        avl.setAnalysisWeightKg(kilograms(masses, avl.units()));
+    }
+
+    /**
+     * What the aircraft weighs in flight, in kg: every mass a generated model carries. This is the figure
+     * the operating point is derived from ({@link com.abajar.avleditor.avl.AVL#analysisLiftCoefficient()}),
+     * and it is deliberately the same list {@link #calculate()} takes the mass and inertias from, so the
+     * point cannot describe a different aircraft from the one being analysed.
+     */
+    public float getAnalysisWeightKg() {
+        return kilograms(getAllMasses(), avl.units());
+    }
+
+    /**
+     * The masses add up in the unit the model states them in — a {@link Mass} holds whatever
+     * {@code AVL.massUnit} says, which is what {@link Config#setMass_inertiaFromMasses} converts — so the
+     * conversion has to happen here too. Skipping it made a model stated in grams weigh a thousand times what
+     * it does, and the lift coefficient the analysis runs at is derived from this number.
+     */
+    private static float kilograms(ArrayList<Mass> masses, com.abajar.avleditor.ModelUnits units) {
+        float total = 0f;
+        for (Mass mass : masses) total += mass.getMass();
+        return units.toKilograms(total);
     }
 
     /**

@@ -13,7 +13,7 @@ package com.abajar.avleditor.jsbsim
 import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, CombustionEngine, FuelTank, MassInertia, Propeller, Power}
 import com.abajar.avleditor.avl.geometry.Control
 import com.abajar.avleditor.avl.runcase.AvlCalculation
-import com.abajar.avleditor.avl.AVLGeometry
+import com.abajar.avleditor.avl.{AVL, AVLGeometry}
 import com.abajar.avleditor.view.annotations.AvlEditorField
 import scala.collection.JavaConverters._
 
@@ -45,8 +45,19 @@ object SimulationRequirements {
 
   /** One message per unmet requirement; empty when the model can be simulated. */
   def validate(crrcsim: CRRCSim): Seq[String] =
-    massProblems(crrcsim) ++ referenceProblems(crrcsim) ++ contactProblems(crrcsim) ++
-      controlProblems(crrcsim) ++ propulsionProblems(crrcsim)
+    analysisRequirements(crrcsim) ++
+      contactProblems(crrcsim) ++ controlProblems(crrcsim) ++ propulsionProblems(crrcsim)
+
+  /**
+   * What an AVL analysis alone needs: the weight and where it acts, the reference geometry the coefficients
+   * are normalised by, and the flight point they are measured at.
+   *
+   * Deliberately narrower than {@link #validate}. Running AVL is not exporting an aircraft: a wing with no
+   * engine, no undercarriage and no controls is a perfectly good thing to analyse, and demanding propulsion
+   * before answering an aerodynamic question would refuse a glider for not being a powered aeroplane.
+   */
+  def analysisRequirements(crrcsim: CRRCSim): Seq[String] =
+    massProblems(crrcsim) ++ referenceProblems(crrcsim) ++ analysisPointProblems(crrcsim)
 
   /**
    * Propulsion is required, not optional. Without an engine the exported model cannot take off
@@ -195,6 +206,25 @@ object SimulationRequirements {
       case (what, field, value) if value <= 0 =>
         s"The $what '${label(classOf[AVLGeometry], field)}' on the AVL node must be greater than " +
           s"zero (found $value); the aero coefficients are normalised by it."
+    }
+  }
+
+  /**
+   * The point AVL measures the aircraft at is derived, not stated: level flight at the given speed for the
+   * aircraft's own weight. So the speed and the air it flies in are inputs the analysis cannot do without,
+   * and an absent one has to be refused here rather than turn into a coefficient of zero further down —
+   * which is exactly what the stated coefficient used to do, silently, in every model nobody edited it in.
+   */
+  private def analysisPointProblems(crrcsim: CRRCSim): Seq[String] = {
+    val avl = Option(crrcsim.getAvl)
+    Seq(
+      ("speed", "velocity", avl.map(_.getVelocity).getOrElse(0f)),
+      ("air density", "reynoldsNumber", avl.map(_.getAirDensity).getOrElse(0f))
+    ).collect {
+      case (what, field, value) if value <= 0 =>
+        s"The $what '${label(classOf[AVL], field)}' on the AVL node must be greater than zero " +
+          s"(found $value); with the weight and the reference area it decides the lift coefficient the " +
+          "analysis runs at."
     }
   }
 

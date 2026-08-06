@@ -168,6 +168,39 @@ how every `+Y`/`-Y` pair written by older versions keeps its weight instead of d
 `Surface.geometricCenter()` puts a new mass there. A genuinely one-sided item belongs on the
 geometry's own masses, which are absolute and never mirrored.
 
+## What units the model is in
+
+A model states its own **length, mass and time unit**, and every figure it holds is in those: a `Mass` of 0.18
+is 0.18 kg in a model stated in kilograms and 0.18 g in one stated in grams. So a conversion cannot be left to
+whoever happens to be holding a figure — some of them cannot see the units at all.
+
+`AVL` holds the three names, because that is where the user sets them, and hands out a **`ModelUnits`**; that
+object is the only thing that converts, and it takes its factors from `UnitConversor`, so there is still one
+table of them. Everything else asks: `Config` for the mass and inertias, `AVLGeometry.massesFromMaterials()`
+and `MaterialElement.createMass()` for the weight from materials, `CRRCSim.getAnalysisWeightKg()` for the
+operating point, `ComponentShapes` for the millimetres a battery is stated in, and `AVL.writeAVLMassData` for
+the mass file's own `Lunit`/`Munit`/`Tunit` lines.
+
+It is followed, never copied. `AVLGeometry` and every `MaterialElement` hold a **reference** back to the model
+rather than the three names, restored by `initParents()` with the other transient links, because a copy is how
+a unit the user changed afterwards goes stale. An element with no link — a surface a check built on its own —
+answers with the defaults, which is what an all-defaults model states anyway.
+
+Three things this fixed, all of them silent:
+
+- `massesFromMaterials()` worked its weight out in kilograms (`kg = m³ × 1000 × g/cm³ × fill + …`) and wrote it
+  straight into a field the rest of the editor read in the model's unit, so **a model stated in grams weighed a
+  thousandth of what it should**, and one in ounces was out by 28. The same wing now weighs the same however
+  the model chooses to write it down (`ModelUnitsCheck`).
+- `CRRCSim.getAnalysisWeightKg()` summed the masses as if they were kilograms, and the lift coefficient the
+  whole analysis is measured at is derived from that number.
+- `UnitConversor.MINUTES_TO_SECONDS` was **36**. It had been hidden for years because `writeAVLMassData` wrote
+  `"60 s"` by hand instead of using the factor — the second table is what let the first stay wrong.
+
+A message that names a unit has to name the right one: the log after generating masses reports both what the
+aircraft weighs and what the model writes down (`1.18 kg, stated as 1,179.936 g`), because it used to say `kg`
+whatever the model was in.
+
 ## What an aircraft is made of
 
 A surface and a body state their **material**: a density in g/cm³ for what the part is filled with, a
@@ -224,6 +257,86 @@ and the results window showed one plot instead of two. Xplot11 closes the file w
 sequence has to leave the plot menu, leave OPER (both with a blank line) and `quit`. The keystrokes live
 in `AvlRunner.plotCommands` as a list, so they can be read and checked without running AVL, and
 `AvlPlotCheck` then runs AVL for real and asserts two pages, two `showpage`s and a closed file.
+
+## What point the aircraft is measured at
+
+**The lift coefficient is derived, never typed.** In level flight the lift equals the weight, so
+`CL = W / (rho/2 V² Sref)` — once the speed is chosen the coefficient follows from the aircraft, and there is
+nothing to choose. It used to be an editable field defaulting to 0, and a default is what it stayed in every
+model nobody edited it in, the sample included (`alpha: 0.0`): an aircraft whose wings carry nothing, nose
+5.6° down, with the trim, the deflections and the modes all measured there. `AVL.analysisLiftCoefficient()` is
+the **only** place that works it out, and the stability run, the eigenvalue pass and the plots all take it
+from there, so they cannot end up describing different aircraft. It returns null rather than a number when
+the weight, speed, air or reference area is missing; `SimulationRequirements.analysisPointProblems` refuses
+first, and `AvlRunner` throws if it is somehow reached without one (`AnalysisPointCheck`).
+
+The weight comes from `CRRCSim.getAnalysisWeightKg()` — the same mass list `calculate()` derives the mass,
+the inertias and the centre of gravity from — and `calculate()` pushes it, so an analysis cannot run against a
+weight the model no longer has. `runAvl` now goes through that funnel too: it used to analyse with whatever
+mass and **centre of gravity** were left from the last time, and AVL takes its moments about that centre. What
+it validates there is deliberately narrower than an export's (`analysisRequirements`): running AVL is not
+exporting an aircraft, and demanding propulsion before answering an aerodynamic question would refuse a
+glider for not being a powered aeroplane.
+
+Nothing shows the coefficient. A read-only row was tried and removed: a number that configures itself has no
+business being read and wondered about, and the speed it comes from sits one line above. It goes to the log,
+for when a run has to be explained afterwards. The load factor went with it — the g an aircraft pulls is an
+**output** of flying, which JSBSim computes itself, so as an input it was a field to understand in order to
+leave alone.
+
+## Curves, not one tangent
+
+The exported flight model states **what AVL measured across a range of attitudes**, not one measurement plus a
+rate. A rate is the tangent where it was measured and JSBSim continues it to any attitude it likes, which is
+how a 0.94 kg model came to hold 40° of angle of attack. `AvlRunner.sweepAlpha`/`SWEEP_ANGLES_DEG` measures
+thirteen attitudes from −10° to +20° in **one AVL session**, so it costs about what the single measurement it
+replaces cost — opening AVL is the slow part, solving is milliseconds.
+
+Two things about the sweep are the whole point of it, and both are pinned by `AlphaSweepCheck`:
+
+- The attitude is **imposed** (`a a`), not asked for as a lift coefficient. The curve's independent variable
+  has to be the one we chose, not one AVL picked.
+- The controls stay at **neutral**. JSBSim adds the elevator itself through `Cmde·δe`, so a curve measured
+  with the elevator trimmed would carry that trim inside `Cm` and count the elevator twice. The sweep and the
+  trimmed stability file therefore do **not** agree directly — they agree once the control terms are added,
+  which is the identity `AlphaSweepCheck` asserts against real AVL output, and the same sum JSBSim computes.
+
+`JsbsimWriter.AeroCurves` holds one α grid and three curves on it, so they cannot disagree about which
+attitude a row belongs to, and each **replaces** the constants it stands for: with a `CL(α)` table there is no
+`cl0 + cla·α` as well, or the lift is counted twice (`AeroTableCheck`). Everything else stays one number,
+because AVL is a linear solver and thirteen copies of the same number would only hide that; the sweep reports
+what each derivative did across the range instead. Fewer than three points is a line, not a curve, and the
+export says in the log which of the two it wrote.
+
+**Drag is driven by attitude, not by the square of the lift.** JSBSim's `aero/cl-squared` follows the lift the
+model just computed, so the day a lift curve bends over at a stall, a `cl-squared` drag would fall with it and
+a stalled aircraft would have *less* drag than in normal flight. `CD(α)` from AVL — viscous and induced
+together — replaces both the parasite constant and the induced term.
+
+A table also **holds its last row** rather than extrapolating, so lift stops growing at absurd attitudes. That
+is not a stall: a stall is viscous, AVL cannot see one, and the difference has to be stated rather than
+implied. Adding a real one needs XFOIL (present in the project, wired to nothing) and is a separate feature.
+
+The evidence is not the assertions. `JsbsimCurveCheck` exports the model for real, runs **JSBSim from the
+command line** on a pull-up and compares the lift and drag JSBSim computes at each instant against the tables
+in the file it loaded — they agree to 1e-16, and the aircraft holds 0.885 of lift past +20° instead of
+inventing more.
+
+## AVL's control variable is not an angle
+
+AVL states control derivatives **per unit of its control variable**, and that variable is dimensionless: the
+`.avl` CONTROL line carries a gain whose units are, in the editor's own words, *degrees deflection / control
+variable*. JSBSim drives the aerodynamics from the deflection in **radians** (`fcs/elevator-pos-rad` and its
+siblings), so a derivative handed over unconverted understates every control by `180/(π·gain)` — 2.9 times at
+the editor's default gain of 20, 57 times at a gain of 1, 1.9 times for the eurofighter's canard.
+
+That was the state of every exported model until `JsbsimExporter.buildAero` started converting. It is not a
+rounding error: the eurofighter needs 25° of canard to trim, and an aircraft whose surfaces are three times
+weaker than the model states will not trim in the simulator while trimming perfectly on paper. The invariant
+to hold onto is that AVL's `Cmd·d` and JSBSim's `cmde·δ_rad` describe the same rotation of the same surface
+and must produce the same moment; `ControlEffectivenessCheck` asserts exactly that, plus the factor at three
+different gains. A gain of zero contributes nothing, because a surface AVL never deflects does nothing
+whatever the units.
 
 An empty result has to say what the analysis **answered**, not what the user might have forgotten. The
 modal table used to read *'No oscillatory eigenmodes available. Define mass/inertia and run AVL again'*

@@ -14,6 +14,7 @@ import com.abajar.avleditor.crrcsim.CRRCSim
 import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.UnitConversor
 import java.io.{File, PrintWriter}
+import java.util.logging.{Level, Logger}
 import scala.collection.JavaConverters._
 import JsbsimWriter._
 
@@ -54,7 +55,35 @@ object JsbsimExporter {
     val contacts = buildContacts(crrcsim)
 
     Aircraft(name, Metrics(sref, bref, cref, aeroRp), mass, contacts, controls, aero,
-      propulsion = buildPropulsion(crrcsim))
+      curves = buildCurves(calc), propulsion = buildPropulsion(crrcsim))
+  }
+
+  private val logger = Logger.getLogger(JsbsimExporter.getClass.getName)
+
+  /**
+   * The lift, drag and pitching-moment curves from the attitude sweep, when it produced one.
+   *
+   * Fewer than three attitudes is not a curve, and the export then states the constants it always stated —
+   * the tangent at the trimmed point. Which of the two was written goes to the log, because the difference
+   * is not visible in a flying aircraft until it is far from that point, and by then nobody remembers.
+   */
+  private def buildCurves(calc: AvlCalculation): Option[AeroCurves] = {
+    val points = Option(calc.getAlphaSweep).map(_.asScala.toSeq).getOrElse(Nil).sortBy(_.getAlphaDeg)
+    if (points.length < 3) {
+      logger.log(Level.WARNING, s"The attitude sweep returned ${points.length} points, too few for a " +
+        "curve: the flight model states the derivatives at the trimmed point instead, and is only valid " +
+        "near it.")
+      None
+    } else {
+      logger.log(Level.INFO, f"The flight model states measured curves over " +
+        f"${points.head.getAlphaDeg}%.1f..${points.last.getAlphaDeg}%.1f degrees of attitude " +
+        f"(${points.length} points), replacing the single-point derivatives for lift, drag and pitch.")
+      Some(AeroCurves(
+        alphaRad = points.map(_.getAlphaRad.toDouble),
+        cl = points.map(_.getCl.toDouble),
+        cd = points.map(_.getCd.toDouble),
+        cm = points.map(_.getCm.toDouble)))
+    }
   }
 
   /**
@@ -141,13 +170,35 @@ object JsbsimExporter {
   def spanEfficiency(calc: AvlCalculation): Option[Double] =
     Option(calc.getConfiguration).flatMap(c => Option(c.getE)).map(_.doubleValue).filter(_ > 0)
 
-  private def buildAero(calc: AvlCalculation, sref: Double, bref: Double): AeroDerivatives = {
+  def buildAero(calc: AvlCalculation, sref: Double, bref: Double): AeroDerivatives = {
     val std = calc.getStabilityDerivatives
     val cfg = calc.getConfiguration
     val ep = calc.getElevatorPosition
     val rp = calc.getRudderPosition
     val ap = calc.getAileronPosition
     def at(a: Array[Float], i: Int): Double = if (a != null && i >= 0 && i < a.length) a(i).toDouble else 0.0
+
+    /**
+     * A control derivative, converted from AVL's units to JSBSim's.
+     *
+     * AVL states them per unit of its control *variable*, and that variable is not an angle: the `.avl`
+     * CONTROL line carries a gain whose units are, in the editor's own words, "degrees deflection / control
+     * variable" — which is why [[com.abajar.avleditor.avl.connectivity.AvlRunner]] multiplies by it to report
+     * a trimmed deflection. JSBSim drives the aerodynamics from the deflection in radians
+     * (`fcs/elevator-pos-rad` and its siblings), so handing the derivative over unconverted understates the control by
+     * 180 / (pi * gain): 2.9 times at the editor's default gain of 20, 57 times at a gain of 1.
+     *
+     * That is not a rounding error. The eurofighter needs 25 degrees of canard to trim; with surfaces three
+     * times weaker than the model states, an aircraft that trims on paper will not trim in the simulator,
+     * and nothing in the exported file says why. Measured against AVL directly: one unit of the canard
+     * variable moves CL by 0.117, and the same rotation expressed in radians has to move it by the same
+     * amount or the two are not describing the same surface.
+     */
+    def perRadian(a: Array[Float], i: Int): Double = {
+      val gain = at(calc.getControlGains, i)
+      // A gain of zero is a surface AVL never deflects, so it contributes nothing whatever the units.
+      if (gain == 0.0) 0.0 else at(a, i) * 180.0 / (math.Pi * gain)
+    }
     // Both of these used to fall back to round numbers (aspect ratio 5, span efficiency 0.85),
     // which silently replaced the aircraft's own aerodynamics. They are derived or nothing:
     // the reference area is validated before the AVL run, the span efficiency after it, so
@@ -157,12 +208,15 @@ object JsbsimExporter {
     val e = spanEfficiency(calc).getOrElse(
       throw new IllegalStateException("AVL produced no span efficiency for this model"))
     new AeroDerivatives(
-      cl0 = cfg.getCLtot, cla = std.getCLa, clq = std.getCLq, clde = at(std.getCLd, ep),
+      cl0 = cfg.getCLtot, cla = std.getCLa, clq = std.getCLq, clde = perRadian(std.getCLd, ep),
       cd0 = cfg.getCDvis, spanEfficiency = e, aspectRatio = ar, cdde = 0.0,
-      cm0 = cfg.getCmtot, cma = std.getCma, cmq = std.getCmq, cmde = at(std.getCmd, ep),
-      cyb = std.getCYb, cyp = std.getCYp, cyr = std.getCYr, cydr = at(std.getCYd, rp), cyda = at(std.getCYd, ap),
-      clb = std.getClb, clp = std.getClp, clr = std.getClr, cldr = at(std.getCld, rp), clda = at(std.getCld, ap),
-      cnb = std.getCnb, cnp = std.getCnp, cnr = std.getCnr, cndr = at(std.getCnd, rp), cnda = at(std.getCnd, ap)
+      cm0 = cfg.getCmtot, cma = std.getCma, cmq = std.getCmq, cmde = perRadian(std.getCmd, ep),
+      cyb = std.getCYb, cyp = std.getCYp, cyr = std.getCYr,
+      cydr = perRadian(std.getCYd, rp), cyda = perRadian(std.getCYd, ap),
+      clb = std.getClb, clp = std.getClp, clr = std.getClr,
+      cldr = perRadian(std.getCld, rp), clda = perRadian(std.getCld, ap),
+      cnb = std.getCnb, cnp = std.getCnp, cnr = std.getCnr,
+      cndr = perRadian(std.getCnd, rp), cnda = perRadian(std.getCnd, ap)
     )
   }
 

@@ -14,6 +14,7 @@ import com.abajar.avleditor.UnitConversor;
 import com.abajar.avleditor.avl.AVL;
 import com.abajar.avleditor.avl.AVLS;
 import com.abajar.avleditor.avl.runcase.Configuration;
+import com.abajar.avleditor.avl.runcase.AlphaSweepPoint;
 import com.abajar.avleditor.avl.runcase.AvlCalculation;
 import com.abajar.avleditor.avl.runcase.AvlEigenvalue;
 import com.abajar.avleditor.avl.runcase.StabilityDerivatives;
@@ -177,6 +178,28 @@ public class AvlRunner {
         });
     }
 
+    /**
+     * The lift coefficient every pass trims at, taken from {@link AVL#analysisLiftCoefficient()} — the one
+     * derivation there is, so the stability run, the eigenvalue pass and the plots cannot end up describing
+     * different aircraft.
+     *
+     * It throws rather than substituting anything. An operating point that cannot be derived means the
+     * weight, the speed, the air density or the reference area is missing, which the requirements refuse
+     * before a run is started; reaching here without one is a bug, and a silent 0 is what this whole change
+     * exists to remove.
+     */
+    private float analysisLiftCoefficient() {
+        Float cl = avl.analysisLiftCoefficient();
+        if (cl == null) {
+            throw new IllegalStateException(
+                "The AVL operating point cannot be derived: it needs the aircraft's weight, its speed, the "
+                + "air density and the reference area. Speed " + avl.getVelocity() + " m/s, density "
+                + avl.getAirDensity() + " kg/m3, weight " + avl.getAnalysisWeightKg() + " kg, Sref "
+                + (avl.getGeometry() == null ? 0f : avl.getGeometry().getSref()) + " m2.");
+        }
+        return cl;
+    }
+
     private void run(int elevatorPosition, int rudderPosition, int aileronPosition) throws IOException, InterruptedException, Exception{
         String resultFile = this.avlFileName.toString().replace(".avl", ".st");
         String eigenFile = this.avlFileName.toString().replace(".avl", ".eig");
@@ -195,7 +218,7 @@ public class AvlRunner {
         sendCommand("v\n");
 
         sendCommand(avl.getVelocity() + "\n\n");        //setting velocity
-        sendCommand("a c " + this.avl.getLiftCoefficient() + "\n");
+        sendCommand("a c " + analysisLiftCoefficient() + "\n");
         //execute run case
         sendCommand("x\n");
 
@@ -303,6 +326,15 @@ public class AvlRunner {
         }
 
         scanner.close();
+
+        // The curve, measured after the single point above: a separate pass, so a failure in it cannot
+        // spoil the stability file the whole analysis rests on.
+        try {
+            runCase.setAlphaSweep(runAlphaSweep());
+        } catch (Exception ex) {
+            logger.log(Level.WARNING, "The alpha sweep did not complete: " + ex.getMessage(), ex);
+        }
+
         List<AvlEigenvalue> eigenvalues = readEigenvalues(eigenFile);
         applyModeStates(eigenvalues, modeStates);
         runCase.setEigenvalues(eigenvalues);
@@ -316,6 +348,149 @@ public class AvlRunner {
             trefftzPlotPath = null;
             logger.log(Level.WARNING, "Unable to generate AVL plots in dedicated pass", ex);
         }
+    }
+
+    /**
+     * The attitudes the sweep measures, in degrees. From well below level flight — a model flying faster
+     * than it needs sits nose-down, the eurofighter at -4.2 deg — to beyond where a real wing would have
+     * stopped lifting, so the curve covers the range JSBSim will actually ask about.
+     *
+     * Thirteen points is not a cost: opening AVL is the slow part and solving is milliseconds, so the sweep
+     * costs about what the single measurement it replaces cost.
+     */
+    static final float[] SWEEP_ANGLES_DEG = {
+        -10f, -7.5f, -5f, -2.5f, 0f, 2.5f, 5f, 7.5f, 10f, 12.5f, 15f, 17.5f, 20f
+    };
+
+    /**
+     * What is typed at AVL to measure the aircraft across attitudes, as a list so it can be read and checked
+     * without running AVL.
+     *
+     * Two things here are the point of the whole pass. The attitude is <b>imposed</b> ({@code a a}) instead
+     * of asking for a lift coefficient and letting AVL find the attitude, because the curve's independent
+     * variable has to be the one we chose. And the controls are left at <b>neutral</b> — no {@code d1 pm 0}
+     * — because JSBSim adds the elevator's effect itself through Cmde x elevator, so measuring with the
+     * elevator trimmed would carry that trim inside Cm and count the elevator twice.
+     *
+     * It ends the way the plot pass ends, and for the same reason: a blank line out of OPER and {@code quit},
+     * never {@code q}, which OPER does not know.
+     */
+    static List<String> sweepCommands(float velocity, float[] anglesDeg, String stemPath) {
+        List<String> commands = new ArrayList<String>();
+        commands.add("oper");
+        commands.add("c1");
+        commands.add("v");
+        commands.add(velocity + "\n");
+        for (int i = 0; i < anglesDeg.length; i++) {
+            commands.add("a a " + anglesDeg[i]);
+            commands.add("x");
+            commands.add("st");
+            commands.add(sweepFileName(stemPath, i));
+        }
+        commands.add("");
+        commands.add("quit");
+        return commands;
+    }
+
+    static String sweepFileName(String stemPath, int index) {
+        return stemPath + "_a" + index + ".st";
+    }
+
+    /**
+     * Measures the aircraft at every attitude in {@link #SWEEP_ANGLES_DEG}, in one AVL session.
+     *
+     * An attitude AVL does not answer is dropped and said so, rather than filled in: the curve is then built
+     * from the points that exist, and the export refuses if too few came back to be a curve at all. A run of
+     * its own, like the modal and plot passes, so a failure here cannot spoil the stability file.
+     */
+    private List<AlphaSweepPoint> runAlphaSweep() throws IOException, InterruptedException {
+        logger.log(Level.INFO, "Starting alpha sweep over " + SWEEP_ANGLES_DEG.length + " attitudes...");
+        ProcessBuilder pb = new ProcessBuilder(avlPath, this.avlFileName.toString());
+        pb.directory(executionPath.toFile().getAbsoluteFile());
+        pb.redirectErrorStream(true);
+
+        Process sweepProcess = pb.start();
+        try (OutputStream sweepIn = sweepProcess.getOutputStream();
+             BufferedReader sweepOut = new BufferedReader(new InputStreamReader(sweepProcess.getInputStream()))) {
+
+            for (String command : sweepCommands(avl.getVelocity(), SWEEP_ANGLES_DEG, avlFileBase)) {
+                writeModeCommand(sweepIn, command + "\n");
+            }
+            sweepIn.flush();
+            sweepIn.close();
+
+            String line;
+            while ((line = sweepOut.readLine()) != null) {
+                logger.log(Level.FINE, "[AVL-SWEEP] " + line);
+            }
+        }
+
+        if (!sweepProcess.waitFor(60, java.util.concurrent.TimeUnit.SECONDS)) {
+            sweepProcess.destroyForcibly();
+            throw new IOException("The AVL alpha sweep timed out");
+        }
+
+        List<AlphaSweepPoint> points = new ArrayList<AlphaSweepPoint>();
+        for (int i = 0; i < SWEEP_ANGLES_DEG.length; i++) {
+            File file = new File(sweepFileName(avlFileBase, i));
+            AlphaSweepPoint point = file.exists() ? parseSweepPoint(file, SWEEP_ANGLES_DEG[i]) : null;
+            if (point == null) {
+                logger.log(Level.WARNING, String.format(java.util.Locale.ENGLISH,
+                    "AVL did not answer at %.1f deg of attitude; that point is left out of the curve.",
+                    SWEEP_ANGLES_DEG[i]));
+            } else {
+                points.add(point);
+            }
+        }
+        logger.log(Level.INFO, "Alpha sweep: " + points.size() + " of " + SWEEP_ANGLES_DEG.length
+            + " attitudes measured");
+        for (AlphaSweepPoint point : points) logger.log(Level.INFO, "  " + point);
+        // Why the rest of the derivatives are exported as one number each, measured rather than assumed.
+        for (String line : AlphaSweepPoint.constantsReport(points)) logger.log(Level.INFO, line);
+        return points;
+    }
+
+    /**
+     * One attitude out of a stability file, by label.
+     *
+     * By label and <b>case-sensitively</b>, not by position: the file states {@code CLa} (lift with
+     * attitude) and {@code Cla} (roll with attitude) on different lines, distinguished by nothing but the
+     * capital, so a case-blind match reads the wrong number. Returns null if any of them is absent, which is
+     * how an attitude AVL failed at ends up dropped instead of half-read.
+     */
+    private AlphaSweepPoint parseSweepPoint(File file, float angleDeg) throws IOException {
+        StringBuilder text = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) text.append(line).append('\n');
+        }
+        String content = text.toString();
+
+        Float cl = labelled(content, "CLtot");
+        Float cd = labelled(content, "CDtot");
+        Float cm = labelled(content, "Cmtot");
+        Float alpha = labelled(content, "Alpha");
+        Float cla = labelled(content, "CLa");
+        Float cma = labelled(content, "Cma");
+        Float cnb = labelled(content, "Cnb");
+        Float clb = labelled(content, "Clb");
+        if (cl == null || cd == null || cm == null || alpha == null) return null;
+
+        // AVL's own alpha, not the one we asked for: if the two disagree the file is not the case we set.
+        if (Math.abs(alpha - angleDeg) > 0.05f) {
+            logger.log(Level.WARNING, String.format(java.util.Locale.ENGLISH,
+                "Stability file for %.1f deg reports Alpha = %.3f; ignoring it.", angleDeg, alpha));
+            return null;
+        }
+        return new AlphaSweepPoint(angleDeg, cl, cd, cm,
+            cla == null ? Float.NaN : cla, cma == null ? Float.NaN : cma,
+            cnb == null ? Float.NaN : cnb, clb == null ? Float.NaN : clb);
+    }
+
+    private static Float labelled(String content, String label) {
+        Matcher matcher = Pattern.compile("\\b" + Pattern.quote(label) + "\\s*=\\s*(" + NUMBER_PATTERN + ")")
+            .matcher(content);
+        return matcher.find() ? Float.valueOf(matcher.group(1)) : null;
     }
 
     private void registerMainPassStatus(String line) {
@@ -336,7 +511,7 @@ public class AvlRunner {
         if (trimConvergenceFailed) {
             return String.format(
                 "AVL trim convergence failed at V=%.3f m/s and CL=%.6f; no stability file generated: %s",
-                avl.getVelocity(), avl.getLiftCoefficient(), resultFile
+                avl.getVelocity(), analysisLiftCoefficient(), resultFile
             );
         }
         if (noFlowSolution) {
@@ -446,7 +621,7 @@ public class AvlRunner {
             writeModeCommand(modeIn, "c1\n");
             writeModeCommand(modeIn, "v\n");
             writeModeCommand(modeIn, avl.getVelocity() + "\n\n");
-            writeModeCommand(modeIn, "a c " + this.avl.getLiftCoefficient() + "\n");
+            writeModeCommand(modeIn, "a c " + analysisLiftCoefficient() + "\n");
             writeModeCommand(modeIn, "x\n");
             writeModeCommand(modeIn, "\n");
             writeModeCommand(modeIn, "mode\n");
@@ -554,7 +729,7 @@ public class AvlRunner {
              BufferedReader plotOut = new BufferedReader(new InputStreamReader(plotProcess.getInputStream()))) {
 
             for (String command : plotCommands(elevatorPosition, avl.getVelocity(),
-                    this.avl.getLiftCoefficient(), viewAzimuth, viewElevation)) {
+                    analysisLiftCoefficient(), viewAzimuth, viewElevation)) {
                 writeModeCommand(plotIn, command + "\n");
             }
             plotIn.flush();

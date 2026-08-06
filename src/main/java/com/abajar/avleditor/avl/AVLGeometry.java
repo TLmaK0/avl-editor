@@ -427,6 +427,8 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
 
     public Surface createSurface() {
         Surface surface = new Surface();
+        // So a mass created on it starts at a weight stated in the model's own unit, not in kilograms.
+        surface.setUnitsSource(this);
         this.getSurfaces().add(surface);
         return surface;
     }
@@ -439,6 +441,7 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
         body.setBFILE("body" + bodyNum + ".dat");
         // Initialize with default profile
         body.initDefaultProfile();
+        body.setUnitsSource(this);
         this.getBodies().add(body);
         return body;
     }
@@ -492,10 +495,34 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
     public void initParents() {
         for (Surface surface : getSurfaces()) {
             surface.initSectionParents();
+            surface.setUnitsSource(this);
         }
         for (Body body : getBodies()) {
             body.initProfilePointParents();
+            body.setUnitsSource(this);
         }
+    }
+
+    /**
+     * Where this geometry reads the model's units from: its own AVL node, which is where the user sets them.
+     *
+     * A reference rather than a copy of the three names, so a unit changed after the model loaded is seen
+     * straight away. Set by {@link com.abajar.avleditor.avl.AVL#getGeometry()}, which every caller goes
+     * through anyway.
+     */
+    private transient com.abajar.avleditor.avl.AVL unitsSource;
+
+    public void setUnitsSource(com.abajar.avleditor.avl.AVL avl) {
+        this.unitsSource = avl;
+    }
+
+    /**
+     * The model's units, or the defaults for a geometry built on its own — which is what a check does when it
+     * exercises one surface. A model always has an AVL node, and an AVL node always has the three units, so
+     * inside the editor this is never the fallback.
+     */
+    public com.abajar.avleditor.ModelUnits units() {
+        return unitsSource == null ? com.abajar.avleditor.ModelUnits.DEFAULTS : unitsSource.units();
     }
 
     /**
@@ -613,11 +640,15 @@ public class AVLGeometry extends MassObject implements AVLSerializable{
             if (side.isEmpty()) continue;
             Mass mass = element.addMassAt(side.getX(), side.getY(), side.getZ());
             mass.setName(massNameFor(element, side));
-            mass.setMass(element.materialWeight());
+            // The material's weight is worked out in kilograms; a Mass holds whatever unit the model states.
+            mass.setMass(units().fromKilograms(element.materialWeight()));
         }
 
-        logger.log(Level.INFO, "Masses from materials: {0} kg over {1} elements",
-                new Object[]{getTotalMass(getEffectiveMassesRecursive()), elements.size()});
+        // Both figures: what it weighs, and what the model writes down. The message used to say "kg"
+        // whatever the model stated its masses in.
+        float stated = getTotalMass(getEffectiveMassesRecursive());
+        logger.log(Level.INFO, "Masses from materials: {0} kg, stated as {1} {2}, over {3} elements",
+                new Object[]{units().toKilograms(stated), stated, units().massUnit(), elements.size()});
         return true;
     }
 

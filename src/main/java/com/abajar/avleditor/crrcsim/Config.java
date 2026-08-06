@@ -107,8 +107,8 @@ public class Config  implements Serializable{
         this.sound = sound;
     }
 
-    void setMass_inertiaFromMasses(ArrayList<Mass> masses, String lengthUnit, String massUnit) {
-        this.calculateInertiasMasses(masses, lengthUnit, massUnit);
+    void setMass_inertiaFromMasses(ArrayList<Mass> masses, com.abajar.avleditor.ModelUnits units) {
+        this.calculateInertiasMasses(masses, units);
     }
 
     private double calculateMomentInertiaFromAxis(float coord1, float coord2, float originalMomentInertia, float mass){
@@ -126,7 +126,7 @@ public class Config  implements Serializable{
         return originalProductInertia + mass * coord1 * coord2;
     }
 
-    private void calculateInertiasMasses(ArrayList<Mass> masses, String lengthUnit, String massUnit) {
+    private void calculateInertiasMasses(ArrayList<Mass> masses, com.abajar.avleditor.ModelUnits units) {
         float I_xx = 0;
         float I_yy = 0;
         float I_zz = 0;
@@ -140,13 +140,12 @@ public class Config  implements Serializable{
             totalMass += mass.getMass();
         }
 
-        //setting and convert to kg * m2
-        UnitConversor uc = new UnitConversor();
-        this.mass_inertia.setI_xx(uc.convertToKilogramsSquareMeters(I_xx, massUnit, lengthUnit));
-        this.mass_inertia.setI_yy(uc.convertToKilogramsSquareMeters(I_yy, massUnit, lengthUnit));
-        this.mass_inertia.setI_zz(uc.convertToKilogramsSquareMeters(I_zz, massUnit, lengthUnit));
-        this.mass_inertia.setI_xz(uc.convertToKilogramsSquareMeters(I_xz, massUnit, lengthUnit));
-        this.mass_inertia.setMass(uc.convertToKilograms(totalMass, massUnit));
+        // Into kg and kg*m2, through the model's own units rather than a unit string picked up here.
+        this.mass_inertia.setI_xx(units.toKilogramsSquareMetres(I_xx));
+        this.mass_inertia.setI_yy(units.toKilogramsSquareMetres(I_yy));
+        this.mass_inertia.setI_zz(units.toKilogramsSquareMetres(I_zz));
+        this.mass_inertia.setI_xz(units.toKilogramsSquareMetres(I_xz));
+        this.mass_inertia.setMass(units.toKilograms(totalMass));
     }
 
     /**

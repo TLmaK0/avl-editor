@@ -53,8 +53,30 @@ object JsbsimWriter {
     val cnb: Double, val cnp: Double, val cnr: Double, val cndr: Double, val cnda: Double
   )
 
-  /** Optional XFOIL-derived non-linear lift curve (alpha rad -> CL), overrides cl0+cla. */
-  final case class LiftTable(alphaRadToCl: Seq[(Double, Double)])
+  /**
+   * The aircraft measured across a range of attitudes, controls at neutral: what AVL answered at each one,
+   * on a single grid so the three curves cannot disagree about which attitude a row belongs to.
+   *
+   * This is what a flight model states instead of one measurement plus a rate. A rate is the tangent at the
+   * point it was measured, and JSBSim continues it to any attitude it likes; a curve is the aircraft over
+   * the range it will actually be flown in. JSBSim holds the end value beyond a table's last row rather
+   * than extrapolating, so lift also stops growing without bound at absurd attitudes — which is not a
+   * stall, only the absence of a fiction. A real stall is viscous and AVL cannot see one.
+   *
+   * Controls neutral matters: the control terms are separate products in the same axis, so a curve measured
+   * with the elevator trimmed would carry that trim and be counted twice.
+   */
+  final case class AeroCurves(alphaRad: Seq[Double], cl: Seq[Double], cd: Seq[Double], cm: Seq[Double]) {
+
+    /** Fewer than three points is a line, not a curve, and a line is what the constants already say. */
+    def isCurve: Boolean =
+      alphaRad.length >= 3 && cl.length == alphaRad.length &&
+        cd.length == alphaRad.length && cm.length == alphaRad.length
+
+    def liftRows: Seq[(Double, Double)] = alphaRad.zip(cl)
+    def dragRows: Seq[(Double, Double)] = alphaRad.zip(cd)
+    def pitchRows: Seq[(Double, Double)] = alphaRad.zip(cm)
+  }
 
   /**
    * What drives the propeller. Kept as a sum type so the two are never conflated: an electric
@@ -89,7 +111,7 @@ object JsbsimWriter {
     contacts: Seq[Contact],
     controls: Seq[ControlSurface],
     aero: AeroDerivatives,
-    liftTable: Option[LiftTable] = None,
+    curves: Option[AeroCurves] = None,
     propulsion: Option[Propulsion] = None
   )
 
@@ -334,6 +356,26 @@ object JsbsimWriter {
     |      </function>
     |""".stripMargin
 
+  /**
+   * A coefficient stated as a curve in attitude: the factors, then a lookup table on `aero/alpha-rad`.
+   * The grid is in radians because that is the property it is looked up against, and the rows are written
+   * in the order given, which the caller keeps ascending — JSBSim needs a monotonic independent variable.
+   */
+  private def tableTerm(name: String, factors: String, rows: Seq[(Double, Double)]): String = {
+    val data = rows.map { case (alphaRad, value) => s"            ${f(alphaRad)} ${f(value)}" }.mkString("\n")
+    s"""      <function name="aero/$name">
+    |        <product>
+    |$factors          <table>
+    |            <independentVar lookup="row">aero/alpha-rad</independentVar>
+    |            <tableData>
+    |$data
+    |            </tableData>
+    |          </table>
+    |        </product>
+    |      </function>
+    |""".stripMargin
+  }
+
   private def p(prop: String): String = s"          <property>$prop</property>\n"
   private def v(value: Double): String = s"          <value>${f(value)}</value>\n"
 
@@ -341,43 +383,39 @@ object JsbsimWriter {
     val a = ac.aero
     val qA = "aero/qbar-area"
 
-    // LIFT
-    val liftFns =
-      ac.liftTable match {
-        case Some(t) =>
-          val tbl = t.alphaRadToCl.map { case (al, cl) => s"            $al $cl" }.mkString("\n")
-          s"""      <function name="aero/force/lift_table">
-          |        <product>
-          |          <property>$qA</property>
-          |          <table><independentVar lookup="row">aero/alpha-rad</independentVar>
-          |            <tableData>
-          |$tbl
-          |            </tableData>
-          |          </table>
-          |        </product>
-          |      </function>
-          |""".stripMargin
-        case None =>
-          term("force/lift_0", p(qA) + v(a.cl0)) +
-          term("force/lift_alpha", p(qA) + v(a.cla) + p("aero/alpha-rad"))
-      }
+    // LIFT: the measured curve when there is one, or the tangent at the single point when there is not.
+    // A curve replaces both constants; leaving them in would count the lift twice.
+    val curves = ac.curves.filter(_.isCurve)
+    val liftFns = curves match {
+      case Some(c) => tableTerm("force/lift", p(qA), c.liftRows)
+      case None =>
+        term("force/lift_0", p(qA) + v(a.cl0)) +
+        term("force/lift_alpha", p(qA) + v(a.cla) + p("aero/alpha-rad"))
+    }
     val liftRates =
       term("force/lift_q", p(qA) + v(a.clq) + p("aero/ci2vel") + p("velocities/q-aero-rad_sec")) +
       term("force/lift_de", p(qA) + v(a.clde) + p("fcs/elevator-pos-rad"))
 
-    // DRAG: parasite + induced (CL^2 / (pi AR e)) + elevator
+    // DRAG. With a curve this is AVL's total drag at each attitude — viscous and induced together — and it
+    // replaces both the parasite constant and the induced term. Driving drag by attitude rather than by the
+    // square of the computed lift is not a detail: cl-squared follows the lift, so the day the lift curve
+    // bends over at a stall, a cl-squared drag would fall with it and a stalled aircraft would have less
+    // drag than in normal flight.
     val k = 1.0 / (math.Pi * math.max(a.aspectRatio, 1e-6) * math.max(a.spanEfficiency, 1e-6))
-    val drag =
-      term("force/drag_0", p(qA) + v(a.cd0)) +
-      s"""      <function name="aero/force/drag_induced">
-      |        <product>
-      |          <property>$qA</property>
-      |          <value>${f(k)}</value>
-      |          <property>aero/cl-squared</property>
-      |        </product>
-      |      </function>
-      |""".stripMargin +
-      term("force/drag_de", p(qA) + v(a.cdde) + p("fcs/elevator-pos-rad"))
+    val dragCore = curves match {
+      case Some(c) => tableTerm("force/drag", p(qA), c.dragRows)
+      case None =>
+        term("force/drag_0", p(qA) + v(a.cd0)) +
+        s"""      <function name="aero/force/drag_induced">
+        |        <product>
+        |          <property>$qA</property>
+        |          <value>${f(k)}</value>
+        |          <property>aero/cl-squared</property>
+        |        </product>
+        |      </function>
+        |""".stripMargin
+    }
+    val drag = dragCore + term("force/drag_de", p(qA) + v(a.cdde) + p("fcs/elevator-pos-rad"))
 
     // SIDE
     val side =
@@ -399,9 +437,13 @@ object JsbsimWriter {
       term("moment/roll_da", p(qA) + p(span) + v(a.clda) + p("fcs/aileron-pos-rad"))
 
     // PITCH (about body y): qbar-area * chord * Cm
-    val pitch =
-      term("moment/pitch_0", p(qA) + p(chord) + v(a.cm0)) +
-      term("moment/pitch_alpha", p(qA) + p(chord) + v(a.cma) + p("aero/alpha-rad")) +
+    val pitchCore = curves match {
+      case Some(c) => tableTerm("moment/pitch", p(qA) + p(chord), c.pitchRows)
+      case None =>
+        term("moment/pitch_0", p(qA) + p(chord) + v(a.cm0)) +
+        term("moment/pitch_alpha", p(qA) + p(chord) + v(a.cma) + p("aero/alpha-rad"))
+    }
+    val pitch = pitchCore +
       term("moment/pitch_q", p(qA) + p(chord) + v(a.cmq) + p("aero/ci2vel") + p("velocities/q-aero-rad_sec")) +
       term("moment/pitch_de", p(qA) + p(chord) + v(a.cmde) + p("fcs/elevator-pos-rad"))
 

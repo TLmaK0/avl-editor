@@ -96,6 +96,17 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   // two halves of a mirrored element move together while one of them is dragged, rather than the
   // twin jumping into place when the mouse is released.
   @volatile private var massMirrors: Array[(Int, Float)] = Array()
+
+  /**
+   * The shapes the propulsion components have — the battery's box, the motor's cylinder, the propeller's swept
+   * disc — each tied to the mass point it is centred on. Live during a resize drag: the array is the copy the
+   * view draws, and the model is written once the mouse is released, as a mass drag does.
+   */
+  @volatile private var componentShapes: Array[com.abajar.avleditor.mass.ComponentShape] = Array()
+  private var shapeSizeUpdateCallback: Option[(Int, Float, Float, Float) => Unit] = None
+  private var isDraggingShapeSizeX = false
+  private var isDraggingShapeSizeY = false
+  private var isDraggingShapeSizeZ = false
   @volatile private var selectedMassPoint: Option[Int] = None
   @volatile private var isDraggingMassAxisX: Boolean = false
   @volatile private var isDraggingMassAxisY: Boolean = false
@@ -236,10 +247,13 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         // Left click to drag section, control, body, profile point or collision point when
         // one is selected
         if (selectedMassPoint.isDefined) {
-          getClosestMassAxisHandle(e.getX, e.getY) match {
-            case "y" => isDraggingMassAxisY = true
-            case "z" => isDraggingMassAxisZ = true
-            case _   => isDraggingMassAxisX = true
+          getClosestMassHandle(e.getX, e.getY) match {
+            case "y"  => isDraggingMassAxisY = true
+            case "z"  => isDraggingMassAxisZ = true
+            case "sx" => isDraggingShapeSizeX = true
+            case "sy" => isDraggingShapeSizeY = true
+            case "sz" => isDraggingShapeSizeZ = true
+            case _    => isDraggingMassAxisX = true
           }
         } else if (selectedCollisionPoint.isDefined) {
           isDraggingCollisionPoint = true
@@ -280,7 +294,15 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     }
 
     override def mouseReleased(e: java.awt.event.MouseEvent): Unit = {
-      if (isDraggingMassAxisX || isDraggingMassAxisY || isDraggingMassAxisZ) {
+      if (isDraggingShapeSizeX || isDraggingShapeSizeY || isDraggingShapeSizeZ) {
+        isDraggingShapeSizeX = false
+        isDraggingShapeSizeY = false
+        isDraggingShapeSizeZ = false
+        selectedShapeIndex.foreach { shapeIndex =>
+          val shape = componentShapes(shapeIndex)
+          shapeSizeUpdateCallback.foreach(_(shape.pointIndex, shape.sizeX, shape.sizeY, shape.sizeZ))
+        }
+      } else if (isDraggingMassAxisX || isDraggingMassAxisY || isDraggingMassAxisZ) {
         isDraggingMassAxisX = false
         isDraggingMassAxisY = false
         isDraggingMassAxisZ = false
@@ -339,7 +361,38 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
   glCanvas.addMouseMotionListener(new java.awt.event.MouseMotionAdapter {
     override def mouseDragged(e: java.awt.event.MouseEvent): Unit = {
-      if (isDraggingMassAxisX || isDraggingMassAxisY || isDraggingMassAxisZ) {
+      if (isDraggingShapeSizeX || isDraggingShapeSizeY || isDraggingShapeSizeZ) {
+        // A face drag resizes about the centre: the mass sits at the centre of the volume, so pushing one
+        // face out pushes its opposite out too and the weight does not move.
+        val axis = if (isDraggingShapeSizeX) 0 else if (isDraggingShapeSizeY) 1 else 2
+        selectedShapeIndex.foreach { shapeIndex =>
+          val shape = componentShapes(shapeIndex)
+          if (shape.resizable && shape.pointIndex < massPoints.length) {
+            val (x, y, z, _, _) = massPoints(shape.pointIndex)
+            val faceDelta = massAxisDelta(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
+            val current = axis match {
+              case 0 => shape.sizeX
+              case 1 => shape.sizeY
+              case _ => shape.sizeZ
+            }
+            val resized = com.abajar.avleditor.mass.ComponentShapes
+              .resizedExtent(current, faceDelta, shape.minSize)
+            // A cylinder has one diameter, so either handle across its axis moves both sizes together.
+            val roundAcross = shape.kind == com.abajar.avleditor.mass.ComponentShapes.Cylinder
+            val updated = componentShapes.clone()
+            updated(shapeIndex) = axis match {
+              case 0 => shape.copy(sizeX = resized)
+              case 1 => if (roundAcross) shape.copy(sizeY = resized, sizeZ = resized)
+                        else shape.copy(sizeY = resized)
+              case _ => if (roundAcross) shape.copy(sizeY = resized, sizeZ = resized)
+                        else shape.copy(sizeZ = resized)
+            }
+            componentShapes = updated
+          }
+        }
+        lastMouseX = e.getX
+        lastMouseY = e.getY
+      } else if (isDraggingMassAxisX || isDraggingMassAxisY || isDraggingMassAxisZ) {
         // One axis at a time, and by however far the mouse travelled along that axis as it appears
         // on screen. A fixed "horizontal is x" rule moves the mass the wrong way as soon as the
         // view is rotated, and every view here is rotated. No vertex snapping: a battery sits
@@ -746,6 +799,19 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   }
 
   /** Called on mouse release with the dragged mass's index and its new AVL coordinates. */
+  /**
+   * The shapes to draw around the mass points. Sizes are in the model's length unit, like every other
+   * coordinate here, and each shape names the mass point it is centred on.
+   */
+  def setComponentShapes(shapes: Array[com.abajar.avleditor.mass.ComponentShape]): Unit = {
+    componentShapes = shapes
+    glCanvas.repaint()
+  }
+
+  def setShapeSizeUpdateCallback(callback: (Int, Float, Float, Float) => Unit): Unit = {
+    shapeSizeUpdateCallback = Some(callback)
+  }
+
   def setMassPointUpdateCallback(callback: (Int, Float, Float, Float) => Unit): Unit = {
     massPointUpdateCallback = Some(callback)
   }
@@ -1007,6 +1073,28 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     Seq((x + offset, y, z), (x, y + offset, z), (x, y, z + offset))
   }
 
+  /** The shape drawn around the selected mass point, if that component states one. */
+  private def selectedShapeIndex: Option[Int] =
+    selectedMassPoint.flatMap { point =>
+      componentShapes.indexWhere(_.pointIndex == point) match {
+        case -1 => None
+        case index => Some(index)
+      }
+    }
+
+  /**
+   * Where the size handles sit: at the centre of the three faces the sizes grow towards.
+   *
+   * Only for a shape the model lets the user size. The propeller's disc has none: its diameter decides the
+   * exported thrust, and dragging that by eye would be editing the propulsion rather than placing a part.
+   */
+  private def shapeSizeHandles(shapeIndex: Int): Seq[(Float, Float, Float)] = {
+    val shape = componentShapes(shapeIndex)
+    if (!shape.resizable || shape.pointIndex >= massPoints.length) return Nil
+    val (x, y, z, _, _) = massPoints(shape.pointIndex)
+    Seq((x + shape.sizeX / 2f, y, z), (x, y + shape.sizeY / 2f, z), (x, y, z + shape.sizeZ / 2f))
+  }
+
   private def getClosestMassAxisHandle(mouseX: Int, mouseY: Int): String = {
     selectedMassPoint.filter(_ < massPoints.length).map { index =>
       val (x, y, z, _, _) = massPoints(index)
@@ -1021,6 +1109,30 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         (distance, axis)
       }
       distances.minBy(_._1)._2
+    }.getOrElse("x")
+  }
+
+  /**
+   * Which handle of the selected mass the pointer is nearest: one of the three position arrows ("x", "y",
+   * "z") or, when the component states a shape it can be sized by, one of the three size handles ("sx",
+   * "sy", "sz"). Whichever is closest on screen wins, so the two sets can share the same selection without
+   * a mode to switch between them.
+   */
+  private def getClosestMassHandle(mouseX: Int, mouseY: Int): String = {
+    def screenDistance(handle: (Float, Float, Float)): Float =
+      projectToScreen(handle._1, handle._2, handle._3) match {
+        case Some((sx, sy)) =>
+          val dx = mouseX - sx
+          val dy = mouseY - sy
+          (dx * dx + dy * dy).toFloat
+        case None => Float.MaxValue
+      }
+
+    selectedMassPoint.filter(_ < massPoints.length).map { index =>
+      val (x, y, z, _, _) = massPoints(index)
+      val position = massAxisHandles(x, y, z).zip(Seq("x", "y", "z"))
+      val sizes = selectedShapeIndex.toSeq.flatMap(shapeSizeHandles).zip(Seq("sx", "sy", "sz"))
+      (position ++ sizes).map { case (handle, name) => (screenDistance(handle), name) }.minBy(_._1)._2
     }.getOrElse("x")
   }
 
@@ -1309,7 +1421,9 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       if (selectedProfilePoint.isDefined) drawSelectedProfilePointHandle(gl)
       if (collisionPoints.nonEmpty) drawCollisionPoints(gl)
       if (massPoints.nonEmpty) drawMassPoints(gl)
+      if (componentShapes.nonEmpty) drawComponentShapes(gl)
       if (selectedMassPoint.isDefined) drawSelectedMassHandles(gl)
+      if (selectedMassPoint.isDefined) drawShapeSizeHandles(gl)
     }
 
     gl.glFlush()
@@ -1960,6 +2074,137 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
    * Z blue). There is no centre handle: without a surface to snap to, a free drag would have to
    * guess which plane the mass moves in, and guessing is what the axes avoid.
    */
+  /**
+   * The propulsion components' shapes: the battery's box, the motor's cylinder, the propeller's swept disc.
+   *
+   * Drawn as outlines rather than solids, so the aircraft around them stays visible — the question these
+   * answer is whether the part fits where it is being put, which needs both the part and its surroundings.
+   * Every point is computed in AVL coordinates and mapped through `avlToModel`, so the axis mapping the user
+   * chose applies to a battery exactly as it does to a wing.
+   */
+  private def drawComponentShapes(gl: GL2): Unit = {
+    val shapes = componentShapes
+    val points = massPoints
+    if (shapes.isEmpty || points.isEmpty) return
+
+    gl.glDisable(GLLightingFunc.GL_LIGHTING)
+    gl.glPushMatrix()
+    gl.glScalef(modelScale, modelScale, modelScale)
+    gl.glTranslatef(-centerX, -centerY, -centerZ)
+
+    def vertex(x: Float, y: Float, z: Float): Unit = {
+      val (mx, my, mz) = avlToModel(x, y, z)
+      gl.glVertex3f(mx * displayScale, my * displayScale, mz * displayScale)
+    }
+
+    def line(a: (Float, Float, Float), b: (Float, Float, Float)): Unit = {
+      gl.glBegin(GL.GL_LINES)
+      vertex(a._1, a._2, a._3)
+      vertex(b._1, b._2, b._3)
+      gl.glEnd()
+    }
+
+    /** A circle about the thrust axis, at a station along it. */
+    def circle(x: Float, y: Float, z: Float, radius: Float): Unit = {
+      val segments = 24
+      gl.glBegin(GL.GL_LINE_LOOP)
+      for (i <- 0 until segments) {
+        val angle = 2.0 * scala.math.Pi * i / segments
+        vertex(x, y + (radius * scala.math.cos(angle)).toFloat, z + (radius * scala.math.sin(angle)).toFloat)
+      }
+      gl.glEnd()
+    }
+
+    shapes.foreach { shape =>
+      if (shape.pointIndex < points.length) {
+        val (x, y, z, _, _) = points(shape.pointIndex)
+        val selected = selectedMassPoint.exists(_ == shape.pointIndex)
+        if (selected) {
+          gl.glColor3f(1.0f, 0.85f, 1.0f)
+          gl.glLineWidth(2.5f)
+        } else {
+          gl.glColor3f(0.6f, 0.3f, 0.8f) // the masses' violet, dimmer: the shape belongs to the mass
+          gl.glLineWidth(1.5f)
+        }
+
+        shape.kind match {
+          case com.abajar.avleditor.mass.ComponentShapes.Box =>
+            val (hx, hy, hz) = (shape.sizeX / 2f, shape.sizeY / 2f, shape.sizeZ / 2f)
+            val corners = for (sx <- Seq(-1f, 1f); sy <- Seq(-1f, 1f); sz <- Seq(-1f, 1f))
+              yield (x + sx * hx, y + sy * hy, z + sz * hz)
+            // Every pair of corners differing in exactly one coordinate is an edge: 12 of them.
+            for (i <- corners.indices; j <- (i + 1) until corners.length) {
+              val (ax, ay, az) = corners(i)
+              val (bx, by, bz) = corners(j)
+              val differing = Seq(ax != bx, ay != by, az != bz).count(identity)
+              if (differing == 1) line(corners(i), corners(j))
+            }
+
+          case com.abajar.avleditor.mass.ComponentShapes.Cylinder =>
+            val halfLength = shape.sizeX / 2f
+            val radius = shape.sizeY / 2f
+            circle(x - halfLength, y, z, radius)
+            circle(x + halfLength, y, z, radius)
+            // Four lines along it, so it reads as a can rather than two rings.
+            Seq((radius, 0f), (-radius, 0f), (0f, radius), (0f, -radius)).foreach { case (dy, dz) =>
+              line((x - halfLength, y + dy, z + dz), (x + halfLength, y + dy, z + dz))
+            }
+
+          case com.abajar.avleditor.mass.ComponentShapes.Disc =>
+            val radius = shape.sizeY / 2f
+            circle(x, y, z, radius)
+            // One spoke per stated blade: the count is the model's, not a decoration.
+            for (blade <- 0 until scala.math.max(2, shape.blades)) {
+              val angle = 2.0 * scala.math.Pi * blade / scala.math.max(2, shape.blades)
+              line((x, y, z),
+                (x, y + (radius * scala.math.cos(angle)).toFloat, z + (radius * scala.math.sin(angle)).toFloat))
+            }
+
+          case _ => ()
+        }
+      }
+    }
+
+    gl.glPopMatrix()
+    gl.glLineWidth(1.0f)
+    if (!wireframeMode) gl.glEnable(GLLightingFunc.GL_LIGHTING)
+  }
+
+  /** The three size handles of the selected shape: small cubes at the faces, so they are not mistaken for
+    * the position arrows they sit alongside. */
+  private def drawShapeSizeHandles(gl: GL2): Unit = {
+    selectedShapeIndex.foreach { shapeIndex =>
+      val handles = shapeSizeHandles(shapeIndex)
+      if (handles.nonEmpty) {
+        gl.glDisable(GLLightingFunc.GL_LIGHTING)
+        gl.glDisable(GL.GL_DEPTH_TEST)
+        gl.glPushMatrix()
+        gl.glScalef(modelScale, modelScale, modelScale)
+        gl.glTranslatef(-centerX, -centerY, -centerZ)
+
+        val dragging = Seq(isDraggingShapeSizeX, isDraggingShapeSizeY, isDraggingShapeSizeZ)
+        handles.zip(dragging).foreach { case ((hx, hy, hz), isActive) =>
+          val (mx, my, mz) = avlToModel(hx, hy, hz)
+          if (isActive) {
+            gl.glColor3f(1.0f, 1.0f, 0.6f)
+            gl.glPointSize(14.0f)
+          } else {
+            gl.glColor3f(1.0f, 0.9f, 0.2f) // amber: sizing, against the coloured arrows for moving
+            gl.glPointSize(10.0f)
+          }
+          gl.glBegin(GL.GL_POINTS)
+          gl.glVertex3f(mx * displayScale, my * displayScale, mz * displayScale)
+          gl.glEnd()
+        }
+
+        gl.glPopMatrix()
+        gl.glPointSize(1.0f)
+        gl.glEnable(GL.GL_DEPTH_TEST)
+        if (!wireframeMode) gl.glEnable(GLLightingFunc.GL_LIGHTING)
+      }
+    }
+  }
+
   private def drawSelectedMassHandles(gl: GL2): Unit = {
     selectedMassPoint.filter(_ < massPoints.length).foreach { index =>
       val (x, y, z, _, _) = massPoints(index)

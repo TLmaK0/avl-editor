@@ -254,6 +254,15 @@ object AvlEditor{
       })
     })
 
+    // Resizing a component's shape in the 3D view
+    window.viewer3D.setShapeSizeUpdateCallback((pointIdx: Int, sx: Float, sy: Float, sz: Float) => {
+      window.display.asyncExec(new Runnable {
+        override def run(): Unit = {
+          updateShapeSizeFromViewer(pointIdx, sx, sy, sz)
+        }
+      })
+    })
+
     // Set up log handler to display logs in footer BEFORE logging anything
     val logFooterHandler = new LogFooterHandler(window.display, window.footerLabel)
     Logger.getLogger("").addHandler(logFooterHandler)
@@ -742,19 +751,49 @@ object AvlEditor{
       * applied straight away rather than remembered. */
     private var massMarkers: IndexedSeq[com.abajar.avleditor.mass.MassMarker] = IndexedSeq.empty
 
+    /** The shapes drawn around those masses: the battery's box, the motor's cylinder, the propeller's disc. */
+    private var componentShapes: IndexedSeq[com.abajar.avleditor.mass.ComponentShape] = IndexedSeq.empty
+
     /** Push every mass the model states a position for to the 3D view, so the positions that decide
       * the centre of gravity can be seen and moved instead of only typed. */
     private def loadMassPoints(): Unit = {
       try {
         massMarkers = com.abajar.avleditor.mass.MassMarkers.from(crrcsim)
+        // The AVL node derives its operating point from the weight, and the weight is the masses: keep it
+        // current on every refresh so the row is live while editing, not only once an export has run.
+        Option(crrcsim.getAvl).foreach(_.setAnalysisWeightKg(crrcsim.getAnalysisWeightKg))
         val mirrors = com.abajar.avleditor.mass.MassMarkers.mirrorIndexes(massMarkers)
           .zip(massMarkers)
           .map { case (index, marker) => (index, marker.mirrorPlaneY.getOrElse(0f)) }
         window.viewer3D.setMassPoints(
           massMarkers.map(m => (m.x, m.y, m.z, m.mass, m.virtual)).toArray, mirrors.toArray)
+        // The parts that state a shape are drawn around their own mass, so it can be seen whether a
+        // 105 mm pack fits where it is being put.
+        componentShapes = com.abajar.avleditor.mass.ComponentShapes.from(crrcsim, massMarkers)
+        window.viewer3D.setComponentShapes(componentShapes.toArray)
       } catch {
         case e: Exception =>
           logger.log(Level.WARNING, "Error loading masses", e)
+      }
+    }
+
+    /**
+     * Applies a resize from the 3D view as one undoable step.
+     *
+     * The sizes arrive in the model's length unit, which is what the viewer draws in; the shape converts
+     * them back to the millimetres the component states. The mass does not move: the centre of the shape is
+     * the centre of the volume, which is where a rectangular pack of uniform cells balances.
+     */
+    private def updateShapeSizeFromViewer(pointIdx: Int, sizeX: Float, sizeY: Float, sizeZ: Float): Unit = {
+      componentShapes.find(shape => shape.pointIndex == pointIdx && shape.resizable).foreach { shape =>
+        pushDrag(shape.owner, s"Resize ${shape.owner.toString}", shape.dimensionFields) {
+          shape.resizeTo(sizeX, sizeY, sizeZ)
+        }
+        // The properties table shows the same millimetres as numbers: keep the two in step.
+        window.treeNodeSelected.foreach { selected =>
+          if (selected.asInstanceOf[AnyRef] eq shape.owner) loadPropertiesForTreeItem(selected)
+        }
+        loadMassPoints()
       }
     }
 
@@ -955,6 +994,7 @@ object AvlEditor{
       // checking the requirements or they read as zero.
       crrcsim.calculate()
       if (!reportModelProblems("simulated", geometryProblems(avl) ++ SimulationRequirements.validate(crrcsim))) return
+      logger.log(Level.INFO, s"Analysing at ${avl.describeAnalysisPoint}")
       try {
         val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
         // A second stage: some inputs come from AVL's own output, so they can only be checked
@@ -1076,9 +1116,15 @@ object AvlEditor{
       }
 
       val avl = this.crrcsim.getAvl()
-      if (!reportModelProblems("analysed with AVL", geometryProblems(avl))) return
+      // The same funnel the exports go through, and for the same reason: the weight, the inertias and the
+      // centre of gravity are derived from the mass objects, and AVL takes its moments about that centre
+      // and its operating point from that weight. Running without it analyses the aircraft the model used
+      // to be.
+      this.crrcsim.calculate()
+      if (!reportModelProblems("analysed with AVL",
+          geometryProblems(avl) ++ SimulationRequirements.analysisRequirements(crrcsim))) return
 
-      logger.log(Level.INFO, "Running AVL analysis...")
+      logger.log(Level.INFO, s"Running AVL analysis at ${avl.describeAnalysisPoint}")
       val avlPath = this.configuration.getProperty("avl.path")
       val originPath = this.crrcsim.getOriginPath()
 

@@ -22,7 +22,8 @@ public class UnitConversor {
     public static final float OUNCES_TO_KILOGRAMS = 0.0283495231f;
     public static final float GRAMS_TO_KILOGRAMS = 0.001f;
     public static final float HOURS_TO_SECONDS = 3600f;
-    public static final float MINUTES_TO_SECONDS = 36f;
+    /** 60, not 36: the zero was dropped, and it was hidden because AVL's mass file wrote "60 s" by hand. */
+    public static final float MINUTES_TO_SECONDS = 60f;
 
     public float convertToMeters(float quantity, String lengthUnit){
         return quantity * this.getFactorLength(lengthUnit, false);

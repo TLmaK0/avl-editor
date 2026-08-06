@@ -28,12 +28,12 @@ object JsbsimWriterCheck {
     )
   )
 
-  // CL(alpha) with a stall break, as XFOIL+critical-section would produce (3D).
-  def sampleLiftTable: LiftTable = LiftTable(Seq(
-    (math.toRadians(-5), -0.24), (math.toRadians(0), 0.20), (math.toRadians(5), 0.64),
-    (math.toRadians(10), 1.07), (math.toRadians(14), 1.25), (math.toRadians(16), 1.24),
-    (math.toRadians(18), 1.10)
-  ))
+  /** The aircraft across attitudes, as the AVL sweep produces it: lift, drag and pitching moment. */
+  def sampleCurves: AeroCurves = AeroCurves(
+    alphaRad = Seq(-10.0, -5.0, 0.0, 5.0, 10.0, 15.0, 20.0).map(math.toRadians),
+    cl = Seq(-0.24, 0.11, 0.29, 0.45, 0.61, 0.75, 0.88),
+    cd = Seq(0.058, 0.069, 0.088, 0.114, 0.145, 0.178, 0.212),
+    cm = Seq(0.063, 0.085, 0.106, 0.125, 0.144, 0.159, 0.172))
 
   private def dump(path: String, content: String): Unit = {
     val f = new java.io.File(path)
@@ -53,7 +53,7 @@ object JsbsimWriterCheck {
       propulsion = Some(Propulsion(ElectricMotor(290.0), propDiameterM = 0.24, numBlades = 2,
         at = Vec3(0.0, 0, 0.0)))
     )
-    val ac = if (withTable) base.copy(liftTable = Some(sampleLiftTable)) else base
+    val ac = if (withTable) base.copy(curves = Some(sampleCurves)) else base
     val gm = generate(ac)
     dump(s"$root/aircraft/$name/$name.xml", gm.aircraftXml)
     gm.engineFiles.foreach { case (fn, content) => dump(s"$root/engine/$fn", content) }
