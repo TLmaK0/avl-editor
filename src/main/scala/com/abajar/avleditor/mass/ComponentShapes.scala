@@ -31,12 +31,22 @@ final case class ComponentShape(pointIndex: Int,
                                 sizeY: Float,
                                 sizeZ: Float,
                                 blades: Int,
-                                resizable: Boolean,
+                                /**
+                                 * Which of the three sizes a drag may change. Per axis, not per shape: a
+                                 * ducted fan's length is a drawing and can be dragged freely, while its bore
+                                 * decides the exported thrust and must not be edited by eye.
+                                 */
+                                resizableAxes: Set[Int],
                                 dimensionFields: Seq[String],
                                 owner: AnyRef,
                                 resizeTo: (Float, Float, Float) => Unit,
                                 /** The smallest a side may be dragged to, in model units: one millimetre. */
-                                minSize: Float = 0.001f)
+                                minSize: Float = 0.001f) {
+
+  def resizable: Boolean = resizableAxes.nonEmpty
+
+  def resizable(axis: Int): Boolean = resizableAxes.contains(axis)
+}
 
 object ComponentShapes {
 
@@ -82,7 +92,7 @@ object ComponentShapes {
     MassMarkers.indexOf(markers, battery).toIndexedSeq.map { index =>
       ComponentShape(index, Box,
         battery.getLengthMm * mm, battery.getWidthMm * mm, battery.getHeightMm * mm,
-        blades = 0, resizable = true,
+        blades = 0, resizableAxes = Set(0, 1, 2),
         dimensionFields = Seq("lengthMm", "widthMm", "heightMm"),
         owner = battery,
         resizeTo = (x, y, z) => {
@@ -99,7 +109,7 @@ object ComponentShapes {
     MassMarkers.indexOf(markers, engine).toIndexedSeq.map { index =>
       val diameter = engine.getDiameterMm * mm
       ComponentShape(index, Cylinder, engine.getLengthMm * mm, diameter, diameter,
-        blades = 0, resizable = true,
+        blades = 0, resizableAxes = Set(0, 1, 2),
         dimensionFields = Seq("lengthMm", "diameterMm"),
         owner = engine,
         resizeTo = (x, y, z) => {
@@ -109,6 +119,14 @@ object ComponentShapes {
         },
         minSize = Engine.MIN_SIZE_MM * mm)
     }
+
+  /**
+   * A ducted fan, as a cylinder of its bore over its length: the air path, drawn so it can be seen whether
+   * the unit fits. It is the bore and not the housing, because the housing's outer diameter is on the listing
+   * but not in the model, and drawing what is not stated is how a number nobody entered ends up looking
+   * authoritative.
+   */
+  // (see ductedFanShape below)
 
   /**
    * The propeller, as the disc it sweeps.
@@ -128,7 +146,7 @@ object ComponentShapes {
       .filter(_ => propeller.getD > 0f)
       .map { index =>
         ComponentShape(index, Disc, 0f, propeller.getD, propeller.getD,
-          blades = math.max(2, propeller.getBlades), resizable = false,
+          blades = math.max(2, propeller.getBlades), resizableAxes = Set.empty,
           dimensionFields = Nil, owner = propeller, resizeTo = (_, _, _) => ())
       }
 
@@ -146,9 +164,15 @@ object ComponentShapes {
       .filter(_ => fan.getInnerDiameterMm > 0f)
       .map { index =>
         val bore = fan.getInnerDiameterMm * mm
-        ComponentShape(index, Disc, 0f, bore, bore,
-          blades = math.max(2, fan.getBlades), resizable = false,
-          dimensionFields = Nil, owner = fan, resizeTo = (_, _, _) => ())
+        ComponentShape(index, Cylinder, fan.getLengthMm * mm, bore, bore,
+          blades = math.max(2, fan.getBlades),
+          // Only the length. The bore is the disc the thrust is derived from, so dragging it would be
+          // editing the propulsion by eye; the length is a drawing and nothing else.
+          resizableAxes = Set(0),
+          dimensionFields = Seq("lengthMm"),
+          owner = fan,
+          resizeTo = (x, _, _) => fan.setLengthMm(x / mm),
+          minSize = DuctedFan.MIN_SIZE_MM * mm)
       }
 
   /**

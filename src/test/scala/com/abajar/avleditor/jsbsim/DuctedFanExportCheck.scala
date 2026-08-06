@@ -111,11 +111,14 @@ object DuctedFanExportCheck {
     def problems(crrcsim: CRRCSim): Seq[String] = SimulationRequirements.validate(crrcsim)
     check("a fan with a stated thrust raises nothing about the thruster",
       !problems(model(withFan = true)).exists(p => p.contains("fan") || p.contains("propeller")))
+    // A bare rotor and housing publishes no thrust, because it depends on the motor fitted: the export goes
+    // ahead with a stated figure of merit rather than refusing a fan nobody can quote a thrust for.
     val noThrust = problems(model(withFan = true, staticThrustKg = 0f))
-    noThrust.filter(_.contains("thrust")).foreach(p => println("  ! " + p))
-    check("without one it is refused", noThrust.exists(_.contains("static thrust")))
-    check("and told why: the ideal is about twice the truth",
-      noThrust.exists(_.contains("twice")))
+    noThrust.filter(p => p.contains("fan") || p.contains("thrust")).foreach(p => println("  ! " + p))
+    check("a fan with no stated thrust raises nothing about the fan",
+      !noThrust.exists(p => p.contains("fan") || p.contains("static thrust")))
+    val assumed = JsbsimExporter.buildPropulsion(model(withFan = true, staticThrustKg = 0f))
+    check("and it still gets curves", assumed.flatMap(_.curves).isDefined)
     val both = problems(model(withFan = true, withPropeller = true))
     check("a shaft with both a propeller and a fan is refused",
       both.exists(p => p.contains("both a propeller and a ducted fan")))
@@ -131,11 +134,18 @@ object DuctedFanExportCheck {
     check("its mass counts towards the total",
       m.getConfig.getMass_inertia.getMass > 0.7f)
     val shapes = com.abajar.avleditor.mass.ComponentShapes.from(m, markers)
-    check("and it is drawn as the disc its blades sweep",
-      shapes.exists(s => s.kind == com.abajar.avleditor.mass.ComponentShapes.Disc &&
-        near(s.sizeY, 0.068, 1e-6) && s.blades == 12))
-    check("which cannot be dragged, since the bore decides the thrust",
-      shapes.filter(_.kind == com.abajar.avleditor.mass.ComponentShapes.Disc).forall(!_.resizable))
+    val fanShape = shapes.find(_.owner.isInstanceOf[DuctedFan]).get
+    check("and it is drawn as a cylinder of its bore over its length",
+      fanShape.kind == com.abajar.avleditor.mass.ComponentShapes.Cylinder &&
+        near(fanShape.sizeY, 0.068, 1e-6) && near(fanShape.sizeZ, 0.068, 1e-6) &&
+        near(fanShape.sizeX, 0.070, 1e-6) && fanShape.blades == 12)
+    // The length is a drawing and may be dragged; the bore is what the thrust is derived from and may not.
+    check("only its length can be dragged", fanShape.resizableAxes == Set(0))
+    check("and dragging it changes only the length", {
+      fanShape.resizeTo(0.1f, 0.2f, 0.2f)
+      val f = m.getConfig.getPower.getBateries.get(0).getShafts.get(0).getDuctedFans.get(0)
+      near(f.getLengthMm, 100f, 1e-3) && near(f.getInnerDiameterMm, 68f, 1e-3)
+    })
 
     println(if (ok) "DUCTED_FAN_EXPORT_OK" else "DUCTED_FAN_EXPORT_FAIL")
     if (!ok) sys.exit(1)

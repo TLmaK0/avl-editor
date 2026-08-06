@@ -344,17 +344,30 @@ the advance ratio at which the fan stops pushing — the speed at which the airc
 rest it gives `2^(1/3)` = 1.26 times a free propeller's static thrust on the same power and diameter, the known
 advantage of a shrouded rotor.
 
-**The losses are measured, not assumed.** Momentum theory knows nothing about tip clearance, the lip or the
-diffuser, so the ideal overstates the thrust by about twice. The correction is the user's own two numbers
-divided by each other — `stated static thrust / ideal static thrust` — with `Ct` scaled by it and `Cp` left
-alone, because a loss costs thrust for the same shaft power. The exported fan then draws the current the listing
-states and pushes what the listing says it pushes, and the shape of the curve, which nobody publishes, is
-physics. With no stated thrust the export **refuses**: an aircraft with twice its real thrust flies, looks
-plausible and is wrong.
+**The losses are measured when they can be, and stated when they cannot.** Momentum theory knows nothing about
+tip clearance, the lip or the diffuser, and the power it is given is electrical rather than shaft power, so the
+ideal overstates the thrust by about half. When a measured static thrust is stated the correction is the user's
+own two numbers divided by each other — `stated / ideal` — which beats any constant.
 
-Everything the fan states is on the listing it was bought from: the duct's **inner** diameter (not the housing,
-not the inlet lip), the blades and the static thrust. The revolutions and the power are **not** asked for
-again — they belong to the motor that drives it, and a figure stated twice is a figure with two answers.
+But a fan is usually bought as a **rotor and a housing with no motor**, and no thrust is published for one,
+because the thrust depends on the motor fitted: a listing that gives an inside, an outside and a lip diameter is
+that kind. So the static thrust is **optional**, and without it the figure of merit falls back to a documented
+`DefaultFigureOfMerit` of 0.5 — about 0.8 for the motor turning electrical watts into shaft watts, times about
+0.65 for the duct, which is also where complete units' published figures land when worked back through this
+derivation. Refusing instead would have been stricter than the project's own precedent: `FlightSanity` has used
+a stated 0.6 for a propeller's static thrust all along. Either way `Ct` is scaled and `Cp` is left alone, since a
+loss costs thrust for the same shaft power, and **the export log says which of the two happened** and what
+thrust it implies, so an assumption is never taken for a measurement.
+
+Everything else the fan states is on the listing: the duct's **inner** diameter (not the housing, not the inlet
+lip), the blades, and a length that is drawn and enters no calculation. The revolutions and the power are
+**not** asked for again — they belong to the motor that drives it, and a figure stated twice is a figure with
+two answers.
+
+In the 3D view it is a cylinder of the bore over that length. Only the length can be dragged: a shape's sizes
+are resizable **per axis**, because the bore is what the thrust is derived from and editing it by eye would be
+editing the propulsion, while the length is a drawing and nothing else. A handle for a size that cannot change
+would be a lie, so none is drawn.
 
 The derivation is expressed in JSBSim's own definitions, so it is worth nothing until JSBSim agrees:
 `DuctedFanFlightCheck` exports a model with a fan, runs **JSBSim from the command line** at full throttle, and

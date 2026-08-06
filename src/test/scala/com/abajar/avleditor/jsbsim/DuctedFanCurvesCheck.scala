@@ -71,6 +71,22 @@ object DuctedFanCurvesCheck {
       near(atRest, fan90.staticThrustN, 1e-9))
     check("and the figure of merit is a measurement, below one",
       curves.figureOfMerit > 0 && curves.figureOfMerit < 1)
+    check("and it says it was measured", curves.lossesMeasured)
+
+    println("a rotor and housing bought without a motor: no thrust is published for it")
+    // The thrust of a bare fan depends on the motor fitted, so no listing quotes one. The derivation still
+    // has to work, with a stated figure of merit in place of a measured one.
+    val unmeasured = from(fan90.copy(staticThrustN = 0)).right.get
+    println(f"  figure of merit ${unmeasured.figureOfMerit}%.2f, assumed rather than measured")
+    check("the curves are still derived", unmeasured.ct.length == Rows)
+    check("with the stated figure of merit", near(unmeasured.figureOfMerit, DefaultFigureOfMerit))
+    check("and it says it was not measured", !unmeasured.lossesMeasured)
+    check("the shape of the curve is untouched by it: k is the same",
+      near(unmeasured.k, curves.k))
+    check("only the thrust is scaled",
+      near(unmeasured.ct.head._2 / curves.ct.head._2, DefaultFigureOfMerit / curves.figureOfMerit, 1e-9))
+    check("and the power it draws is the same either way",
+      near(unmeasured.cp.head._2, curves.cp.head._2))
 
     println("the power is left alone, because a loss costs thrust and not current")
     val powerAtRest = curves.cp.head._2 * AirDensity * math.pow(fan90.rpm / 60.0, 3) *
@@ -85,9 +101,6 @@ object DuctedFanCurvesCheck {
 
     println("what it refuses rather than inventing")
     def refusal(fan: Fan): String = from(fan).left.getOrElse("")
-    check("no stated thrust: no figure of merit, and the ideal is about twice the truth",
-      refusal(fan90.copy(staticThrustN = 0)).contains("static thrust"))
-    check("and it says why", refusal(fan90.copy(staticThrustN = 0)).contains("twice"))
     check("no diameter", refusal(fan90.copy(innerDiameterM = 0)).contains("diameter"))
     check("no revolutions", refusal(fan90.copy(rpm = 0)).contains("revolutions"))
     check("no power", refusal(fan90.copy(powerWatts = 0)).contains("power"))

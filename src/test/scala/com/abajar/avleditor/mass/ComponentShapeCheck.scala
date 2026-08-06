@@ -107,8 +107,8 @@ object ComponentShapeCheck {
     // Its diameter decides the exported thrust, so dragging it in the 3D view would be editing the
     // propulsion by eye. The box and the cylinder are shapes; this is a performance figure.
     check("and it is not resizable by hand", !disc.resizable)
-    check("while the battery and the motor are",
-      boxShape.resizable && cylinder.resizable)
+    check("while the battery and the motor are, in all three",
+      boxShape.resizableAxes == Set(0, 1, 2) && cylinder.resizableAxes == Set(0, 1, 2))
 
     println("a propeller with no diameter is not drawn as a point")
     val noDiameter = model()

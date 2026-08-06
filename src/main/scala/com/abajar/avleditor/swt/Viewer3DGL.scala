@@ -250,9 +250,9 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
           getClosestMassHandle(e.getX, e.getY) match {
             case "y"  => isDraggingMassAxisY = true
             case "z"  => isDraggingMassAxisZ = true
-            case "sx" => isDraggingShapeSizeX = true
-            case "sy" => isDraggingShapeSizeY = true
-            case "sz" => isDraggingShapeSizeZ = true
+            case "s0" => isDraggingShapeSizeX = true
+            case "s1" => isDraggingShapeSizeY = true
+            case "s2" => isDraggingShapeSizeZ = true
             case _    => isDraggingMassAxisX = true
           }
         } else if (selectedCollisionPoint.isDefined) {
@@ -367,7 +367,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         val axis = if (isDraggingShapeSizeX) 0 else if (isDraggingShapeSizeY) 1 else 2
         selectedShapeIndex.foreach { shapeIndex =>
           val shape = componentShapes(shapeIndex)
-          if (shape.resizable && shape.pointIndex < massPoints.length) {
+          if (shape.resizable(axis) && shape.pointIndex < massPoints.length) {
             val (x, y, z, _, _) = massPoints(shape.pointIndex)
             val faceDelta = massAxisDelta(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
             val current = axis match {
@@ -1088,11 +1088,16 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
    * Only for a shape the model lets the user size. The propeller's disc has none: its diameter decides the
    * exported thrust, and dragging that by eye would be editing the propulsion rather than placing a part.
    */
-  private def shapeSizeHandles(shapeIndex: Int): Seq[(Float, Float, Float)] = {
+  private def shapeSizeHandles(shapeIndex: Int): Seq[(Int, (Float, Float, Float))] = {
     val shape = componentShapes(shapeIndex)
-    if (!shape.resizable || shape.pointIndex >= massPoints.length) return Nil
+    if (shape.pointIndex >= massPoints.length) return Nil
     val (x, y, z, _, _) = massPoints(shape.pointIndex)
-    Seq((x + shape.sizeX / 2f, y, z), (x, y + shape.sizeY / 2f, z), (x, y, z + shape.sizeZ / 2f))
+    // One per axis the shape allows, and no more: a handle for a size that cannot change would be a lie.
+    Seq(
+      (0, (x + shape.sizeX / 2f, y, z)),
+      (1, (x, y + shape.sizeY / 2f, z)),
+      (2, (x, y, z + shape.sizeZ / 2f))
+    ).filter { case (axis, _) => shape.resizable(axis) }
   }
 
   private def getClosestMassAxisHandle(mouseX: Int, mouseY: Int): String = {
@@ -1131,7 +1136,8 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     selectedMassPoint.filter(_ < massPoints.length).map { index =>
       val (x, y, z, _, _) = massPoints(index)
       val position = massAxisHandles(x, y, z).zip(Seq("x", "y", "z"))
-      val sizes = selectedShapeIndex.toSeq.flatMap(shapeSizeHandles).zip(Seq("sx", "sy", "sz"))
+      val sizes = selectedShapeIndex.toSeq.flatMap(shapeSizeHandles)
+        .map { case (axis, handle) => (handle, "s" + axis) }
       (position ++ sizes).map { case (handle, name) => (screenDistance(handle), name) }.minBy(_._1)._2
     }.getOrElse("x")
   }
@@ -2182,8 +2188,9 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         gl.glScalef(modelScale, modelScale, modelScale)
         gl.glTranslatef(-centerX, -centerY, -centerZ)
 
-        val dragging = Seq(isDraggingShapeSizeX, isDraggingShapeSizeY, isDraggingShapeSizeZ)
-        handles.zip(dragging).foreach { case ((hx, hy, hz), isActive) =>
+        val dragging = Array(isDraggingShapeSizeX, isDraggingShapeSizeY, isDraggingShapeSizeZ)
+        handles.foreach { case (axis, (hx, hy, hz)) =>
+          val isActive = dragging(axis)
           val (mx, my, mz) = avlToModel(hx, hy, hz)
           if (isActive) {
             gl.glColor3f(1.0f, 1.0f, 0.6f)

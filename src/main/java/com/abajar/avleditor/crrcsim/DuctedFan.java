@@ -29,16 +29,21 @@ import javax.xml.bind.annotation.XmlAttribute;
  * twice is asking for two answers.
  *
  * From those, {@link com.abajar.avleditor.jsbsim.DuctedFanCurves} derives the thrust and power curves the
- * exported model needs. The static thrust is what measures the duct's losses: without it, momentum theory alone
- * overstates the thrust by about twice, and the export refuses rather than shipping the ideal.
+ * exported model needs. The static thrust is optional, because a rotor and housing bought without a motor has
+ * none published — the thrust depends on the motor fitted. Stated, it measures the duct's losses; absent, a
+ * documented figure of merit stands in and the log says which of the two was used.
  */
 @AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
 public class DuctedFan implements Serializable {
     static final long serialVersionUID = 20260806L;
 
+
     /** A 70 mm fan, the commonest size: 68 mm of bore, 12 blades. */
     public static final float DEFAULT_INNER_DIAMETER_MM = 68f;
     public static final int DEFAULT_BLADES = 12;
+    /** A fan unit is about as long as it is wide. */
+    public static final float DEFAULT_LENGTH_MM = 70f;
+    public static final float MIN_SIZE_MM = 1f;
 
     @AvlEditorField(text="Inner diameter (mm)",
         help="The duct's inner diameter in mm: the disc the air actually passes through, which is the\n"
@@ -53,12 +58,22 @@ public class DuctedFan implements Serializable {
     )
     private int blades = DEFAULT_BLADES;
 
-    @AvlEditorField(text="Static thrust",
-        help="The thrust the fan is sold with, in the model's mass unit — every listing quotes one, as a\n"
-        + "weight: '2.2 kg'. It is what the duct's losses are measured against: momentum theory gives the\n"
-        + "ideal, and this says how much of it the fan really achieves.\n\n"
-        + "Without it the export refuses. An aircraft given the ideal would have about twice the thrust it\n"
-        + "really has, and would fly and look plausible while being wrong."
+    @AvlEditorField(text="Length (mm)",
+        help="How long the fan unit is, in mm, for the 3D view: it is drawn as a cylinder of the bore over\n"
+        + "this length, so it can be seen whether it fits where it is being put.\n\n"
+        + "It enters no calculation. The thrust follows from the bore, the revolutions and the power; a duct\n"
+        + "of a different length would need a different measured thrust, not a different sum here."
+    )
+    private float lengthMm = DEFAULT_LENGTH_MM;
+
+    @AvlEditorField(text="Static thrust (optional)",
+        help="The measured static thrust, in the model's mass unit, if it is published: a complete unit is\n"
+        + "sold with one ('70 mm, 6S, 1.6 kg'), but a bare rotor and housing is not, because the thrust\n"
+        + "depends on the motor fitted.\n\n"
+        + "Given, it is what the duct's losses are measured against and it is better than any constant:\n"
+        + "momentum theory gives the ideal, and this says how much of it the fan really achieves. Left at\n"
+        + "zero, a stated figure of merit of 0.5 is used instead — a motor at about 0.8 and a duct at about\n"
+        + "0.65 — and the log says so, so an assumption is never taken for a measurement."
     )
     private float staticThrust;
 
@@ -99,6 +114,15 @@ public class DuctedFan implements Serializable {
 
     public void setStaticThrust(float staticThrust) {
         this.staticThrust = Math.max(0f, staticThrust);
+    }
+
+    @XmlAttribute(name="length_mm")
+    public float getLengthMm() {
+        return lengthMm;
+    }
+
+    public void setLengthMm(float lengthMm) {
+        this.lengthMm = Math.max(MIN_SIZE_MM, lengthMm);
     }
 
     @XmlAttribute(name="mass")
