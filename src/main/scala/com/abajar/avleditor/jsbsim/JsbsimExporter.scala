@@ -148,18 +148,14 @@ object JsbsimExporter {
         val curves = ductedFanCurves(shaft, f, units).fold(
           problem => throw new IllegalStateException(problem),
           identity)
-        val staticKg = curves.ct.head._2 * DuctedFanCurves.AirDensity *
-          math.pow(rpmOf(shaft).getOrElse(0.0) / 60.0, 2) *
-          math.pow(f.getInnerDiameterMm / 1000.0, 4) / 9.80665
-        val losses =
-          if (curves.lossesMeasured)
-            f"${100 * curves.figureOfMerit}%.0f%% of the ideal, measured against the stated " +
-              f"${units.toKilograms(f.getStaticThrust)}%.2f kg"
-          else
-            f"${100 * curves.figureOfMerit}%.0f%% of the ideal — assumed, not measured, since no static " +
-              f"thrust is stated; it works out at ${staticKg}%.2f kg against ${curves.idealStaticThrustN / 9.80665}%.2f kg ideal"
-        logger.log(Level.INFO, f"Ducted fan: ${f.getInnerDiameterMm}%.1f mm bore, thrust running out at " +
-          f"J = ${curves.k}%.2f, at $losses%s.")
+        // What it works out to, said plainly: the thrust is derived, and the one constant in it is stated.
+        logger.log(Level.INFO, f"Ducted fan: ${f.getInnerDiameterMm}%.1f mm bore at " +
+          f"${rpmOf(shaft).getOrElse(0.0)}%.0f rpm on ${wattsOf(shaft).getOrElse(0.0)}%.0f W — " +
+          f"${units.fromKilograms((curves.staticThrustN / com.abajar.avleditor.avl.AVL.GRAVITY).toFloat)}%.2f " +
+          f"${units.massUnit}%s of static thrust, thrust running out at J = ${curves.k}%.2f. " +
+          f"That is ${100 * DuctedFanCurves.FigureOfMerit}%.0f%% of the ideal for that disc " +
+          f"(${curves.idealStaticThrustN / com.abajar.avleditor.avl.AVL.GRAVITY}%.2f kg): a stated figure of " +
+          "merit for the duct and the motor, not a measurement.")
         Some((f.getInnerDiameterMm / 1000.0, f.getBlades, Some(ThrusterCurves(curves.ct, curves.cp))))
       case None =>
         Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
@@ -171,6 +167,10 @@ object JsbsimExporter {
    * The fan's curves, from its own figures plus the motor's: the revolutions and the power belong to the motor
    * that drives it, so they are read from there rather than stated twice.
    */
+  /** The power the shaft's motor states, from its data rows. */
+  private def wattsOf(shaft: com.abajar.avleditor.crrcsim.Shaft): Option[Double] =
+    Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption.flatMap(maxPowerWatts)
+
   /** The revolutions the shaft's motor states, the largest of its data rows. */
   private def rpmOf(shaft: com.abajar.avleditor.crrcsim.Shaft): Option[Double] =
     Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
@@ -183,7 +183,7 @@ object JsbsimExporter {
                      ): Either[String, DuctedFanCurves.Curves] = {
     val engine = Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
     val rpm = rpmOf(shaft)
-    val watts = engine.flatMap(maxPowerWatts)
+    val watts = wattsOf(shaft)
     (rpm, watts) match {
       case (None, _) => Left("The ducted fan is driven by the motor, so the motor needs a data row with " +
         "'Rpms' above zero: it is what sets how much air the fan throws per revolution.")
@@ -194,8 +194,7 @@ object JsbsimExporter {
           innerDiameterM = fan.getInnerDiameterMm / 1000.0,
           blades = fan.getBlades,
           rpm = r,
-          powerWatts = w,
-          staticThrustN = units.toKilograms(fan.getStaticThrust) * com.abajar.avleditor.avl.AVL.GRAVITY))
+          powerWatts = w))
     }
   }
 

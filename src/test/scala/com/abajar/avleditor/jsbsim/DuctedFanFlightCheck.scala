@@ -74,7 +74,7 @@ object DuctedFanFlightCheck {
     val shaft = model.getConfig.getPower.getBateries.get(0).getShafts.get(0)
     shaft.getPropellers.clear()
     val fan = shaft.createDuctedFan()
-    fan.setInnerDiameterMm(68f); fan.setBlades(12); fan.setStaticThrust(1.6f); fan.setMass(0.19f)
+    fan.setInnerDiameterMm(68f); fan.setBlades(12); fan.setMass(0.19f)
     val engine = shaft.getEngines.get(0)
     engine.getData.clear()
     val row = engine.createData()
@@ -182,10 +182,13 @@ object DuctedFanFlightCheck {
     // per second, against the fourth power of the diameter. If it did not, the thrust would be out by orders
     // of magnitude and every other check would still pass.
     check("and its thrust is that coefficient times rho n^2 D^4", worstThrust < 1e-4)
-    // 1.6 kg was stated static; at 20 m/s a ducted fan keeps most of it, which is the point of a duct.
-    println(f"  it pushed up to ${maxThrustN / 9.80665}%.2f kg against the 1.60 kg stated static")
-    check("it pushes a good part of its static thrust at speed",
-      maxThrustN / 9.80665 > 0.8 && maxThrustN / 9.80665 < 1.6)
+    // A duct keeps most of its static thrust at speed, which is the point of one. The static figure is itself
+    // derived from the bore, the revolutions and the power, so this compares against that derivation.
+    val derived = JsbsimExporter.ductedFanCurves(shaft, fan, model.getAvl.units()).right.get
+    val staticKg = derived.staticThrustN / 9.80665
+    println(f"  it pushed up to ${maxThrustN / 9.80665}%.2f kg, against ${staticKg}%.2f kg derived static")
+    check("it pushes a good part of its static thrust at 20 m/s",
+      maxThrustN / 9.80665 > 0.6 * staticKg && maxThrustN / 9.80665 <= staticKg * 1.05)
 
     println(if (ok) "DUCTED_FAN_FLIGHT_OK" else "DUCTED_FAN_FLIGHT_FAIL")
     if (!ok) sys.exit(1)

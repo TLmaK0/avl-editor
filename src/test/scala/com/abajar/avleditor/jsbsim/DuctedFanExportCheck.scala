@@ -20,8 +20,7 @@ object DuctedFanExportCheck {
   private def near(a: Double, b: Double, tol: Double = 1e-4): Boolean = math.abs(a - b) < tol
 
   /** A model with a motor and either a propeller or a 70 mm fan on its shaft. */
-  private def model(withFan: Boolean, withPropeller: Boolean = false,
-                    staticThrustKg: Float = 1.6f): CRRCSim = {
+  private def model(withFan: Boolean, withPropeller: Boolean = false): CRRCSim = {
     val crrcsim = new CRRCSimFactory().create()
     crrcsim.getAvl.getGeometry.setSref(0.3909f)
     crrcsim.getAvl.getGeometry.setBref(1.0692f)
@@ -38,7 +37,6 @@ object DuctedFanExportCheck {
       val fan = shaft.createDuctedFan()
       fan.setInnerDiameterMm(68f)
       fan.setBlades(12)
-      fan.setStaticThrust(staticThrustKg)
       fan.setMass(0.19f)
     }
     if (withPropeller) {
@@ -109,16 +107,14 @@ object DuctedFanExportCheck {
 
     println("what the requirements say")
     def problems(crrcsim: CRRCSim): Seq[String] = SimulationRequirements.validate(crrcsim)
-    check("a fan with a stated thrust raises nothing about the thruster",
+    check("a fan raises nothing about the thruster",
       !problems(model(withFan = true)).exists(p => p.contains("fan") || p.contains("propeller")))
-    // A bare rotor and housing publishes no thrust, because it depends on the motor fitted: the export goes
-    // ahead with a stated figure of merit rather than refusing a fan nobody can quote a thrust for.
-    val noThrust = problems(model(withFan = true, staticThrustKg = 0f))
-    noThrust.filter(p => p.contains("fan") || p.contains("thrust")).foreach(p => println("  ! " + p))
-    check("a fan with no stated thrust raises nothing about the fan",
-      !noThrust.exists(p => p.contains("fan") || p.contains("static thrust")))
-    val assumed = JsbsimExporter.buildPropulsion(model(withFan = true, staticThrustKg = 0f))
-    check("and it still gets curves", assumed.flatMap(_.curves).isDefined)
+    // No thrust is asked for at all: it comes out of the bore, the revolutions and the power.
+    check("nothing about a thrust is ever asked of the fan",
+      !problems(model(withFan = true)).exists(_.contains("static thrust")))
+    check("and the fan has no thrust field to fill in",
+      !classOf[DuctedFan].getDeclaredFields.exists(_.getName.toLowerCase.contains("thrust")))
+
     val both = problems(model(withFan = true, withPropeller = true))
     check("a shaft with both a propeller and a fan is refused",
       both.exists(p => p.contains("both a propeller and a ducted fan")))

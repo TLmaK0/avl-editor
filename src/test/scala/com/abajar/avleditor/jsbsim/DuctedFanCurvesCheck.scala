@@ -19,10 +19,9 @@ object DuctedFanCurvesCheck {
 
   private def near(a: Double, b: Double, tol: Double = 1e-6): Boolean = math.abs(a - b) < tol
 
-  /** A real 90 mm fan: 91.2 mm bore, 12 blades, 3000 kV on 6S, 80 A, 2.2 kg of thrust. */
+  /** A real 90 mm fan: 91.2 mm bore, 12 blades, 3000 kV on 6S, 80 A. The thrust is what comes out. */
   private val n90 = 3000.0 * 22.2 * 0.8 // kV x volts, pulled down by the load
-  private val fan90 = Fan(innerDiameterM = 0.0912, blades = 12, rpm = n90,
-    powerWatts = 22.2 * 80, staticThrustN = 2.2 * 9.80665)
+  private val fan90 = Fan(innerDiameterM = 0.0912, blades = 12, rpm = n90, powerWatts = 22.2 * 80)
 
   def main(args: Array[String]): Unit = {
     println("the fan on the listing")
@@ -31,7 +30,7 @@ object DuctedFanCurvesCheck {
       case Right(c) => c
     }
     println(f"  k = ${curves.k}%.4f, ideal static thrust ${curves.idealStaticThrustN / 9.80665}%.2f kg, " +
-      f"figure of merit ${curves.figureOfMerit}%.3f")
+      f"figure of merit ${FigureOfMerit}%.3f")
     println("  J        Ct        Cp     efficiency")
     curves.ct.zip(curves.cp).foreach { case ((j, ct), (_, cp)) =>
       val eff = if (cp > 0) j * ct / cp else 0.0
@@ -52,7 +51,7 @@ object DuctedFanCurvesCheck {
     curves.ct.zip(curves.cp).drop(1).init.foreach { case ((j, ct), (_, cp)) =>
       val implied = j * ct / cp
       // The figure of merit scales the thrust, so it scales the efficiency with it.
-      val froude = curves.figureOfMerit * froudeEfficiency(curves.k, j)
+      val froude = FigureOfMerit * froudeEfficiency(curves.k, j)
       check(f"at J = $j%.3f", near(implied, froude, 1e-9))
     }
 
@@ -63,30 +62,20 @@ object DuctedFanCurvesCheck {
     check("1.26 times a free propeller of the same diameter on the same power",
       near(ratio, math.cbrt(2.0), 1e-3))
 
-    println("the losses come from the listing, not from a constant")
+    println("the thrust comes out of the specifications; it is never asked for")
     val atRest = curves.ct.head._2 * AirDensity * math.pow(fan90.rpm / 60.0, 2) * math.pow(fan90.innerDiameterM, 4)
-    println(f"  the curve at rest gives ${atRest / 9.80665}%.3f kg; the listing says " +
-      f"${fan90.staticThrustN / 9.80665}%.3f kg")
-    check("the exported curve reproduces the stated static thrust exactly",
-      near(atRest, fan90.staticThrustN, 1e-9))
-    check("and the figure of merit is a measurement, below one",
-      curves.figureOfMerit > 0 && curves.figureOfMerit < 1)
-    check("and it says it was measured", curves.lossesMeasured)
-
-    println("a rotor and housing bought without a motor: no thrust is published for it")
-    // The thrust of a bare fan depends on the motor fitted, so no listing quotes one. The derivation still
-    // has to work, with a stated figure of merit in place of a measured one.
-    val unmeasured = from(fan90.copy(staticThrustN = 0)).right.get
-    println(f"  figure of merit ${unmeasured.figureOfMerit}%.2f, assumed rather than measured")
-    check("the curves are still derived", unmeasured.ct.length == Rows)
-    check("with the stated figure of merit", near(unmeasured.figureOfMerit, DefaultFigureOfMerit))
-    check("and it says it was not measured", !unmeasured.lossesMeasured)
-    check("the shape of the curve is untouched by it: k is the same",
-      near(unmeasured.k, curves.k))
-    check("only the thrust is scaled",
-      near(unmeasured.ct.head._2 / curves.ct.head._2, DefaultFigureOfMerit / curves.figureOfMerit, 1e-9))
-    check("and the power it draws is the same either way",
-      near(unmeasured.cp.head._2, curves.cp.head._2))
+    println(f"  ${curves.idealStaticThrustN / 9.80665}%.2f kg ideal, ${curves.staticThrustN / 9.80665}%.2f kg " +
+      f"after the stated ${FigureOfMerit}%.2f figure of merit")
+    check("the curve at rest is the derived static thrust", near(atRest, curves.staticThrustN, 1e-9))
+    check("which is the figure of merit times the ideal",
+      near(curves.staticThrustN, FigureOfMerit * curves.idealStaticThrustN))
+    // A 90 mm fan on 1.8 kW really does push around 2 kg, so the constant lands where reality is.
+    check("and that is a believable thrust for a 90 mm fan on 1.8 kW",
+      curves.staticThrustN / 9.80665 > 1.5 && curves.staticThrustN / 9.80665 < 3.0)
+    // The constant scales the height of the curve only: where the thrust runs out is physics.
+    check("the figure of merit does not move k", near(curves.ct.last._1, curves.k))
+    check("the fan states no thrust of its own to be asked for",
+      classOf[Fan].getDeclaredFields.forall(!_.getName.toLowerCase.contains("thrust")))
 
     println("the power is left alone, because a loss costs thrust and not current")
     val powerAtRest = curves.cp.head._2 * AirDensity * math.pow(fan90.rpm / 60.0, 3) *
@@ -109,12 +98,12 @@ object DuctedFanCurvesCheck {
 
     println("the 50 mm fan this aircraft should have")
     // 0.94 kg wants 300-600 W, not the 1.8 kW a 90 mm fan asks for.
-    val small = Fan(0.05, 5, 4200.0 * 14.8 * 0.8, 14.8 * 30, 0.6 * 9.80665)
+    val small = Fan(0.05, 5, 4200.0 * 14.8 * 0.8, 14.8 * 30)
     from(small) match {
       case Left(problem) => check("it derives", false); println("    " + problem)
       case Right(c) =>
-        println(f"  k = ${c.k}%.3f, figure of merit ${c.figureOfMerit}%.3f, " +
-          f"ideal ${c.idealStaticThrustN / 9.80665}%.2f kg")
+        println(f"  k = ${c.k}%.3f, ${c.staticThrustN / 9.80665}%.2f kg of thrust " +
+          f"(${c.idealStaticThrustN / 9.80665}%.2f kg ideal)")
         check("it derives too", c.k > 0 && c.ct.length == Rows)
     }
 
