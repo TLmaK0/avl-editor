@@ -37,16 +37,19 @@ object JsbsimExporter {
     val geo = avl.getGeometry
     val lu = avl.getLengthUnit
     val uc = new UnitConversor
+    val units = avl.units()
 
     val sref = uc.convertToSquareMeters(geo.getSref, lu).toDouble
     val bref = uc.convertToMeters(geo.getBref, lu).toDouble
     val cref = uc.convertToMeters(geo.getCref, lu).toDouble
-    val aeroRp = Vec3(
-      uc.convertToMeters(geo.getXref, lu), uc.convertToMeters(geo.getYref, lu), uc.convertToMeters(geo.getZref, lu))
+    val aeroRp = metres(units, geo.getXref, geo.getYref, geo.getZref)
 
     val mi = crrcsim.getConfig.getMass_inertia
     val com = crrcsim.getCenterOfMass
-    val cg = Vec3(com.getX.toDouble, com.getY.toDouble, com.getZ.toDouble)
+    // The centre of gravity is stated in the model's length unit like every other position, and JSBSim wants
+    // metres. It used to go out unconverted while the reference point beside it was converted, so a model
+    // stated in centimetres exported its geometry in one place and its balance point in another.
+    val cg = metres(units, com.getX, com.getY, com.getZ)
     val mass = MassBalance(mi.getMass.toDouble, mi.getI_xx.toDouble, mi.getI_yy.toDouble,
       mi.getI_zz.toDouble, mi.getI_xz.toDouble, cg)
 
@@ -57,6 +60,10 @@ object JsbsimExporter {
     Aircraft(name, Metrics(sref, bref, cref, aeroRp), mass, contacts, controls, aero,
       curves = buildCurves(calc), propulsion = buildPropulsion(crrcsim))
   }
+
+  /** A position from the model, in metres: the one conversion every exported coordinate goes through. */
+  private def metres(units: com.abajar.avleditor.ModelUnits, x: Float, y: Float, z: Float): Vec3 =
+    Vec3(units.toMetres(x).toDouble, units.toMetres(y).toDouble, units.toMetres(z).toDouble)
 
   private val logger = Logger.getLogger(JsbsimExporter.getClass.getName)
 
@@ -96,11 +103,12 @@ object JsbsimExporter {
    * still reports success. [[SimulationRequirements]] rejects such a model up front.
    */
   def buildContacts(crrcsim: CRRCSim): Seq[Contact] = {
+    val units = Option(crrcsim.getAvl).map(_.units()).getOrElse(com.abajar.avleditor.ModelUnits.DEFAULTS)
     val wheels = Option(crrcsim.getWheels).map(_.asScala).getOrElse(Nil)
     wheels.zipWithIndex.flatMap { case (w, i) =>
       Option(w.getPos).map { p =>
         val name = Option(w.getName).filter(_.nonEmpty).getOrElse(s"GEAR$i")
-        Contact(name.replaceAll("\\s+", "_"), Vec3(p.getX.toDouble, p.getY.toDouble, p.getZ.toDouble))
+        Contact(name.replaceAll("\\s+", "_"), metres(units, p.getX, p.getY, p.getZ))
       }
     }
   }
@@ -123,8 +131,8 @@ object JsbsimExporter {
       shaft <- Option(battery.getShafts).map(_.asScala).getOrElse(Nil).headOption
       motor <- buildMotor(shaft)
       thruster <- buildThruster(shaft, units)
-    } yield Propulsion(motor, thruster._1, thruster._2, Vec3(0, 0, 0),
-      buildFuelTanks(power), thruster._3)
+    } yield Propulsion(motor, thruster.diameterM, thruster.blades, thruster.at,
+      buildFuelTanks(power, units), thruster.curves)
   }
 
   /**
@@ -139,9 +147,17 @@ object JsbsimExporter {
    * fan whose curves cannot be derived throws: reaching here without them means the requirements were skipped,
    * and the ideal curves would give an aircraft about twice the thrust it really has.
    */
+  /**
+   * Where the thrust is applied and what produces it. The position is the component's own: it used to be
+   * hardcoded to the structural origin, so a fan mounted high pushed as if it were on the centreline. For a
+   * force along the fuselage axis only the offset across that axis makes a moment, so the height is what this
+   * gets right; the station along the fuselage never mattered to the moment and still does not.
+   */
+  private final case class Thruster(diameterM: Double, blades: Int, at: Vec3,
+                                    curves: Option[ThrusterCurves])
+
   private def buildThruster(shaft: com.abajar.avleditor.crrcsim.Shaft,
-                            units: com.abajar.avleditor.ModelUnits
-                           ): Option[(Double, Int, Option[ThrusterCurves])] = {
+                            units: com.abajar.avleditor.ModelUnits): Option[Thruster] = {
     val fan = Option(shaft.getDuctedFans).map(_.asScala).getOrElse(Nil).headOption
     fan match {
       case Some(f) =>
@@ -156,10 +172,12 @@ object JsbsimExporter {
           f"That is ${100 * DuctedFanCurves.FigureOfMerit}%.0f%% of the ideal for that disc " +
           f"(${curves.idealStaticThrustN / com.abajar.avleditor.avl.AVL.GRAVITY}%.2f kg): a stated figure of " +
           "merit for the duct and the motor, not a measurement.")
-        Some((f.getInnerDiameterMm / 1000.0, f.getBlades, Some(ThrusterCurves(curves.ct, curves.cp))))
+        Some(Thruster(f.getInnerDiameterMm / 1000.0, f.getBlades, at(f.getPos, units),
+          Some(ThrusterCurves(curves.ct, curves.cp))))
       case None =>
         Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
-          .map(p => (p.getD.toDouble, p.getBlades, None))
+          // The diameter is stated in the model's length unit; JSBSim's propeller states it in metres.
+          .map(p => Thruster(units.toMetres(p.getD).toDouble, p.getBlades, at(p.getPos, units), None))
     }
   }
 
@@ -167,6 +185,10 @@ object JsbsimExporter {
    * The fan's curves, from its own figures plus the motor's: the revolutions and the power belong to the motor
    * that drives it, so they are read from there rather than stated twice.
    */
+  private def at(pos: com.abajar.avleditor.crrcsim.Pos,
+                 units: com.abajar.avleditor.ModelUnits): Vec3 =
+    Option(pos).map(p => metres(units, p.getX, p.getY, p.getZ)).getOrElse(Vec3(0, 0, 0))
+
   /** The power the shaft's motor states, from its data rows. */
   private def wattsOf(shaft: com.abajar.avleditor.crrcsim.Shaft): Option[Double] =
     Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption.flatMap(maxPowerWatts)
@@ -215,11 +237,13 @@ object JsbsimExporter {
   }
 
   /** Fuel tanks, with the mass the model states; a combustion engine burns from them. */
-  private def buildFuelTanks(power: com.abajar.avleditor.crrcsim.Power): Seq[FuelTank] =
+  private def buildFuelTanks(power: com.abajar.avleditor.crrcsim.Power,
+                             units: com.abajar.avleditor.ModelUnits): Seq[FuelTank] =
     Option(power.getFuelTanks).map(_.asScala).getOrElse(Nil).flatMap { t =>
+      // JSBSim states a tank in kilograms and metres; the model states it in its own units.
       Option(t.getPos).map(p =>
-        FuelTank(t.getCapacity.toDouble, t.getContents.toDouble,
-          Vec3(p.getX.toDouble, p.getY.toDouble, p.getZ.toDouble)))
+        FuelTank(units.toKilograms(t.getCapacity).toDouble, units.toKilograms(t.getContents).toDouble,
+          metres(units, p.getX, p.getY, p.getZ)))
     }.toSeq
 
   /**

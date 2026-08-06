@@ -201,6 +201,17 @@ A message that names a unit has to name the right one: the log after generating 
 aircraft weighs and what the model writes down (`1.18 kg, stated as 1,179.936 g`), because it used to say `kg`
 whatever the model was in.
 
+**The exported flight model is the same aircraft whatever the model states it in**, which is the property
+`ExportUnitsCheck` asserts: the same aeroplane written in metres and kilograms, in centimetres and grams and in
+inches and ounces produces three files that agree to 1e-7 — a unit left unconverted shows up as a factor of a
+hundred. It found four that were: the centre of gravity, the landing gear, the fuel tank's position and
+contents, and the propeller's diameter all went out in the model's units while the reference geometry beside
+them was converted. The CG was the sharpest, since it and the aerodynamic reference point are the **same
+point** read twice — one converted, one not. Everything now goes through `JsbsimExporter.metres`.
+
+The one thing already in SI is `Config.mass_inertia`: `calculate()` writes kilograms and kg·m² into it whatever
+the model states, and that is why nothing converts it again.
+
 ## What an aircraft is made of
 
 A surface and a body state their **material**: a density in g/cm³ for what the part is filled with, a
@@ -366,6 +377,12 @@ Everything else the fan states is its own: the duct's **inner** diameter (not th
 the blades, and a length that is drawn and enters no calculation. The revolutions and the power are **not**
 asked for again — they belong to the motor that drives it, and a figure stated twice is a figure with two
 answers.
+
+**Where a thruster is mounted reaches the exported model.** It used to be hardcoded to the structural origin,
+so a fan on a pylon pushed as if it were on the centreline. What that gets right is the **height**: for a thrust
+along the fuselage axis the pitching moment is `T × (offset across the axis)`, so a duct above the centre of
+gravity drops the nose under power and one below it lifts it. The station along the fuselage never entered that
+moment and still does not — front or back changes the balance, through the unit's mass, and not the thrust.
 
 In the 3D view it is a cylinder of the bore over that length. Only the length can be dragged: a shape's sizes
 are resizable **per axis**, because the bore is what the thrust is derived from and editing it by eye would be
