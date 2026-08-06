@@ -385,6 +385,17 @@ up, because that is where the air leaves; the fan is a pump and its own height i
 anything. Standing still the pitching moment is exactly `gross thrust × exhaust height`, with nothing from the
 fan's own position.
 
+**A shaft is an assembly and moves as one.** It has a position of its own, and the motor, the propeller or the
+fan mounted on it state where they sit **within it** — so dragging the shaft carries the lot, and each part can
+still be placed inside it afterwards. It starts at zero, which is why a model written before this is unchanged:
+relative to nothing is absolute. `Shaft.absoluteX/Y/Z` is the one place that adds the two together, so nothing
+that weighs, draws or exports a component can disagree with the rest about where it is, and a drag in the 3D
+view writes back where the part sits within the assembly rather than where it is in the world.
+
+The shaft gets a **marker of its own** in the 3D view, with no weight — a shaft is not a part that weighs
+something — because a group has to be grabbable to be a group. `ShaftAssemblyCheck` pins all of it, including
+that the exported thrust adds the shaft, the fan and the exhaust exactly once each.
+
 So a fan states **two** positions: its own, where it weighs, and an exhaust, where it pushes. The exhaust is an
 **offset** from the fan while `exhaustFollowsFan` is set — zero for a short duct, so the ordinary case needs no
 thought, and moving the fan carries it along — and absolute when it is not, for modelling a real duct that ends

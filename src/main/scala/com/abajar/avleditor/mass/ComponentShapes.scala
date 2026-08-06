@@ -181,8 +181,10 @@ object ComponentShapes {
           minSize = DuctedFan.MIN_SIZE_MM * mm)
         // And where the thrust actually acts, when that is somewhere else: the exhaust, drawn as the disc the
         // air leaves through, with the duct between them. Nothing states the duct's shape, so it is a line.
-        val marker = markers(index)
-        val exhaustOffset = (fan.exhaustX() - marker.x, fan.exhaustY() - marker.y, fan.exhaustZ() - marker.z)
+        // The marker is already where the fan really is, and the exhaust is stated relative to the fan, so the
+        // offset between them needs no shaft: whatever moved the fan moved its marker with it.
+        val exhaustOffset =
+          (fan.exhaustX() - fan.getPos.getX, fan.exhaustY() - fan.getPos.getY, fan.exhaustZ() - fan.getPos.getZ)
         val exhaust =
           if (exhaustOffset == (0f, 0f, 0f)) None
           else Some(ComponentShape(index, Disc, 0f, bore, bore,

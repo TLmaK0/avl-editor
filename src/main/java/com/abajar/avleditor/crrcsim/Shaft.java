@@ -48,6 +48,43 @@ public class Shaft implements Serializable {
     private ArrayList<DuctedFan> ductedFans = new ArrayList<DuctedFan>();
     private ArrayList<SimpleTrust> simpleTrusts = new ArrayList<SimpleTrust>();
 
+    /**
+     * Where the shaft is, and with it everything mounted on it.
+     *
+     * A shaft is an assembly — a motor turning a propeller or a fan — and it moves as one: the positions its
+     * components state are <b>relative to this</b>, so moving the shaft carries them all and each can still be
+     * placed within it afterwards. The same arrangement as a ducted fan and its exhaust, one level up.
+     *
+     * It starts at zero, which is why a model written before the shaft had a position is unchanged by this:
+     * relative to nothing is absolute.
+     */
+    private Pos pos = new Pos();
+
+    @AvlEditorNode(name="Pos")
+    public Pos getPos() {
+        return pos;
+    }
+
+    public void setPos(Pos pos) {
+        this.pos = pos;
+    }
+
+    /**
+     * Where something mounted on this shaft actually is. The one place that adds the two together, so nothing
+     * that draws, weighs or exports a component can disagree with the rest about where it sits.
+     */
+    public float absoluteX(float relativeX) {
+        return pos.getX() + relativeX;
+    }
+
+    public float absoluteY(float relativeY) {
+        return pos.getY() + relativeY;
+    }
+
+    public float absoluteZ(float relativeZ) {
+        return pos.getZ() + relativeZ;
+    }
+
 
     public Shaft() {
     }

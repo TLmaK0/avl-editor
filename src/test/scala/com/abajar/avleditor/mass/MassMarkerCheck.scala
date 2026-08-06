@@ -64,7 +64,11 @@ object MassMarkerCheck {
     println("the model's masses")
     markers.foreach(m => println(f"  ${m.label}%-18s ${m.mass}%6.3f kg at (${m.x}%.3f, ${m.y}%.3f, ${m.z}%.3f)"))
 
-    check("one marker per mass and per positioned component", markers.size == 5)
+    // Six: the wing's mass, the battery, the shaft, the motor, the propeller and the fuel tank. The shaft is
+    // there so the assembly on it can be moved as one, and it states no weight of its own.
+    check("one marker per mass and per positioned component", markers.size == 6)
+    check("including the shaft, weightless, so the assembly can be grabbed",
+      markers.exists(m => m.label == "Shaft" && m.mass == 0f))
     check("the wing's mass is there, by name and weight",
       markers.exists(m => m.label == "wing ballast" && near(m.mass, 0.6) && near(m.x, 0.85)))
     check("so is the battery", markers.exists(m => m.label == "Battery" && near(m.mass, 0.45) && near(m.x, 0.25)))

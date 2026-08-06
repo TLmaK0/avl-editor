@@ -11,7 +11,7 @@
 package com.abajar.avleditor.mass
 
 import com.abajar.avleditor.avl.mass.{Mass, MassObject}
-import com.abajar.avleditor.crrcsim.{CRRCSim, Pos}
+import com.abajar.avleditor.crrcsim.{CRRCSim, Pos, Shaft}
 import scala.collection.JavaConverters._
 
 /**
@@ -96,10 +96,14 @@ object MassMarkers {
       val batteries = p.getBateries.asScala.toIndexedSeq.flatMap { battery =>
         fromComponent(battery, battery.getMass, battery.getPos) ++
           battery.getShafts.asScala.toIndexedSeq.flatMap { shaft =>
-            shaft.getEngines.asScala.toIndexedSeq.flatMap(e => fromComponent(e, e.getMass, e.getPos)) ++
-              shaft.getCombustionEngines.asScala.toIndexedSeq.flatMap(e => fromComponent(e, e.getMass, e.getPos)) ++
-              shaft.getPropellers.asScala.toIndexedSeq.flatMap(pr => fromComponent(pr, pr.getMass, pr.getPos)) ++
-              shaft.getDuctedFans.asScala.toIndexedSeq.flatMap(f => fromComponent(f, f.getMass, f.getPos))
+            // The shaft itself, so the assembly can be moved as one. It states no mass — a shaft is not a part
+            // that weighs something — but its position is real, and everything on it follows.
+            fromComponent(shaft, 0f, shaft.getPos) ++
+              shaft.getEngines.asScala.toIndexedSeq.flatMap(e => onShaft(shaft, e, e.getMass, e.getPos)) ++
+              shaft.getCombustionEngines.asScala.toIndexedSeq
+                .flatMap(e => onShaft(shaft, e, e.getMass, e.getPos)) ++
+              shaft.getPropellers.asScala.toIndexedSeq.flatMap(pr => onShaft(shaft, pr, pr.getMass, pr.getPos)) ++
+              shaft.getDuctedFans.asScala.toIndexedSeq.flatMap(f => onShaft(shaft, f, f.getMass, f.getPos))
           }
       }
       val tanks = p.getFuelTanks.asScala.toIndexedSeq.flatMap { tank =>
@@ -108,6 +112,22 @@ object MassMarkers {
       batteries ++ tanks
     }.getOrElse(IndexedSeq.empty)
   }
+
+  /**
+   * A component mounted on a shaft: shown where it really is — within the shaft — and moved by writing back
+   * where it sits within it. Drag the shaft and everything on it follows, because their positions are relative
+   * to it; drag one of them and only it moves.
+   */
+  private def onShaft(shaft: Shaft, component: AnyRef, mass: Float, pos: Pos): IndexedSeq[MassMarker] =
+    Option(pos).toIndexedSeq.map { p =>
+      MassMarker(component, p, component.toString, mass,
+        shaft.absoluteX(p.getX), shaft.absoluteY(p.getY), shaft.absoluteZ(p.getZ),
+        (x, y, z) => {
+          p.setX(x - shaft.getPos.getX)
+          p.setY(y - shaft.getPos.getY)
+          p.setZ(z - shaft.getPos.getZ)
+        })
+    }
 
   /** A component contributes a marker when it has a position to show; without one there is
     * nothing to draw and nothing to move. */

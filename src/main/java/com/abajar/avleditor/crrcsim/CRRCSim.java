@@ -254,17 +254,19 @@ public class CRRCSim implements Serializable{
         for (Battery battery : power.getBateries()) {
             addPointMass(masses, "battery", battery.getMass(), battery.getPos());
             for (Shaft shaft : battery.getShafts()) {
+                // On the shaft: what each component states is where it sits within the assembly, so the shaft's
+                // own position is added once, here, rather than by everything that reads a component.
                 for (Engine engine : shaft.getEngines()) {
-                    addPointMass(masses, "electric motor", engine.getMass(), engine.getPos());
+                    addPointMass(masses, "electric motor", engine.getMass(), shaft, engine.getPos());
                 }
                 for (CombustionEngine engine : shaft.getCombustionEngines()) {
-                    addPointMass(masses, "combustion engine", engine.getMass(), engine.getPos());
+                    addPointMass(masses, "combustion engine", engine.getMass(), shaft, engine.getPos());
                 }
                 for (Propeller propeller : shaft.getPropellers()) {
-                    addPointMass(masses, "propeller", propeller.getMass(), propeller.getPos());
+                    addPointMass(masses, "propeller", propeller.getMass(), shaft, propeller.getPos());
                 }
                 for (DuctedFan fan : shaft.getDuctedFans()) {
-                    addPointMass(masses, "ducted fan", fan.getMass(), fan.getPos());
+                    addPointMass(masses, "ducted fan", fan.getMass(), shaft, fan.getPos());
                 }
             }
         }
@@ -272,13 +274,18 @@ public class CRRCSim implements Serializable{
     }
 
     private void addPointMass(ArrayList<Mass> masses, String name, float mass, Pos pos) {
+        addPointMass(masses, name, mass, null, pos);
+    }
+
+    /** A component's mass, where it really is: within its shaft when it is mounted on one. */
+    private void addPointMass(ArrayList<Mass> masses, String name, float mass, Shaft shaft, Pos pos) {
         if (mass <= 0 || pos == null) return;
         Mass m = new Mass();
         m.setName(name);
         m.setMass(mass);
-        m.setX(pos.getX());
-        m.setY(pos.getY());
-        m.setZ(pos.getZ());
+        m.setX(shaft == null ? pos.getX() : shaft.absoluteX(pos.getX()));
+        m.setY(shaft == null ? pos.getY() : shaft.absoluteY(pos.getY()));
+        m.setZ(shaft == null ? pos.getZ() : shaft.absoluteZ(pos.getZ()));
         masses.add(m);
     }
 

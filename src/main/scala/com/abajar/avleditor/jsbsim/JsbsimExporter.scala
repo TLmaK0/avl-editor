@@ -175,12 +175,15 @@ object JsbsimExporter {
         // At the exhaust, not at the fan: the momentum forces act where the air crosses the boundary, so a
         // duct that carries the air upwards pushes from up there whatever height the fan itself sits at.
         Some(Thruster(f.getInnerDiameterMm / 1000.0, f.getBlades,
-          metres(units, f.exhaustX(), f.exhaustY(), f.exhaustZ()),
+          // The exhaust, within its shaft: the fan states where it sits on the assembly, the exhaust where it
+          // sits relative to the fan, and the shaft where the assembly is.
+          metres(units, shaft.absoluteX(f.exhaustX()), shaft.absoluteY(f.exhaustY()),
+            shaft.absoluteZ(f.exhaustZ())),
           Some(ThrusterCurves(curves.ct, curves.cp))))
       case None =>
         Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
           // The diameter is stated in the model's length unit; JSBSim's propeller states it in metres.
-          .map(p => Thruster(units.toMetres(p.getD).toDouble, p.getBlades, at(p.getPos, units), None))
+          .map(p => Thruster(units.toMetres(p.getD).toDouble, p.getBlades, at(shaft, p.getPos, units), None))
     }
   }
 
@@ -188,9 +191,11 @@ object JsbsimExporter {
    * The fan's curves, from its own figures plus the motor's: the revolutions and the power belong to the motor
    * that drives it, so they are read from there rather than stated twice.
    */
-  private def at(pos: com.abajar.avleditor.crrcsim.Pos,
+  private def at(shaft: com.abajar.avleditor.crrcsim.Shaft, pos: com.abajar.avleditor.crrcsim.Pos,
                  units: com.abajar.avleditor.ModelUnits): Vec3 =
-    Option(pos).map(p => metres(units, p.getX, p.getY, p.getZ)).getOrElse(Vec3(0, 0, 0))
+    Option(pos).map(p =>
+      metres(units, shaft.absoluteX(p.getX), shaft.absoluteY(p.getY), shaft.absoluteZ(p.getZ)))
+      .getOrElse(Vec3(0, 0, 0))
 
   /** The power the shaft's motor states, from its data rows. */
   private def wattsOf(shaft: com.abajar.avleditor.crrcsim.Shaft): Option[Double] =
