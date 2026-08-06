@@ -378,11 +378,29 @@ the blades, and a length that is drawn and enters no calculation. The revolution
 asked for again — they belong to the motor that drives it, and a figure stated twice is a figure with two
 answers.
 
-**Where a thruster is mounted reaches the exported model.** It used to be hardcoded to the structural origin,
-so a fan on a pylon pushed as if it were on the centreline. What that gets right is the **height**: for a thrust
-along the fuselage axis the pitching moment is `T × (offset across the axis)`, so a duct above the centre of
-gravity drops the nose under power and one below it lifts it. The station along the fuselage never entered that
-moment and still does not — front or back changes the balance, through the unit's mass, and not the thrust.
+**The thrust acts at the exhaust, not at the fan.** The momentum forces act where the air crosses the
+aircraft's boundary — the intake lip and the nozzle — and everything between them is internal pressure the
+structure carries. A duct that enters and leaves 10 cm up with the fan low pushes as if the thrust were 10 cm
+up, because that is where the air leaves; the fan is a pump and its own height is not the line of action of
+anything. Standing still the pitching moment is exactly `gross thrust × exhaust height`, with nothing from the
+fan's own position.
+
+So a fan states **two** positions: its own, where it weighs, and an exhaust, where it pushes. The exhaust is an
+**offset** from the fan while `exhaustFollowsFan` is set — zero for a short duct, so the ordinary case needs no
+thought, and moving the fan carries it along — and absolute when it is not, for modelling a real duct that ends
+somewhere else. Toggling converts the numbers, so the exhaust never jumps. In the 3D view the exhaust is drawn
+as the disc the air leaves through, with a line to the fan: the duct's shape is not stated, so it is a line.
+
+What that gets right is the **height**: for a thrust along the fuselage axis the pitching moment is
+`T × (offset across the axis)`, so an exhaust above the centre of gravity drops the nose under power and one
+below it lifts it. The station along the fuselage never entered that moment and still does not — front or back
+changes the balance, through the unit's mass, and not the thrust.
+
+One limitation, stated rather than hidden: JSBSim applies one force at one point per engine, so an intake at a
+different height from the exhaust cannot be expressed. The exact equivalent height is
+`(Ve·z_exhaust − V·z_intake)/(Ve − V)`, which depends on speed and diverges as the aircraft approaches the jet
+velocity — an S-duct pushes and pitches independently. At rest the exhaust alone is exact, which is why it is
+the point the export uses.
 
 In the 3D view it is a cylinder of the bore over that length. Only the length can be dragged: a shape's sizes
 are resizable **per axis**, because the bore is what the thrust is derived from and editing it by eye would be

@@ -28,6 +28,9 @@ import javax.xml.bind.annotation.XmlAttribute;
  * to the motor that drives it ({@link Engine}'s data rows, voltage times current and its rpm), and asking for
  * them twice is asking for two answers.
  *
+ * The thrust is applied at its <b>exhaust</b> rather than at the fan, because that is where the air leaves —
+ * see {@link #getExhaust()}.
+ *
  * <b>No thrust is asked for.</b> A fan bought as a rotor and a housing has none published, because the thrust
  * depends on the motor fitted — and it does not need to be: with the bore, the revolutions and the power,
  * {@link com.abajar.avleditor.jsbsim.DuctedFanCurves} derives the thrust at every speed from momentum theory,
@@ -75,7 +78,81 @@ public class DuctedFan implements Serializable {
 
     private Pos pos = new Pos();
 
+    /**
+     * Where the thrust is applied: the exhaust, not the fan.
+     *
+     * The forces act where the air crosses the aircraft's boundary — the intake lip and the nozzle — and not
+     * where the fan sits. Everything between them is internal pressure the structure carries. A duct that
+     * enters and leaves 10 cm up, with the fan low, pushes as if the thrust were 10 cm up, because that is
+     * where the air leaves; and standing still the moment is exactly the gross thrust times the exhaust's
+     * height, with no contribution from the fan's own.
+     *
+     * <b>Relative by default.</b> These three numbers are an offset from {@link #getPos()} while
+     * {@link #isExhaustFollowsFan()} is true, so moving the fan carries its exhaust with it and a fan whose
+     * offset is zero needs no thought at all — which is the ordinary case, a short duct. Turn it off to model
+     * a real duct, and they become absolute coordinates that stay where they are put however the fan moves.
+     * Turning it off or on converts them, so the exhaust never jumps.
+     */
+    private Pos exhaust = new Pos();
+
+    @AvlEditorField(text="Exhaust follows the fan",
+        help="Checked, the exhaust position below is an offset from the fan and moves with it: leave it at\n"
+        + "zero for a short duct and there is nothing to think about.\n\n"
+        + "Unchecked, it is an absolute position that stays where it is put — for modelling a real duct that\n"
+        + "carries the air somewhere else. Switching between the two converts the numbers, so the exhaust\n"
+        + "does not move when you change your mind."
+    )
+    private boolean exhaustFollowsFan = true;
+
     public DuctedFan() {
+    }
+
+    @AvlEditorNode(name="Exhaust")
+    public Pos getExhaust() {
+        return exhaust;
+    }
+
+    public void setExhaust(Pos exhaust) {
+        this.exhaust = exhaust;
+    }
+
+    @XmlAttribute(name="exhaust_follows_fan")
+    public boolean isExhaustFollowsFan() {
+        return exhaustFollowsFan;
+    }
+
+    /**
+     * Switching between the two meanings converts the numbers, so the exhaust stays where it was: an offset
+     * becomes the absolute point it pointed at, and an absolute point becomes the offset that reaches it.
+     */
+    public void setExhaustFollowsFan(boolean follows) {
+        if (follows == this.exhaustFollowsFan) return;
+        float x = exhaustX();
+        float y = exhaustY();
+        float z = exhaustZ();
+        this.exhaustFollowsFan = follows;
+        if (follows) {
+            exhaust.setX(x - pos.getX());
+            exhaust.setY(y - pos.getY());
+            exhaust.setZ(z - pos.getZ());
+        } else {
+            exhaust.setX(x);
+            exhaust.setY(y);
+            exhaust.setZ(z);
+        }
+    }
+
+    /** Where the thrust acts, absolute, in the model's length unit. */
+    public float exhaustX() {
+        return exhaustFollowsFan ? pos.getX() + exhaust.getX() : exhaust.getX();
+    }
+
+    public float exhaustY() {
+        return exhaustFollowsFan ? pos.getY() + exhaust.getY() : exhaust.getY();
+    }
+
+    public float exhaustZ() {
+        return exhaustFollowsFan ? pos.getZ() + exhaust.getZ() : exhaust.getZ();
     }
 
     @XmlAttribute(name="inner_diameter_mm")

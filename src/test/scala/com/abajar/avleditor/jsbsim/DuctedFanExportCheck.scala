@@ -143,6 +143,50 @@ object DuctedFanExportCheck {
       near(f.getLengthMm, 100f, 1e-3) && near(f.getInnerDiameterMm, 68f, 1e-3)
     })
 
+    println("the thrust acts at the exhaust, and the exhaust follows the fan")
+    val ducted = model(withFan = true)
+    val theFan = ducted.getConfig.getPower.getBateries.get(0).getShafts.get(0).getDuctedFans.get(0)
+    theFan.getPos.setX(0.30f); theFan.getPos.setZ(0.02f)
+    check("with no offset the thrust acts on the fan itself",
+      near(theFan.exhaustX(), 0.30) && near(theFan.exhaustZ(), 0.02))
+    // A duct that carries the air up and back: 15 cm along, 10 cm up.
+    theFan.getExhaust.setX(0.15f); theFan.getExhaust.setZ(0.10f)
+    check("an offset puts it where the air leaves",
+      near(theFan.exhaustX(), 0.45) && near(theFan.exhaustZ(), 0.12))
+    theFan.getPos.setX(0.40f)
+    check("and moving the fan carries its exhaust with it", near(theFan.exhaustX(), 0.55))
+
+    println("unless the exhaust is pinned, for modelling a real duct")
+    theFan.setExhaustFollowsFan(false)
+    // Switching over converts the numbers, so the exhaust does not jump.
+    check("switching does not move it", near(theFan.exhaustX(), 0.55) && near(theFan.exhaustZ(), 0.12))
+    theFan.getPos.setX(0.20f)
+    check("now the fan moves and the exhaust stays", near(theFan.exhaustX(), 0.55))
+    theFan.setExhaustFollowsFan(true)
+    check("and switching back does not move it either", near(theFan.exhaustX(), 0.55))
+    check("it became an offset again", near(theFan.getExhaust.getX, 0.35))
+
+    println("what the exported thruster says")
+    val at = JsbsimExporter.buildPropulsion(ducted).get.at
+    println(f"  thrust applied at x ${at.x}%.3f, z ${at.z}%.3f")
+    check("the thrust is applied at the exhaust", near(at.x, 0.55) && near(at.z, 0.12))
+    check("not at the fan", math.abs(at.x - theFan.getPos.getX) > 0.3)
+
+    println("and the 3D view draws the duct")
+    ducted.calculate()
+    val ductShapes = com.abajar.avleditor.mass.ComponentShapes.from(
+      ducted, com.abajar.avleditor.mass.MassMarkers.from(ducted))
+    val fanShapes = ductShapes.filter(_.owner.isInstanceOf[DuctedFan])
+    check("the unit and its exhaust", fanShapes.length == 2)
+    check("the unit sits on its mass", fanShapes.exists(_.offset == (0f, 0f, 0f)))
+    check("and the exhaust away from it, where the thrust acts",
+      fanShapes.exists(s => near(s.offset._1, 0.35) && near(s.offset._3, 0.10)))
+    // A short duct is the ordinary case and should draw nothing extra.
+    theFan.getExhaust.setX(0f); theFan.getExhaust.setZ(0f)
+    check("a fan with no offset draws only itself",
+      com.abajar.avleditor.mass.ComponentShapes.from(ducted, com.abajar.avleditor.mass.MassMarkers.from(ducted))
+        .count(_.owner.isInstanceOf[DuctedFan]) == 1)
+
     println(if (ok) "DUCTED_FAN_EXPORT_OK" else "DUCTED_FAN_EXPORT_FAIL")
     if (!ok) sys.exit(1)
   }

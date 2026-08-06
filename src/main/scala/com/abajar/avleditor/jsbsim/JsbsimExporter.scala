@@ -172,7 +172,10 @@ object JsbsimExporter {
           f"That is ${100 * DuctedFanCurves.FigureOfMerit}%.0f%% of the ideal for that disc " +
           f"(${curves.idealStaticThrustN / com.abajar.avleditor.avl.AVL.GRAVITY}%.2f kg): a stated figure of " +
           "merit for the duct and the motor, not a measurement.")
-        Some(Thruster(f.getInnerDiameterMm / 1000.0, f.getBlades, at(f.getPos, units),
+        // At the exhaust, not at the fan: the momentum forces act where the air crosses the boundary, so a
+        // duct that carries the air upwards pushes from up there whatever height the fan itself sits at.
+        Some(Thruster(f.getInnerDiameterMm / 1000.0, f.getBlades,
+          metres(units, f.exhaustX(), f.exhaustY(), f.exhaustZ()),
           Some(ThrusterCurves(curves.ct, curves.cp))))
       case None =>
         Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption

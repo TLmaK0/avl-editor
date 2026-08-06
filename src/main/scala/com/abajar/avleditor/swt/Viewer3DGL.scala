@@ -1076,7 +1076,8 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   /** The shape drawn around the selected mass point, if that component states one. */
   private def selectedShapeIndex: Option[Int] =
     selectedMassPoint.flatMap { point =>
-      componentShapes.indexWhere(_.pointIndex == point) match {
+      // The one drawn on the mass, not a satellite like a fan's exhaust: the handles size the part itself.
+      componentShapes.indexWhere(s => s.pointIndex == point && s.offset == (0f, 0f, 0f)) match {
         case -1 => None
         case index => Some(index)
       }
@@ -2123,7 +2124,10 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
     shapes.foreach { shape =>
       if (shape.pointIndex < points.length) {
-        val (x, y, z, _, _) = points(shape.pointIndex)
+        val (px, py, pz, _, _) = points(shape.pointIndex)
+        // A shape usually sits on its mass; a ducted fan's exhaust sits away from it, because that is where
+        // the thrust acts. The line between them is the duct — its shape is not stated, so it is a line.
+        val (x, y, z) = (px + shape.offset._1, py + shape.offset._2, pz + shape.offset._3)
         val selected = selectedMassPoint.exists(_ == shape.pointIndex)
         if (selected) {
           gl.glColor3f(1.0f, 0.85f, 1.0f)
@@ -2168,6 +2172,8 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
           case _ => ()
         }
+
+        if (shape.offset != (0f, 0f, 0f)) line((px, py, pz), (x, y, z))
       }
     }
 

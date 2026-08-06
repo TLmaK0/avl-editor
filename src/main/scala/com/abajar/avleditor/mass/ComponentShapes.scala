@@ -41,7 +41,13 @@ final case class ComponentShape(pointIndex: Int,
                                 owner: AnyRef,
                                 resizeTo: (Float, Float, Float) => Unit,
                                 /** The smallest a side may be dragged to, in model units: one millimetre. */
-                                minSize: Float = 0.001f) {
+                                minSize: Float = 0.001f,
+                                /**
+                                 * Where the shape sits relative to its mass point, in model units. Zero for
+                                 * anything drawn around its own mass; a ducted fan's exhaust is drawn away
+                                 * from the fan, because that is where the thrust acts.
+                                 */
+                                offset: (Float, Float, Float) = (0f, 0f, 0f)) {
 
   def resizable: Boolean = resizableAxes.nonEmpty
 
@@ -164,7 +170,7 @@ object ComponentShapes {
       .filter(_ => fan.getInnerDiameterMm > 0f)
       .map { index =>
         val bore = fan.getInnerDiameterMm * mm
-        ComponentShape(index, Cylinder, fan.getLengthMm * mm, bore, bore,
+        val unit = ComponentShape(index, Cylinder, fan.getLengthMm * mm, bore, bore,
           blades = math.max(2, fan.getBlades),
           // Only the length. The bore is the disc the thrust is derived from, so dragging it would be
           // editing the propulsion by eye; the length is a drawing and nothing else.
@@ -173,7 +179,18 @@ object ComponentShapes {
           owner = fan,
           resizeTo = (x, _, _) => fan.setLengthMm(x / mm),
           minSize = DuctedFan.MIN_SIZE_MM * mm)
-      }
+        // And where the thrust actually acts, when that is somewhere else: the exhaust, drawn as the disc the
+        // air leaves through, with the duct between them. Nothing states the duct's shape, so it is a line.
+        val marker = markers(index)
+        val exhaustOffset = (fan.exhaustX() - marker.x, fan.exhaustY() - marker.y, fan.exhaustZ() - marker.z)
+        val exhaust =
+          if (exhaustOffset == (0f, 0f, 0f)) None
+          else Some(ComponentShape(index, Disc, 0f, bore, bore,
+            blades = math.max(2, fan.getBlades), resizableAxes = Set.empty,
+            dimensionFields = Nil, owner = fan, resizeTo = (_, _, _) => (),
+            offset = exhaustOffset))
+        IndexedSeq(unit) ++ exhaust
+      }.flatten
 
   /**
    * A face drag changes the size by twice what the face moved, because the centre of the shape is the centre
