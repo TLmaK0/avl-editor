@@ -77,27 +77,14 @@ object SimulationRequirements {
     else if (shaft.isEmpty)
       Seq("The battery drives no shaft. Add one with '+ Shaft'.")
     else {
-      val propellerProblems = propeller match {
-        case None => Seq("The shaft has no propeller. Add one with '+ Propeller'.")
-        case Some(p) =>
-          val diameter =
-            if (p.getD > 0) Nil
-            else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller must be greater than " +
-              s"zero (found ${p.getD} m).")
-          // n_fold is the folding-prop threshold, not a blade count: the export used to feed it
-          // to JSBSim as the number of blades.
-          val blades =
-            if (p.getBlades >= 2) Nil
-            else Seq(s"'${label(classOf[Propeller], "blades")}' on the Propeller must be at least 2 " +
-              s"(found ${p.getBlades}).")
-          // A propeller wider than the wingspan is a units mistake (inches typed as metres),
-          // not a design: JSBSim would compute thrust from a rotor the size of the aircraft.
-          val span = Option(crrcsim.getAvl).map(_.getGeometry.getBref.toDouble).getOrElse(0.0)
-          val oversized =
-            if (span <= 0 || p.getD <= 0 || p.getD < span) Nil
-            else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller (${p.getD} m) is not " +
-              s"smaller than the wingspan 'Bref' ($span); check the units.")
-          diameter ++ blades ++ oversized
+      val fan = shaft.flatMap(s => Option(s.getDuctedFans).map(_.asScala).getOrElse(Nil).headOption)
+
+      val thrusterProblems = (propeller, fan) match {
+        case (Some(_), Some(_)) =>
+          Seq("The shaft carries both a propeller and a ducted fan; keep one, since only one can be " +
+            "driven by the motor.")
+        case (None, Some(f)) => ductedFanProblems(shaft.get, f, crrcsim)
+        case _ => propellerProblems(propeller, crrcsim)
       }
       val piston = shaft.flatMap(sh =>
         Option(sh.getCombustionEngines).map(_.asScala).getOrElse(Nil).headOption)
@@ -134,8 +121,57 @@ object SimulationRequirements {
         s"'${label(classOf[Battery], "U_0")}' on the Battery must be greater than zero " +
           s"(found ${b.getU_0} V).").toSeq
 
-      voltage ++ propellerProblems ++ engineProblems
+      voltage ++ thrusterProblems ++ engineProblems
     }
+  }
+
+  /** What the exported propeller needs: a real diameter, at least two blades, and units that make sense. */
+  private def propellerProblems(propeller: Option[Propeller], crrcsim: CRRCSim): Seq[String] =
+    propeller match {
+      case None =>
+        Seq("The shaft has nothing to turn the motor's power into thrust. Add a propeller with " +
+          "'+ Propeller', or a ducted fan with '+ Fan'.")
+      case Some(p) =>
+        val diameter =
+          if (p.getD > 0) Nil
+          else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller must be greater than " +
+            s"zero (found ${p.getD} m).")
+        // n_fold is the folding-prop threshold, not a blade count: the export used to feed it
+        // to JSBSim as the number of blades.
+        val blades =
+          if (p.getBlades >= 2) Nil
+          else Seq(s"'${label(classOf[Propeller], "blades")}' on the Propeller must be at least 2 " +
+            s"(found ${p.getBlades}).")
+        // A propeller wider than the wingspan is a units mistake (inches typed as metres),
+        // not a design: JSBSim would compute thrust from a rotor the size of the aircraft.
+        val span = Option(crrcsim.getAvl).map(_.getGeometry.getBref.toDouble).getOrElse(0.0)
+        val oversized =
+          if (span <= 0 || p.getD <= 0 || p.getD < span) Nil
+          else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller (${p.getD} m) is not " +
+            s"smaller than the wingspan 'Bref' ($span); check the units.")
+        diameter ++ blades ++ oversized
+    }
+
+  /**
+   * A ducted fan's own figures, checked by trying the derivation that the export will do — so the message the
+   * user gets is the one the physics itself raises, and the two cannot drift apart.
+   *
+   * The static thrust is the one that matters most: it is what the duct's losses are measured against, and
+   * without it momentum theory alone overstates the thrust by about twice.
+   */
+  private def ductedFanProblems(shaft: com.abajar.avleditor.crrcsim.Shaft,
+                                fan: com.abajar.avleditor.crrcsim.DuctedFan,
+                                crrcsim: CRRCSim): Seq[String] = {
+    val units = Option(crrcsim.getAvl).map(_.units()).getOrElse(com.abajar.avleditor.ModelUnits.DEFAULTS)
+    val span = Option(crrcsim.getAvl).map(_.getGeometry.getBref.toDouble).getOrElse(0.0)
+    val bore = fan.getInnerDiameterMm / 1000.0
+    // The same units mistake the propeller is checked for: a fan as wide as the wingspan is millimetres
+    // typed as something else.
+    val oversized =
+      if (span <= 0 || bore <= 0 || bore < span) Nil
+      else Seq(f"The ducted fan's inner diameter (${fan.getInnerDiameterMm}%.1f mm) is not smaller than " +
+        f"the wingspan 'Bref' ($span%.3f); check the units.")
+    JsbsimExporter.ductedFanCurves(shaft, fan, units).fold(problem => Seq(problem), _ => Nil) ++ oversized
   }
 
   /**

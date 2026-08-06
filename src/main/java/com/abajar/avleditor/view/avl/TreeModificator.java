@@ -133,6 +133,12 @@ class AddPropeller implements TreeModificator{
   }
 }
 
+class AddDuctedFan implements TreeModificator{
+  public void modify(Object node, Object parent){
+    ((Shaft)node).createDuctedFan();
+  }
+}
+
 class AddData implements TreeModificator{
   public void modify(Object node, Object parent){
     ((Engine)node).createData();

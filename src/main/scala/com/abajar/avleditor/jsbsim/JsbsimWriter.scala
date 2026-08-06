@@ -98,8 +98,18 @@ object JsbsimWriter {
   /** A fuel tank. Its contents are mass that leaves the aircraft as it burns. */
   final case class FuelTank(capacityKg: Double, contentsKg: Double, at: Vec3)
 
+  /**
+   * The thrust and power coefficients of a thruster that is not a free propeller, against advance ratio.
+   *
+   * JSBSim's `propeller` element is a machine that absorbs shaft power and produces thrust as a function of
+   * advance ratio; these two tables are the whole of what it does. A ducted fan is that same machine with
+   * different curves — see [[DuctedFanCurves]] — so it needs no new engine type and no invented one.
+   */
+  final case class ThrusterCurves(ct: Seq[(Double, Double)], cp: Seq[(Double, Double)])
+
   final case class Propulsion(motor: Motor, propDiameterM: Double, numBlades: Int, at: Vec3,
-                              tanks: Seq[FuelTank] = Nil)
+                              tanks: Seq[FuelTank] = Nil,
+                              curves: Option[ThrusterCurves] = None)
 
   /** The generated aircraft plus the auxiliary engine/thruster files it references. */
   final case class GeneratedModel(name: String, aircraftXml: String, engineFiles: Seq[(String, String)])
@@ -142,7 +152,7 @@ object JsbsimWriter {
       case None => Seq.empty
       case Some(pr) => Seq(
         engineName(ac) + ".xml" -> engineFile(engineName(ac), pr.motor),
-        propName(ac) + ".xml" -> propellerFile(propName(ac), pr.propDiameterM, pr.numBlades)
+        propName(ac) + ".xml" -> propellerFile(propName(ac), pr.propDiameterM, pr.numBlades, pr.curves)
       )
     }
     GeneratedModel(ac.name, sb.toString, engineFiles)
@@ -276,8 +286,16 @@ object JsbsimWriter {
     |    </tank>
     |""".stripMargin
 
-  private def propellerFile(name: String, diameterM: Double, numBlades: Int): String = {
+  private def rows(table: Seq[(Double, Double)]): String =
+    table.map { case (j, c) => s"      ${f(j)} ${f(c)}" }.mkString("\n")
+
+  private def propellerFile(name: String, diameterM: Double, numBlades: Int,
+                            curves: Option[ThrusterCurves] = None): String = {
     val ixx = 1.06e-3 * diameterM * diameterM // scaled from the DJI 9450 reference prop
+    // A thruster that stated its own curves gets them; anything else gets the generic propeller's, which are
+    // documented as an assumption in AGENTS.md.
+    val ctTable = curves.map(c => rows(c.ct)).getOrElse(GENERIC_CT)
+    val cpTable = curves.map(c => rows(c.cp)).getOrElse(GENERIC_CP)
     s"""<?xml version="1.0"?>
     |<propeller name="${xml(name)}" version="1.1">
     |  <ixx unit="KG*M2">${f(ixx)}</ixx>
@@ -286,12 +304,12 @@ object JsbsimWriter {
     |  <constspeed>0</constspeed>
     |  <table name="C_THRUST" type="internal">
     |    <tableData>
-    |$GENERIC_CT
+    |$ctTable
     |    </tableData>
     |  </table>
     |  <table name="C_POWER" type="internal">
     |    <tableData>
-    |$GENERIC_CP
+    |$cpTable
     |    </tableData>
     |  </table>
     |</propeller>

@@ -10,7 +10,7 @@
 
 package com.abajar.avleditor.mass
 
-import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, Engine, Propeller}
+import com.abajar.avleditor.crrcsim.{Battery, CRRCSim, DuctedFan, Engine, Propeller}
 import scala.collection.JavaConverters._
 
 /**
@@ -69,7 +69,8 @@ object ComponentShapes {
         batteryShape(battery, markers, mm) ++
           battery.getShafts.asScala.toIndexedSeq.flatMap { shaft =>
             shaft.getEngines.asScala.toIndexedSeq.flatMap(e => engineShape(e, markers, mm)) ++
-              shaft.getPropellers.asScala.toIndexedSeq.flatMap(pr => propellerShape(pr, markers))
+              shaft.getPropellers.asScala.toIndexedSeq.flatMap(pr => propellerShape(pr, markers)) ++
+              shaft.getDuctedFans.asScala.toIndexedSeq.flatMap(f => ductedFanShape(f, markers, mm))
           }
       }
     }.getOrElse(IndexedSeq.empty)
@@ -129,6 +130,25 @@ object ComponentShapes {
         ComponentShape(index, Disc, 0f, propeller.getD, propeller.getD,
           blades = math.max(2, propeller.getBlades), resizable = false,
           dimensionFields = Nil, owner = propeller, resizeTo = (_, _, _) => ())
+      }
+
+  /**
+   * A ducted fan, as the disc its blades sweep — the duct's inner diameter, which is the figure the model
+   * states and the one the thrust follows from.
+   *
+   * Not a housing: the outer diameter and the duct's length are on the listing but not in the model, and
+   * drawing a cylinder would mean inventing both. Not resizable either, for the propeller's reason — the bore
+   * decides the exported thrust, so dragging it by eye would be editing the propulsion.
+   */
+  private def ductedFanShape(fan: DuctedFan, markers: IndexedSeq[MassMarker],
+                             mm: Float): IndexedSeq[ComponentShape] =
+    MassMarkers.indexOf(markers, fan).toIndexedSeq
+      .filter(_ => fan.getInnerDiameterMm > 0f)
+      .map { index =>
+        val bore = fan.getInnerDiameterMm * mm
+        ComponentShape(index, Disc, 0f, bore, bore,
+          blades = math.max(2, fan.getBlades), resizable = false,
+          dimensionFields = Nil, owner = fan, resizeTo = (_, _, _) => ())
       }
 
   /**

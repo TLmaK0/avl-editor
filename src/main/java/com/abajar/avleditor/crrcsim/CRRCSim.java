@@ -263,6 +263,9 @@ public class CRRCSim implements Serializable{
                 for (Propeller propeller : shaft.getPropellers()) {
                     addPointMass(masses, "propeller", propeller.getMass(), propeller.getPos());
                 }
+                for (DuctedFan fan : shaft.getDuctedFans()) {
+                    addPointMass(masses, "ducted fan", fan.getMass(), fan.getPos());
+                }
             }
         }
         return masses;

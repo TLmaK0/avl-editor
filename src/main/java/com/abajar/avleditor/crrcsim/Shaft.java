@@ -24,7 +24,7 @@ import javax.xml.bind.annotation.XmlElement;
  * @author Hugo
  */
 @AvlEditor(buttons={ENABLE_BUTTONS.ADD_ENGINE, ENABLE_BUTTONS.ADD_COMBUSTION_ENGINE,
-    ENABLE_BUTTONS.ADD_PROPELLER, ENABLE_BUTTONS.DELETE})
+    ENABLE_BUTTONS.ADD_PROPELLER, ENABLE_BUTTONS.ADD_DUCTED_FAN, ENABLE_BUTTONS.DELETE})
 public class Shaft implements Serializable {
     static final long serialVersionUID = -4669977187731929600L;
     @Override
@@ -45,6 +45,7 @@ public class Shaft implements Serializable {
     private ArrayList<Engine> engines = new ArrayList<Engine>();
     private ArrayList<CombustionEngine> combustionEngines = new ArrayList<CombustionEngine>();
     private ArrayList<Propeller> propellers = new ArrayList<Propeller>();
+    private ArrayList<DuctedFan> ductedFans = new ArrayList<DuctedFan>();
     private ArrayList<SimpleTrust> simpleTrusts = new ArrayList<SimpleTrust>();
 
 
@@ -150,6 +151,30 @@ public class Shaft implements Serializable {
         Propeller propeller = new Propeller();
         this.getPropellers().add(propeller);
         return propeller;
+    }
+
+    /**
+     * @return the ducted fans
+     */
+    @AvlEditorNode(name="Ducted fans")
+    @XmlElement(name="ductedfan")
+    public ArrayList<DuctedFan> getDuctedFans() {
+        return ductedFans;
+    }
+
+    public void setDuctedFans(ArrayList<DuctedFan> ductedFans) {
+        this.ductedFans = ductedFans;
+    }
+
+    /**
+     * A ducted fan instead of a propeller, driven by the same motor. It states its bore, its blades and the
+     * static thrust it is sold with; the revolutions and the power come from the motor, so they are not asked
+     * for twice.
+     */
+    public DuctedFan createDuctedFan() {
+        DuctedFan fan = new DuctedFan();
+        this.getDuctedFans().add(fan);
+        return fan;
     }
 
     /**

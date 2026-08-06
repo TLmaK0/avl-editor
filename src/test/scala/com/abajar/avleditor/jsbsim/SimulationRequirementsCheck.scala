@@ -136,8 +136,10 @@ object SimulationRequirementsCheck {
 
     val noProp = flyableModel()
     noProp.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.clear()
-    check("a shaft with no propeller is reported",
-      mentions(SimulationRequirements.validate(noProp), "no propeller"))
+    // Not "no propeller" any more: a shaft can be driven by a ducted fan instead, so the message names both.
+    check("a shaft with nothing to make thrust is reported, naming both options",
+      mentions(SimulationRequirements.validate(noProp), "'+ Propeller'") &&
+        mentions(SimulationRequirements.validate(noProp), "'+ Fan'"))
 
     val noEngine = flyableModel()
     noEngine.getConfig.getPower.getBateries.get(0).getShafts.get(0).getEngines.clear()

@@ -98,7 +98,8 @@ object MassMarkers {
           battery.getShafts.asScala.toIndexedSeq.flatMap { shaft =>
             shaft.getEngines.asScala.toIndexedSeq.flatMap(e => fromComponent(e, e.getMass, e.getPos)) ++
               shaft.getCombustionEngines.asScala.toIndexedSeq.flatMap(e => fromComponent(e, e.getMass, e.getPos)) ++
-              shaft.getPropellers.asScala.toIndexedSeq.flatMap(pr => fromComponent(pr, pr.getMass, pr.getPos))
+              shaft.getPropellers.asScala.toIndexedSeq.flatMap(pr => fromComponent(pr, pr.getMass, pr.getPos)) ++
+              shaft.getDuctedFans.asScala.toIndexedSeq.flatMap(f => fromComponent(f, f.getMass, f.getPos))
           }
       }
       val tanks = p.getFuelTanks.asScala.toIndexedSeq.flatMap { tank =>

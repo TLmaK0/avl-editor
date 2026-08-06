@@ -203,6 +203,8 @@ class MainWindow(
     addToolItem(toolbar, "+ Piston", "Add a combustion engine", ENABLE_BUTTONS.ADD_COMBUSTION_ENGINE)
     addToolItem(toolbar, "+ Propeller", "Add a propeller (required to export a flyable model)",
       ENABLE_BUTTONS.ADD_PROPELLER)
+    addToolItem(toolbar, "+ Fan", "Add a ducted fan (an EDF), instead of a propeller",
+      ENABLE_BUTTONS.ADD_DUCTED_FAN)
     addToolItem(toolbar, "+ Fuel tank", "Add a fuel tank (required by a combustion engine)",
       ENABLE_BUTTONS.ADD_FUEL_TANK)
     addToolItem(toolbar, "+ Data", "Add engine data point", ENABLE_BUTTONS.ADD_DATA)

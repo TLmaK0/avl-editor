@@ -322,6 +322,46 @@ command line** on a pull-up and compares the lift and drag JSBSim computes at ea
 in the file it loaded — they agree to 1e-16, and the aircraft holds 0.885 of lift past +20° instead of
 inventing more.
 
+## A ducted fan is a propeller with different curves
+
+JSBSim's `propeller` is not "a propeller": it is a machine that absorbs shaft power and produces thrust as a
+function of advance ratio, and the whole of what it does comes out of two tables, `C_THRUST` and `C_POWER`
+against `J = V/(nD)`. So an EDF needs neither a new engine type nor a fabricated turbine — it needs the right
+two curves. What the exporter writes for a propeller is a generic APC 9x4.5, declared as an assumption; for a
+fan those curves are wrong in the way that matters, since a free propeller's thrust is spent by `J ≈ 0.73` and a
+fan holds its own far past it.
+
+`DuctedFanCurves` derives them. A duct does not contract the wake, so the exit area is the fan area, and with
+`k = Ve/(nD)` — the air the fan throws per revolution — momentum theory gives
+
+```
+Ct(J) = (pi/4) k (k - J)      Cp(J) = (pi/8) k (k^2 - J^2)
+```
+
+One parameter, and three properties say it is the right model rather than a convenient one, all asserted in
+`DuctedFanCurvesCheck`: its efficiency is `2J/(k+J)`, Froude's ideal; `Ct` reaches zero at `J = k`, so `k` is
+the advance ratio at which the fan stops pushing — the speed at which the aircraft matches the exhaust; and at
+rest it gives `2^(1/3)` = 1.26 times a free propeller's static thrust on the same power and diameter, the known
+advantage of a shrouded rotor.
+
+**The losses are measured, not assumed.** Momentum theory knows nothing about tip clearance, the lip or the
+diffuser, so the ideal overstates the thrust by about twice. The correction is the user's own two numbers
+divided by each other — `stated static thrust / ideal static thrust` — with `Ct` scaled by it and `Cp` left
+alone, because a loss costs thrust for the same shaft power. The exported fan then draws the current the listing
+states and pushes what the listing says it pushes, and the shape of the curve, which nobody publishes, is
+physics. With no stated thrust the export **refuses**: an aircraft with twice its real thrust flies, looks
+plausible and is wrong.
+
+Everything the fan states is on the listing it was bought from: the duct's **inner** diameter (not the housing,
+not the inlet lip), the blades and the static thrust. The revolutions and the power are **not** asked for
+again — they belong to the motor that drives it, and a figure stated twice is a figure with two answers.
+
+The derivation is expressed in JSBSim's own definitions, so it is worth nothing until JSBSim agrees:
+`DuctedFanFlightCheck` exports a model with a fan, runs **JSBSim from the command line** at full throttle, and
+finds its thrust is `Ct x rho x n^2 x D^4` with the coefficient from the file it loaded, to 0.0012 %. Had
+JSBSim meant radians per second, or another power of the diameter, every other assertion would still have
+passed and the aircraft would have had the wrong thrust.
+
 ## AVL's control variable is not an angle
 
 AVL states control derivatives **per unit of its control variable**, and that variable is dimensionless: the

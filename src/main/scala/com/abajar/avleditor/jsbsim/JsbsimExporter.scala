@@ -117,13 +117,73 @@ object JsbsimExporter {
   def buildPropulsion(crrcsim: CRRCSim): Option[Propulsion] = {
     val power = crrcsim.getConfig.getPower
     if (power == null) return None
+    val units = crrcsim.getAvl.units()
     for {
       battery <- power.getBateries.asScala.headOption
       shaft <- Option(battery.getShafts).map(_.asScala).getOrElse(Nil).headOption
-      prop <- Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
       motor <- buildMotor(shaft)
-    } yield Propulsion(motor, prop.getD.toDouble, prop.getBlades, Vec3(0, 0, 0),
-      buildFuelTanks(power))
+      thruster <- buildThruster(shaft, units)
+    } yield Propulsion(motor, thruster._1, thruster._2, Vec3(0, 0, 0),
+      buildFuelTanks(power), thruster._3)
+  }
+
+  /**
+   * What turns the shaft's power into thrust: a propeller, or a ducted fan.
+   *
+   * Both come out as JSBSim's `propeller` element, because that element is a machine that absorbs shaft power
+   * and produces thrust against advance ratio and nothing more — a free propeller and a shrouded rotor differ
+   * in their two coefficient curves, not in their kind. The fan therefore states its own curves, derived from
+   * the figures it is sold with, and the propeller takes the generic ones.
+   *
+   * A shaft carrying both is rejected by [[SimulationRequirements]] rather than resolved silently here, and a
+   * fan whose curves cannot be derived throws: reaching here without them means the requirements were skipped,
+   * and the ideal curves would give an aircraft about twice the thrust it really has.
+   */
+  private def buildThruster(shaft: com.abajar.avleditor.crrcsim.Shaft,
+                            units: com.abajar.avleditor.ModelUnits
+                           ): Option[(Double, Int, Option[ThrusterCurves])] = {
+    val fan = Option(shaft.getDuctedFans).map(_.asScala).getOrElse(Nil).headOption
+    fan match {
+      case Some(f) =>
+        val curves = ductedFanCurves(shaft, f, units).fold(
+          problem => throw new IllegalStateException(problem),
+          identity)
+        logger.log(Level.INFO, f"Ducted fan: ${f.getInnerDiameterMm}%.1f mm bore, thrust running out at " +
+          f"J = ${curves.k}%.2f, at ${100 * curves.figureOfMerit}%.0f%% of the ideal for that disc " +
+          f"(${curves.idealStaticThrustN / 9.80665}%.2f kg ideal against the stated " +
+          f"${units.toKilograms(f.getStaticThrust)}%.2f kg).")
+        Some((f.getInnerDiameterMm / 1000.0, f.getBlades, Some(ThrusterCurves(curves.ct, curves.cp))))
+      case None =>
+        Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
+          .map(p => (p.getD.toDouble, p.getBlades, None))
+    }
+  }
+
+  /**
+   * The fan's curves, from its own figures plus the motor's: the revolutions and the power belong to the motor
+   * that drives it, so they are read from there rather than stated twice.
+   */
+  def ductedFanCurves(shaft: com.abajar.avleditor.crrcsim.Shaft,
+                      fan: com.abajar.avleditor.crrcsim.DuctedFan,
+                      units: com.abajar.avleditor.ModelUnits
+                     ): Either[String, DuctedFanCurves.Curves] = {
+    val engine = Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
+    val rpm = engine.flatMap(e => Option(e.getData).map(_.asScala).getOrElse(Nil)
+      .filter(d => d.getRpms > 0).map(_.getRpms.toDouble).reduceOption(_ max _))
+    val watts = engine.flatMap(maxPowerWatts)
+    (rpm, watts) match {
+      case (None, _) => Left("The ducted fan is driven by the motor, so the motor needs a data row with " +
+        "'Rpms' above zero: it is what sets how much air the fan throws per revolution.")
+      case (_, None) => Left("The ducted fan is driven by the motor, so the motor needs a data row with " +
+        "'Voltage' and 'Current' above zero: their product is the power the fan turns into thrust.")
+      case (Some(r), Some(w)) =>
+        DuctedFanCurves.from(DuctedFanCurves.Fan(
+          innerDiameterM = fan.getInnerDiameterMm / 1000.0,
+          blades = fan.getBlades,
+          rpm = r,
+          powerWatts = w,
+          staticThrustN = units.toKilograms(fan.getStaticThrust) * com.abajar.avleditor.avl.AVL.GRAVITY))
+    }
   }
 
   /**
