@@ -142,6 +142,22 @@ public class DuctedFan implements Serializable {
         }
     }
 
+    /**
+     * Puts the exhaust at a position stated within the shaft — what a drag in the 3D view reports — writing it
+     * back in whichever of the two meanings is in force, so the caller does not have to know which.
+     */
+    public void setExhaustAt(float x, float y, float z) {
+        if (exhaustFollowsFan) {
+            exhaust.setX(x - pos.getX());
+            exhaust.setY(y - pos.getY());
+            exhaust.setZ(z - pos.getZ());
+        } else {
+            exhaust.setX(x);
+            exhaust.setY(y);
+            exhaust.setZ(z);
+        }
+    }
+
     /** Where the thrust acts, absolute, in the model's length unit. */
     public float exhaustX() {
         return exhaustFollowsFan ? pos.getX() + exhaust.getX() : exhaust.getX();

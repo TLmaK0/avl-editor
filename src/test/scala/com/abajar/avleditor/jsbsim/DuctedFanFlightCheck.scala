@@ -72,7 +72,10 @@ object DuctedFanFlightCheck {
     val model = new CRRCSimRepository().restoreFromFile(new File("samples/eurofighter/eurofighter.avle"))
     model.getAvl.getGeometry.getSurfaces.asScala.foreach(_.initSectionParents())
     val shaft = model.getConfig.getPower.getBateries.get(0).getShafts.get(0)
+    // Whatever propulsion the sample happens to carry: this check states its own, so it cannot be broken by
+    // someone saving the sample with a fan of their own.
     shaft.getPropellers.clear()
+    shaft.getDuctedFans.clear()
     val fan = shaft.createDuctedFan()
     fan.setInnerDiameterMm(68f); fan.setBlades(12); fan.setMass(0.19f)
     val engine = shaft.getEngines.get(0)

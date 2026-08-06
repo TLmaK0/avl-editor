@@ -11,7 +11,7 @@
 package com.abajar.avleditor.mass
 
 import com.abajar.avleditor.avl.mass.{Mass, MassObject}
-import com.abajar.avleditor.crrcsim.{CRRCSim, Pos, Shaft}
+import com.abajar.avleditor.crrcsim.{CRRCSim, DuctedFan, Pos, Shaft}
 import scala.collection.JavaConverters._
 
 /**
@@ -103,7 +103,8 @@ object MassMarkers {
               shaft.getCombustionEngines.asScala.toIndexedSeq
                 .flatMap(e => onShaft(shaft, e, e.getMass, e.getPos)) ++
               shaft.getPropellers.asScala.toIndexedSeq.flatMap(pr => onShaft(shaft, pr, pr.getMass, pr.getPos)) ++
-              shaft.getDuctedFans.asScala.toIndexedSeq.flatMap(f => onShaft(shaft, f, f.getMass, f.getPos))
+              shaft.getDuctedFans.asScala.toIndexedSeq.flatMap(f =>
+                onShaft(shaft, f, f.getMass, f.getPos) ++ exhaustOf(shaft, f))
           }
       }
       val tanks = p.getFuelTanks.asScala.toIndexedSeq.flatMap { tank =>
@@ -127,6 +128,22 @@ object MassMarkers {
           p.setY(y - shaft.getPos.getY)
           p.setZ(z - shaft.getPos.getZ)
         })
+    }
+
+  /**
+   * A ducted fan's exhaust: where the thrust is applied, and a position the user has to be able to place, so
+   * it gets a marker of its own with no weight — the same arrangement as the shaft. Its node is the exhaust's
+   * own Pos rather than the fan, so selecting the fan still finds the fan.
+   *
+   * Moving it goes through the fan, which knows whether these three numbers mean an offset from itself or a
+   * position of their own; and because the marker's position is that Pos, a drag is captured for undo like any
+   * other.
+   */
+  private def exhaustOf(shaft: Shaft, fan: DuctedFan): IndexedSeq[MassMarker] =
+    Option(fan.getExhaust).toIndexedSeq.map { p =>
+      MassMarker(p, p, "Exhaust", 0f,
+        shaft.absoluteX(fan.exhaustX()), shaft.absoluteY(fan.exhaustY()), shaft.absoluteZ(fan.exhaustZ()),
+        (x, y, z) => fan.setExhaustAt(x - shaft.getPos.getX, y - shaft.getPos.getY, z - shaft.getPos.getZ))
     }
 
   /** A component contributes a marker when it has a position to show; without one there is

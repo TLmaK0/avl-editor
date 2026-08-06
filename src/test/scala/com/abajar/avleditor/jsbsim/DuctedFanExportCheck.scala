@@ -181,11 +181,14 @@ object DuctedFanExportCheck {
     check("the unit sits on its mass", fanShapes.exists(_.offset == (0f, 0f, 0f)))
     check("and the exhaust away from it, where the thrust acts",
       fanShapes.exists(s => near(s.offset._1, 0.35) && near(s.offset._3, 0.10)))
-    // A short duct is the ordinary case and should draw nothing extra.
+    // The exhaust is drawn whether or not it is offset — it is where the thrust acts and has to be visible and
+    // grabbable — so a short duct still shows its disc, on the fan.
     theFan.getExhaust.setX(0f); theFan.getExhaust.setZ(0f)
-    check("a fan with no offset draws only itself",
-      com.abajar.avleditor.mass.ComponentShapes.from(ducted, com.abajar.avleditor.mass.MassMarkers.from(ducted))
-        .count(_.owner.isInstanceOf[DuctedFan]) == 1)
+    val shortDuct = com.abajar.avleditor.mass.ComponentShapes.from(
+      ducted, com.abajar.avleditor.mass.MassMarkers.from(ducted))
+    check("a fan with no offset still draws its exhaust, on itself",
+      shortDuct.count(_.owner.isInstanceOf[DuctedFan]) == 2 &&
+        shortDuct.filter(_.owner.isInstanceOf[DuctedFan]).forall(_.offset == (0f, 0f, 0f)))
 
     println(if (ok) "DUCTED_FAN_EXPORT_OK" else "DUCTED_FAN_EXPORT_FAIL")
     if (!ok) sys.exit(1)

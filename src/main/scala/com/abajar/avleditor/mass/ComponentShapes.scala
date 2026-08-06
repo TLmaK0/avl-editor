@@ -185,13 +185,13 @@ object ComponentShapes {
         // offset between them needs no shaft: whatever moved the fan moved its marker with it.
         val exhaustOffset =
           (fan.exhaustX() - fan.getPos.getX, fan.exhaustY() - fan.getPos.getY, fan.exhaustZ() - fan.getPos.getZ)
-        val exhaust =
-          if (exhaustOffset == (0f, 0f, 0f)) None
-          else Some(ComponentShape(index, Disc, 0f, bore, bore,
-            blades = math.max(2, fan.getBlades), resizableAxes = Set.empty,
-            dimensionFields = Nil, owner = fan, resizeTo = (_, _, _) => (),
-            offset = exhaustOffset))
-        IndexedSeq(unit) ++ exhaust
+        // Always drawn, offset or not: the exhaust is where the thrust acts and the user has to see it. The
+        // line to the fan appears only when there is a duct to draw — a duct of no length is not one.
+        val exhaust = ComponentShape(index, Disc, 0f, bore, bore,
+          blades = math.max(2, fan.getBlades), resizableAxes = Set.empty,
+          dimensionFields = Nil, owner = fan, resizeTo = (_, _, _) => (),
+          offset = exhaustOffset)
+        IndexedSeq(unit, exhaust)
       }.flatten
 
   /**

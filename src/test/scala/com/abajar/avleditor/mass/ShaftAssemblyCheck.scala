@@ -108,6 +108,42 @@ object ShaftAssemblyCheck {
     check("the shaft, the fan and the exhaust add up once each", near(at.x, 0.51))
     check("and the height comes through too", near(at.z, 0.03))
 
+    println("the exhaust can be placed by hand, like every other position")
+    val exhaustMarker = markerFor(crrcsim, "Exhaust")
+    println(f"  the exhaust marker is at ${exhaustMarker.x}%.3f, weighing ${exhaustMarker.mass}%.1f")
+    check("it has a marker of its own", near(exhaustMarker.x, 0.51))
+    check("weighing nothing, because it is a place and not a part", exhaustMarker.mass == 0f)
+    check("and it is drawn whether or not it is offset",
+      ComponentShapes.from(crrcsim, MassMarkers.from(crrcsim))
+        .count(s => s.owner.isInstanceOf[DuctedFan] && s.kind == ComponentShapes.Disc) == 1)
+
+    println("dragging it moves the exhaust, not the fan")
+    exhaustMarker.moveTo(0.60f, 0f, 0.05f)
+    check("the exhaust followed the drag", near(markerFor(crrcsim, "Exhaust").x, 0.60))
+    check("in height too", near(markerFor(crrcsim, "Exhaust").z, 0.05))
+    check("the fan stayed where it was", near(markerFor(crrcsim, "Ducted fan").x, 0.45))
+    check("and it is stored as an offset from the fan, since it follows it",
+      near(fan.getExhaust.getX, 0.15))
+    // The drag is captured for undo through the marker's position, which is the exhaust's own Pos.
+    check("the marker's position is the exhaust's Pos, which is what undo captures",
+      markerFor(crrcsim, "Exhaust").position eq fan.getExhaust)
+
+    println("and the exported thrust follows it")
+    check("to where it was dragged", near(JsbsimExporter.buildPropulsion(crrcsim).get.at.x, 0.60))
+
+    println("with the exhaust pinned, dragging the fan leaves it behind")
+    fan.setExhaustFollowsFan(false)
+    markerFor(crrcsim, "Ducted fan").moveTo(0.35f, 0f, 0f)
+    check("the fan moved", near(markerFor(crrcsim, "Ducted fan").x, 0.35))
+    check("and the exhaust did not", near(markerFor(crrcsim, "Exhaust").x, 0.60))
+
+    println("selecting one does not select the other")
+    val fresh = MassMarkers.from(crrcsim)
+    check("the fan node finds the fan's marker",
+      MassMarkers.indexOf(fresh, fan).map(fresh(_).label) == Some("Ducted fan"))
+    check("and the exhaust node finds the exhaust's",
+      MassMarkers.indexOf(fresh, fan.getExhaust).map(fresh(_).label) == Some("Exhaust"))
+
     println(if (ok) "SHAFT_ASSEMBLY_OK" else "SHAFT_ASSEMBLY_FAIL")
     if (!ok) sys.exit(1)
   }
