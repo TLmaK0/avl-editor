@@ -35,7 +35,7 @@ import static com.abajar.avleditor.avl.AVLGeometry.*;
  * masses can be moved onto the surface, which
  * {@link com.abajar.avleditor.avl.AVLGeometry#moveSectionMassesToSurfaces()} does on load.
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_CONTROL, ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_CONTROL, ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class Section  extends MassObject implements AVLSerializable{
     //TODO: AIRFOIL
     //TODO: DESIGN

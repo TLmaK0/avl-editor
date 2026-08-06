@@ -22,7 +22,7 @@ import javax.xml.bind.annotation.XmlElement;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class Propeller implements Serializable {
 
     @Override

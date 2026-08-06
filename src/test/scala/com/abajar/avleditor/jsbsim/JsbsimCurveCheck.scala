@@ -9,7 +9,6 @@ package com.abajar.avleditor.jsbsim
 
 import com.abajar.avleditor.AvlManager
 import com.abajar.avleditor.avl.connectivity.AvlRunner
-import com.abajar.avleditor.crrcsim.CRRCSimRepository
 import java.io.{File, PrintWriter}
 import java.util.Properties
 import scala.collection.JavaConverters._
@@ -68,24 +67,23 @@ object JsbsimCurveCheck {
     deleteTree(root)
 
     println("exporting the model, sweep and all")
-    val model = new CRRCSimRepository().restoreFromFile(new File("samples/eurofighter/eurofighter.avle"))
-    model.getAvl.getGeometry.getSurfaces.asScala.foreach(_.initSectionParents())
-    model.calculate()
+    // The check's own aircraft, stable and ordinary, rather than a sample the user edits.
+    val model = com.abajar.avleditor.TestAircraft.conventional()
     val calc = new AvlRunner(props.getProperty("avl.path"), model.getAvl, model.getOriginPath).getCalculation()
     check("the sweep measured a curve", calc.getAlphaSweep.size >= 3)
-    JsbsimExporter.export(root, "eurofighter", model, calc)
+    JsbsimExporter.export(root, "testcraft", model, calc)
 
-    val aircraftXml = scala.io.Source.fromFile(new File(root, "aircraft/eurofighter/eurofighter.xml")).mkString
+    val aircraftXml = scala.io.Source.fromFile(new File(root, "aircraft/testcraft/testcraft.xml")).mkString
     val liftRows = tableRows(aircraftXml, "aero/force/lift")
     val dragRows = tableRows(aircraftXml, "aero/force/drag")
     check("the exported model states a lift curve", liftRows.length == calc.getAlphaSweep.size)
     check("and a drag curve", dragRows.length == liftRows.length)
 
     println("flying it in JSBSim")
-    write(new File(root, "aircraft/eurofighter/reset00.xml"),
+    write(new File(root, "aircraft/testcraft/reset00.xml"),
       """<?xml version="1.0"?>
         |<initialize name="in the air, level, at the analysed speed">
-        |  <ubody unit="M/SEC"> 30.0 </ubody>
+        |  <ubody unit="M/SEC"> 16.0 </ubody>
         |  <vbody unit="M/SEC"> 0.0 </vbody>
         |  <wbody unit="M/SEC"> 0.0 </wbody>
         |  <altitude unit="M"> 300.0 </altitude>
@@ -108,7 +106,7 @@ object JsbsimCurveCheck {
     write(new File(root, "pullup.xml"),
       """<?xml version="1.0"?>
         |<runscript name="pullup">
-        |  <use aircraft="eurofighter" initialize="reset00"/>
+        |  <use aircraft="testcraft" initialize="reset00"/>
         |  <run start="0.0" end="6.0" dt="0.0041666">
         |    <event name="hold the stick back">
         |      <condition> simulation/sim-time-sec >= 0.5 </condition>

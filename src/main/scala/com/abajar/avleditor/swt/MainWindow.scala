@@ -212,7 +212,9 @@ class MainWindow(
     addToolItem(toolbar, "+ Collision", "Add a collision point", ENABLE_BUTTONS.ADD_COLLISION_POINT)
     new ToolItem(toolbar, SWT.SEPARATOR)
 
-    // Delete
+    // Duplicate and delete
+    addToolItem(toolbar, "Duplicate", "Duplicate the selected element with everything under it",
+      ENABLE_BUTTONS.DUPLICATE)
     addToolItem(toolbar, "Delete", "Delete the selected element (Del)", ENABLE_BUTTONS.DELETE)
     new ToolItem(toolbar, SWT.SEPARATOR)
 

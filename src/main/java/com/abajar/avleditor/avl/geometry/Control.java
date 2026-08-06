@@ -26,7 +26,7 @@ import com.abajar.avleditor.avl.mass.Mass;
  *
  * @author hfreire
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class Control extends MassObject implements AVLSerializable {
     static final long serialVersionUID = -2732944334457467609L;
 

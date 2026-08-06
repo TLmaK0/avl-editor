@@ -322,6 +322,13 @@ object AvlEditor{
             handleMassesFromMaterialsWithUndo(nodeSelected)
           } else {
             handleAddWithUndo(button, nodeSelected)
+            if (button == ENABLE_BUTTONS.DUPLICATE) {
+              // The same call a load makes: a copy's transient links do not survive being copied, and a
+              // duplicated wing whose sections do not know their surface stops mirroring its masses in silence.
+              Option(crrcsim.getAvl).map(_.getGeometry).foreach(_.initParents())
+              logger.log(Level.INFO, "Duplicated " + nodeSelected.toString +
+                ", on top of the original: move the copy to where it belongs.")
+            }
           }
           window.refreshTree
           loadAvlSurfaces()
@@ -418,6 +425,13 @@ object AvlEditor{
           } else {
             Seq(section.getControls)
           }
+        case ENABLE_BUTTONS.DUPLICATE =>
+          // The copy lands in the list that holds the original, which is one of the parent's, not one of the
+          // node's own. Watching the parent's lists is what lets the generic add-undo notice it.
+          collectChildLists(window.treeNodeSelectedParent.orNull) ++
+            window.treeNodeSelectedParent.toSeq.collect {
+              case list: java.util.ArrayList[_] => list
+            }
         case _ =>
           collectChildLists(nodeSelected)
       }

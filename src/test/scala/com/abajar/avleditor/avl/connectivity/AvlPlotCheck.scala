@@ -7,7 +7,6 @@
 package com.abajar.avleditor.avl.connectivity
 
 import com.abajar.avleditor.AvlManager
-import com.abajar.avleditor.crrcsim.CRRCSimRepository
 import java.io.File
 import java.util.Properties
 import scala.collection.JavaConverters._
@@ -41,11 +40,8 @@ object AvlPlotCheck {
       return
     }
 
-    val model = new CRRCSimRepository().restoreFromFile(new File("samples/eurofighter/eurofighter.avle"))
-    // What the editor does before every run: the weight, the inertias and the centre of gravity come from
-    // the mass objects, and the operating point comes from the weight. Without it there is no point to run
-    // at, and the runner says so instead of falling back to one.
-    model.calculate()
+    // The check's own aircraft, not one of the samples: those are the user's aeroplanes and get edited.
+    val model = com.abajar.avleditor.TestAircraft.conventional()
     println(f"  analysis point: ${model.getAvl.describeAnalysisPoint}")
     val runner = new AvlRunner(props.getProperty("avl.path"), model.getAvl, model.getOriginPath, 45f, 20f)
     runner.getCalculation()

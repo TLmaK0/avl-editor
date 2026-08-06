@@ -24,7 +24,7 @@ import javax.xml.bind.annotation.XmlElementWrapper;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_DATA, ENABLE_BUTTONS.ADD_DATA_IDLE, ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_DATA, ENABLE_BUTTONS.ADD_DATA_IDLE, ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class Engine implements Serializable{
 
     @Override

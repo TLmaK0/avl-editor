@@ -15,8 +15,10 @@ import com.abajar.avleditor.view.annotations.AvlEditorField;
 import com.abajar.avleditor.view.annotations.AvlEditor;
 import com.abajar.avleditor.view.avl.SelectorMutableTreeNode.ENABLE_BUTTONS;
 
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
-public class Change {
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
+public class Change implements java.io.Serializable {
+    static final long serialVersionUID = 20260806L;
+
 
     private Date date = new Date();
 

@@ -7,7 +7,6 @@
 package com.abajar.avleditor.avl.connectivity
 
 import com.abajar.avleditor.AvlManager
-import com.abajar.avleditor.crrcsim.CRRCSimRepository
 import java.io.File
 import java.util.Properties
 import scala.collection.JavaConverters._
@@ -54,8 +53,8 @@ object AlphaSweepCheck {
       return
     }
 
-    val model = new CRRCSimRepository().restoreFromFile(new File("samples/eurofighter/eurofighter.avle"))
-    model.calculate()
+    // The check's own aircraft: a sample is the user's aeroplane and changes under the check's feet.
+    val model = com.abajar.avleditor.TestAircraft.conventional()
     val runner = new AvlRunner(props.getProperty("avl.path"), model.getAvl, model.getOriginPath, 45f, 20f)
     val calc = runner.getCalculation()
     val sweep = calc.getAlphaSweep.asScala.toList

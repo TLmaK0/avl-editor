@@ -133,6 +133,105 @@ class AddPropeller implements TreeModificator{
   }
 }
 
+/**
+ * Duplicates a node with everything under it, beside the original.
+ *
+ * The mirror image of {@link Delete}, and generic for the same reason: it finds whichever {@code @AvlEditorNode}
+ * list of the parent holds the node, by reflection, and inserts a deep copy right after it. So it works for
+ * nodes nobody thought about, which is how the delete stopped being a chain of instanceof cases.
+ *
+ * Two things it must do beyond copying, and both are about not leaving a broken aircraft behind:
+ *
+ * <ul>
+ *   <li><b>Names that identify a part are made unique.</b> AVL's file names surfaces, and two called `wing` is
+ *       a model nobody can read; a body's BFILE is a real file written beside it, and two bodies sharing one
+ *       would overwrite each other's profile. A control's name is <b>left alone</b>: it is what makes two
+ *       sections part of the same control, so renaming it would quietly split an aileron in two.</li>
+ *   <li><b>The transient links are restored</b>, the same call a load makes. A duplicated wing whose sections
+ *       do not know their surface stops mirroring its masses without saying so.</li>
+ * </ul>
+ *
+ * The copy lands exactly on top of the original in space. Offsetting it would mean inventing a position, and
+ * the sensible offset differs for a wing, a battery and a fan.
+ */
+class Duplicate implements TreeModificator{
+  public void modify(Object node, Object parent){
+    if (node == null) return;
+
+    java.util.List list = listHolding(node, parent);
+    if (list == null) {
+      System.err.println("Duplicate: " + node.getClass().getName() + " is not in any list of "
+          + (parent == null ? "nothing" : parent.getClass().getName()));
+      return;
+    }
+
+    Object copy = DeepCopy.of(node);
+    if (copy == null) {
+      System.err.println(DeepCopy.whyNot(node));
+      return;
+    }
+
+    makeNamesUnique(copy, list);
+    int at = list.indexOf(node);
+    if (at < 0) list.add(copy); else list.add(at + 1, copy);
+  }
+
+  /** The parent's list that holds the node, or the parent itself when the tree selected the list. */
+  private java.util.List listHolding(Object node, Object parent) {
+    if (parent instanceof java.util.List && ((java.util.List) parent).contains(node)) {
+      return (java.util.List) parent;
+    }
+    if (parent == null) return null;
+    for (java.lang.reflect.Method method : parent.getClass().getMethods()) {
+      if (!method.isAnnotationPresent(AvlEditorNode.class) || method.getParameterCount() > 0) continue;
+      try {
+        Object value = method.invoke(parent);
+        if (value instanceof java.util.List && ((java.util.List) value).contains(node)) {
+          return (java.util.List) value;
+        }
+      } catch (Exception ignored) {
+        // A node that cannot be read cannot hold what we are duplicating either.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A surface's or a body's name identifies a part, and AVL reads those names, so the copy gets its own. A
+   * body's BFILE is a file on disk and gets its own too. Everything else keeps its name.
+   */
+  private void makeNamesUnique(Object copy, java.util.List siblings) {
+    if (copy instanceof Surface) {
+      Surface surface = (Surface) copy;
+      surface.setName(freeName(surface.getName(), siblings));
+    } else if (copy instanceof Body) {
+      Body body = (Body) copy;
+      String name = freeName(body.getName(), siblings);
+      body.setName(name);
+      // A file name, so no spaces: AVL opens this by name from the directory beside the .avl.
+      body.setBFILE(name.replaceAll("\\s+", "_") + ".dat");
+    }
+  }
+
+  private String freeName(String name, java.util.List siblings) {
+    String base = name == null || name.isEmpty() ? "copy" : name;
+    for (int i = 2; i < 1000; i++) {
+      String candidate = base + " " + i;
+      if (!taken(candidate, siblings)) return candidate;
+    }
+    return base + " copy";
+  }
+
+  private boolean taken(String candidate, java.util.List siblings) {
+    for (Object sibling : siblings) {
+      String name = sibling instanceof Surface ? ((Surface) sibling).getName()
+          : sibling instanceof Body ? ((Body) sibling).getName() : null;
+      if (candidate.equals(name)) return true;
+    }
+    return false;
+  }
+}
+
 class AddDuctedFan implements TreeModificator{
   public void modify(Object node, Object parent){
     ((Shaft)node).createDuctedFan();

@@ -21,7 +21,7 @@ import javax.xml.bind.annotation.XmlTransient;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class EngineData implements Serializable {
 
     @Override

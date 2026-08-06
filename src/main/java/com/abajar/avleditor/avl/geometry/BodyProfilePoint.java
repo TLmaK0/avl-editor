@@ -23,7 +23,7 @@ import java.io.Serializable;
  *
  * @author hfreire
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class BodyProfilePoint implements Serializable {
     static final long serialVersionUID = 1L;
 

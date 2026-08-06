@@ -23,7 +23,7 @@ import com.abajar.avleditor.view.annotations.AvlEditor;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class Wheel implements Serializable {
     static final long serialVersionUID = 2233264509711545342L;
     

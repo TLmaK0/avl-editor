@@ -269,6 +269,32 @@ sequence has to leave the plot menu, leave OPER (both with a blank line) and `qu
 in `AvlRunner.plotCommands` as a list, so they can be read and checked without running AVL, and
 `AvlPlotCheck` then runs AVL for real and asserts two pages, two `showpage`s and a closed file.
 
+## The aircraft the checks fly
+
+`TestAircraft` builds one in code: a plain 1.1 kg sport model — rectangular wing with ailerons, tailplane with
+an elevator, fin with a rudder, its centre of gravity ahead of the neutral point. The checks that need a real
+aeroplane to run AVL or JSBSim on use it, and **not** the files under `samples/`.
+
+Those are the user's aeroplanes. They get edited while the editor is being tried out, and a check that loads one
+fails for reasons that have nothing to do with the code: a ducted fan appeared in the eurofighter between two
+runs of `DuctedFanFlightCheck` and broke it, because the check added a second fan and the export took the first.
+`LegacyRoundTripCheck` already followed this rule for the same reason.
+
+It is also a better subject. The eurofighter is unstable in all three axes, has a span efficiency of 0.19 and no
+oscillatory modes at all; the test aircraft trims at +3.4° with `Cma` −0.81, `Cnb` +0.076, `Clb` −0.045,
+`e` = 0.96 and two oscillatory modes, so a check about the aerodynamics is not fighting a divergence at the same
+time.
+
+Two things it had to get right, both found by AVL and JSBSim refusing to play:
+
+- **Sections must be appended in span order.** `Surface.createSection()` inserts a station *between the last
+  two* and interpolates it — right for the editor's `+` button on an existing wing, wrong for building one.
+  Used that way it produced a wing running root, tip, mid, and AVL built a folded surface out of it and reported
+  a **negative span efficiency**.
+- **Mass has to be spread, including at the tail.** With every mass piled around the wing the pitch inertia came
+  out four times too small, the pitch dynamics became far faster than any real model's, and JSBSim's integration
+  gave up 0.2 s into a full-throttle run.
+
 ## What point the aircraft is measured at
 
 **The lift coefficient is derived, never typed.** In level flight the lift equals the weight, so
@@ -478,6 +504,26 @@ its serialization stay, so files saved with one still load and save it unchanged
 on a sample nobody tidies up), and a model that has one is told plainly that it cannot be exported.
 **Do not offer a control that builds something no export can consume** — that is the same failure as an
 invented default, moved into the UI.
+
+And whatever the tree can delete, the tree can **duplicate** — with everything under it. `Duplicate` is the
+mirror image of `Delete` and generic for the same reason: it finds whichever `@AvlEditorNode` list of the parent
+holds the node, by reflection, and inserts a deep copy right after it, so it works for nodes nobody thought
+about. The copy itself is a serialization round trip (`DeepCopy`), which copies classes it has never heard of;
+one that cannot be copied is reported rather than half-copied.
+
+Three things a blind copy would get wrong, and `DuplicateCheck` pins all of them:
+
+- **Names AVL reads are made unique**, and names that mean *the same thing* are not. Two surfaces called `wing`
+  is a file nobody can read, and two bodies sharing a `BFILE` overwrite each other's profile — so those get
+  their own (without spaces: AVL opens the profile by file name). A **control keeps its name**, because the name
+  is what makes two sections part of the same control; renaming it would quietly split one aileron into two.
+- **The transient links are restored** afterwards, the same `initParents()` a load makes. A duplicated wing
+  whose sections do not know their surface stops mirroring its masses, in silence.
+- **The copy lands on top of the original** and the log says so. Offsetting it would mean inventing a position,
+  and the sensible offset differs for a wing, a battery and a fan.
+
+It is undoable, and for free: `handleAddWithUndo` already notices whatever appears in a tracked list and pushes
+an `AddCommand`, which is how every `+` button and the delete are undoable too.
 
 And whatever the tree can add, the tree can **delete**. A node is deletable when its class asks for
 `ENABLE_BUTTONS.DELETE`, and `Delete` then removes it from whichever `@AvlEditorNode` list of its parent

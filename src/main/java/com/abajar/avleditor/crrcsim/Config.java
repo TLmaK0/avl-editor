@@ -25,7 +25,7 @@ import javax.xml.bind.annotation.XmlElement;
  *
  * @author Hugo
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class Config  implements Serializable{
     static final long serialVersionUID = 2660699319046872464L;
 

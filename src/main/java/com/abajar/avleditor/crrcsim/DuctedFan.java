@@ -36,7 +36,7 @@ import javax.xml.bind.annotation.XmlAttribute;
  * {@link com.abajar.avleditor.jsbsim.DuctedFanCurves} derives the thrust at every speed from momentum theory,
  * with one documented figure of merit for the duct's losses.
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class DuctedFan implements Serializable {
     static final long serialVersionUID = 20260806L;
 

@@ -30,7 +30,7 @@ import com.abajar.avleditor.avl.mass.Mass;
  *
  * @author hfreire
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SECTION, ENABLE_BUTTONS.DELETE, ENABLE_BUTTONS.ADD_MASS})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_SECTION, ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE, ENABLE_BUTTONS.ADD_MASS})
 public class Surface extends MaterialElement implements AVLSerializable {
     static final long serialVersionUID = 1138674039288253507L;
     //TODO: NOWAKE

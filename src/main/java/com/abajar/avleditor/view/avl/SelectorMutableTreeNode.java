@@ -149,6 +149,7 @@ public class SelectorMutableTreeNode  extends DefaultMutableTreeNode{
     private static final TreeModificator addFuelTank = new AddFuelTank();
     private static final TreeModificator addPropeller = new AddPropeller();
     private static final TreeModificator addDuctedFan = new AddDuctedFan();
+    private static final TreeModificator duplicate = new Duplicate();
     private static final TreeModificator addData = new AddData();
     private static final TreeModificator addDataIdle = new AddDataIdle();
     private static final TreeModificator addSimpleTrust = new AddSimpleTrust();
@@ -183,6 +184,7 @@ public class SelectorMutableTreeNode  extends DefaultMutableTreeNode{
         ADD_COLLISION_POINT (addCollisionPoint),
         ADD_PROFILE_POINT   (addProfilePoint),
         IMPORT_BFILE        (importBfile),
+        DUPLICATE           (duplicate),
         DELETE              (delete);
 
         private final TreeModificator modificator;

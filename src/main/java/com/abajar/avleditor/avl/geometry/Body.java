@@ -31,7 +31,7 @@ import javax.xml.bind.annotation.XmlElementWrapper;
  *
  * @author hfreire
  */
-@AvlEditor(buttons={ENABLE_BUTTONS.ADD_PROFILE_POINT, ENABLE_BUTTONS.IMPORT_BFILE, ENABLE_BUTTONS.DELETE, ENABLE_BUTTONS.ADD_MASS})
+@AvlEditor(buttons={ENABLE_BUTTONS.ADD_PROFILE_POINT, ENABLE_BUTTONS.IMPORT_BFILE, ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE, ENABLE_BUTTONS.ADD_MASS})
 public class Body extends MaterialElement implements AVLSerializable  {
     static final long serialVersionUID = -8843371548047761516L;
 

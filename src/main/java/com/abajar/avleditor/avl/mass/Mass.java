@@ -26,7 +26,7 @@ import static com.abajar.avleditor.avl.AVLGeometry.*;
  * @author hfreire
  */
 @XmlRootElement
-@AvlEditor(buttons={ENABLE_BUTTONS.DELETE})
+@AvlEditor(buttons={ENABLE_BUTTONS.DUPLICATE, ENABLE_BUTTONS.DELETE})
 public class Mass implements Serializable{
     static final long serialVersionUID = 4976225526842074852L;
 
