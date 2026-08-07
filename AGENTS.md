@@ -492,6 +492,19 @@ thrown away with the rest of the real roots — and the table was drawn only whe
 is exactly when an aircraft with nothing but real roots has least to say for itself. The coupled roll-spiral
 (3.3.1.4) is the sixth.
 
+**The short period is judged twice, because the standard asks two things of it.** TABLE IV is the damping,
+and it was all the editor ever checked; 3.2.2.1.1 is the **frequency**, and an aircraft can be beautifully
+damped and still answer the elevator far too slowly or far too sharply for the g its wing makes. The
+quantity is the Control Anticipation Parameter, `CAP = wn_sp^2 / (n/alpha)`.
+
+That requirement is **drawn** rather than tabulated — three log-log figures — which is why it looked like it
+needed a scan measured by eye. It does not: the boundaries are lines of **constant CAP** and each carries
+its value printed up the right-hand edge, so the figures are four numbers per Flight Phase. And `n/alpha`
+needs no weight, no air and no wing area: in level flight the lift equals the weight, so it collapses to
+`CLalpha / CL_trim`, which is the same identity `AVL.analysisLiftCoefficient()` uses, read backwards.
+`ShortPeriodQuicknessCheck` pins it, including that CAP scales as a frequency **squared** with the
+aircraft's size.
+
 **And a seventh row that is not a motion at all: roll response** (3.3.4, TABLE IXa) — how long the aircraft
 takes to bank 60 degrees with the stick hard over, which is the first thing a model flyer would notice and
 the editor never computed. It is derived, not assumed: the ailerons' rolling moment balancing the roll

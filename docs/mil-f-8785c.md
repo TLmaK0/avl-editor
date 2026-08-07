@@ -70,11 +70,35 @@ c. Level 3 — T2 at least 55 seconds."*
 
 Applies with the pitch control both free and fixed.
 
-### §3.2.2.1.1 Short-period frequency and acceleration sensitivity — PDF p. 13
+### §3.2.2.1.1 Short-period frequency and acceleration sensitivity — FIGURES 1-3, pp. 13-16
 
-ωnsp is required to lie within limits given as **graphs** (figures 1, 2 and 3) against the acceleration
-sensitivity `n/α`, not as a table. This is the Control Anticipation Parameter criterion. Not implemented;
-implementing it means digitising three figures. `n/α = ρ V² S CLα / (2 W)`, all of which the editor has.
+The requirement is **drawn**, not tabulated: ωnsp against the acceleration sensitivity `n/α`, on log-log
+axes, one figure per Flight Phase Category. That makes it look as though it needs a scanned plot measured
+by eye, and it does not — **the boundaries are lines of constant `ωnsp² / (n/α)`, the Control Anticipation
+Parameter, and each line carries its own value printed up the right-hand edge of the figure.** The plots
+are a table of four numbers per Category.
+
+| Category | Figure | Level 1 | Level 2 | Level 3 |
+|----------|--------|---------|---------|---------|
+| A | 1, p. 14 | 0.28 ≤ CAP ≤ 3.6 | 0.16 ≤ CAP ≤ 10.0 | CAP ≥ 0.16 |
+| **B** | **2, p. 15** | **0.085 ≤ CAP ≤ 3.6** | **0.038 ≤ CAP ≤ 10.0** | **CAP ≥ 0.038** |
+| C | 3, p. 16 | 0.16 ≤ CAP ≤ 3.6 | 0.036 ≤ CAP ≤ 10.0 | CAP ≥ 0.036 |
+
+All three figures say the boundaries continue outside the plotted range as straight-line extensions, which
+for lines of constant CAP means the limits above apply at any `n/α`.
+
+**`n/α` needs no weight, no air and no wing area.** It is `ρ V² S CLα / (2 W)` — but in level flight the
+lift equals the weight, so `W = ½ρV²S·CL_trim` and the whole thing collapses to `n/α = CLα / CL_trim`. Both
+come straight back from AVL. It is the same identity that lets `AVL.analysisLiftCoefficient()` derive the
+trim point from the weight, read the other way round.
+
+**Implemented.** CAP has units of 1/s², so it follows the aircraft's size like a frequency squared: `n/α`
+is dimensionless and does not scale, while ωnsp goes as `1/sqrt(b)`.
+
+**Not implemented from those figures**: the additional ωnsp floors that Figures 1 and 3 draw as horizontal
+and vertical lines at low `n/α`, which depend on the aircraft Class — including Figure 3's note that ωnsp
+shall always exceed 0.6 rad/s for Level 3 in Classes I, II-C and IV. Category B, the default, has none of
+them.
 
 ### §3.2.2.1.2 Short-period damping — TABLE IV, PDF p. 13
 

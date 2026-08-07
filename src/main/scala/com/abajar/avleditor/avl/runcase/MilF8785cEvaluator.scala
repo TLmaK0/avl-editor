@@ -212,6 +212,26 @@ object MilF8785cEvaluator {
       case _                     => List((1, 0.35, 1.30), (2, 0.25, 2.00), (3, 0.15, Double.MaxValue))
     }
 
+  /**
+   * MIL-F-8785C 3.2.2.1.1, FIGURES 1-3 (pp. 14-16): short-period frequency, as `(level, min CAP, max CAP)`.
+   *
+   * The requirement is drawn rather than tabulated, and that is the only reason it looks hard. The
+   * boundaries on those log-log plots are **lines of constant `wn_sp^2 / (n/alpha)`** — the Control
+   * Anticipation Parameter — and each line carries its own value printed up the right-hand edge, so the
+   * figures are a table with four numbers per Flight Phase. Nothing has to be measured off the paper.
+   *
+   * What is **not** implemented from those figures: the additional `wn_sp` floors that Figures 1 and 3 draw
+   * as horizontal and vertical lines at low `n/alpha`, which depend on the aircraft Class. Category B — the
+   * default, and Figure 2 — has none of them: it says in as many words that its boundaries continue as
+   * straight-line extensions outside the range shown.
+   */
+  private def shortPeriodFrequencyLimits(category: FlightPhaseCategory): List[(Int, Double, Double)] =
+    category match {
+      case FlightPhaseCategory.A => List((1, 0.28, 3.6), (2, 0.16, 10.0), (3, 0.16, Double.MaxValue))
+      case FlightPhaseCategory.B => List((1, 0.085, 3.6), (2, 0.038, 10.0), (3, 0.038, Double.MaxValue))
+      case FlightPhaseCategory.C => List((1, 0.16, 3.6), (2, 0.036, 10.0), (3, 0.036, Double.MaxValue))
+    }
+
   /** MIL-F-8785C 3.2.1.2 (PDF p. 12): phugoid. Level 3 is a doubling time, not a damping ratio. */
   private val PhugoidMinZetaLevel1 = 0.04
   private val PhugoidMinZetaLevel2 = 0.0
@@ -449,6 +469,7 @@ object MilF8785cEvaluator {
     val rollMode = findRollModeCandidate(realModes(calculation))
     List(
       shortPeriodRow(shortPeriod, category, shapesReported),
+      shortPeriodFrequencyRow(calculation, shortPeriod, category, size, shapesReported),
       dutchRollRow(dutchRoll, category, size, shapesReported),
       phugoidRow(phugoid, category, size, shapesReported),
       rollModeRow(rollMode, category, size, shapesReported),
@@ -726,6 +747,67 @@ object MilF8785cEvaluator {
             ModalNormRow("Roll response", is, None, None, None, None, wants,
               levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied)
         }
+    }
+  }
+
+  /**
+   * The other half of the short-period criterion: is it **quick** enough, not just damped enough
+   * (MIL-F-8785C 3.2.2.1.1, FIGURES 1-3). Only the damping was ever judged.
+   *
+   * The quantity is the Control Anticipation Parameter, `CAP = wn_sp^2 / (n/alpha)`, where `n/alpha` is how
+   * many g the aircraft pulls per radian of angle of attack. That sounds like it needs the weight, the air
+   * and the wing area, and it does not: **in level flight the lift equals the weight**, so
+   * `n/alpha = CLalpha / CL_trim` exactly, and both come straight back from AVL. The same identity is why
+   * `AVL.analysisLiftCoefficient()` exists — this is it read the other way round.
+   *
+   * `CAP` has units of 1/s², so it follows the aircraft's size like any other frequency, squared: `n/alpha`
+   * is dimensionless and does not scale, while `wn_sp` goes as `1/sqrt(b)`.
+   */
+  private def shortPeriodFrequencyRow(calculation: AvlCalculation, candidate: Option[AvlEigenvalue],
+                                      category: FlightPhaseCategory, size: FroudeScale,
+                                      shapesReported: Boolean): ModalNormRow = {
+    val is = "how sharply the nose answers the elevator, against how much g the wing makes when it does"
+    val limits = shortPeriodFrequencyLimits(category)
+    val (_, minCap, maxCap) = limits.head
+    val wants = f"a control anticipation parameter between $minCap%.3f and $maxCap%.1f"
+    // CAP is a frequency squared, so it scales as the square of a frequency threshold.
+    def scaled(cap: Double): Double = { val f = size.frequency(1.0); cap * f * f }
+    val applied = if (size.scales) Some(f"at this size: between ${scaled(minCap)}%.2f and ${scaled(maxCap)}%.1f")
+                  else None
+
+    def cannot(why: String) =
+      ModalNormRow("Short-period quickness", is, None, None, None, None, wants,
+        "Not judged: " + why, None, None, applied)
+
+    candidate match {
+      case None => unidentified("Short-period quickness", is, wants,
+        "none of the oscillating motions AVL found is a pitch one, so there is no frequency to measure.",
+        shapesReported)
+      case Some(mode) =>
+        val stab = calculation.getStabilityDerivatives
+        val config = calculation.getConfiguration
+        if (stab == null || config == null) return cannot("AVL returned no derivatives for this run.")
+        val clAlpha = stab.getCLa.toDouble
+        val clTrim = config.getCLtot.toDouble
+        if (clAlpha <= 0.0) return cannot(f"AVL reports a lift slope of $clAlpha%.3f, which is not one.")
+        if (clTrim <= 0.0)
+          return cannot(f"the aircraft trims at a lift coefficient of $clTrim%.3f, so it is not holding " +
+            "level flight and there is no load factor per angle of attack to speak of.")
+
+        val loadPerAlpha = clAlpha / clTrim
+        val wn = mode.getNaturalFrequency.toDouble
+        val cap = wn * wn / loadPerAlpha
+        val level = levelMet(limits.map { case (n, lo, hi) => (n, cap >= scaled(lo) && cap <= scaled(hi)) })
+        val meets = f"CAP $cap%.2f, at ${loadPerAlpha}%.1f g per radian."
+        val miss =
+          if (cap < scaled(minCap))
+            f"too sluggish: CAP $cap%.3f against the ${scaled(minCap)}%.3f wanted. The nose answers slowly " +
+              "for the g the wing makes — a bigger tailplane, or a longer tail arm."
+          else
+            f"too sharp: CAP $cap%.2f against the ${scaled(maxCap)}%.1f allowed. The aircraft is twitchy in " +
+              "pitch for the g it produces, which is tiring to fly precisely."
+        ModalNormRow("Short-period quickness", is, Some(wn), None, None, None, wants,
+          levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied)
     }
   }
 
