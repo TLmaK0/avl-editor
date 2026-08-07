@@ -104,6 +104,29 @@ class AvlResultsWindow(display: Display) {
     modalGridData.horizontalSpan = 2
     modalGroup.setLayoutData(modalGridData)
 
+    // What runs away, first and always. This used to be shown only when no mode at all was found, so an
+    // aircraft with one passing mode and three divergences reported a green PASS and said nothing about them.
+    MilF8785cEvaluator.runawaySummary(calculation).foreach { summary =>
+      val headline = new Label(modalGroup, SWT.WRAP)
+      headline.setText(summary)
+      headline.setFont(headerFont)
+      headline.setBackground(failBgColor)
+      headline.setForeground(failFgColor)
+      val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
+      grid.horizontalSpan = 5
+      grid.widthHint = 900
+      headline.setLayoutData(grid)
+    }
+    MilF8785cEvaluator.divergences(calculation).foreach { divergence =>
+      val line = new Label(modalGroup, SWT.WRAP)
+      line.setText("• " + divergence.says)
+      val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
+      grid.horizontalSpan = 5
+      grid.widthHint = 900
+      grid.horizontalIndent = 12
+      line.setLayoutData(grid)
+    }
+
     val modes = MilF8785cEvaluator.oscillatoryPositiveModes(calculation)
     if (modes.isEmpty) {
       // What AVL actually answered, not a guess at what the user forgot.

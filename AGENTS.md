@@ -474,6 +474,17 @@ and must produce the same moment; `ControlEffectivenessCheck` asserts exactly th
 different gains. A gain of zero contributes nothing, because a surface AVL never deflects does nothing
 whatever the units.
 
+**What runs away is the headline, whatever else was found.** A real root with a positive real part grows and
+never swings back, and it is the most important thing an AVL run can say — and it was the easiest to miss: the
+divergences were reported *only when the modal table came out empty*, so an aircraft with one passing
+oscillatory mode and three runaways showed a green PASS and said nothing about them. `MilF8785cEvaluator
+.divergences` and `runawaySummary` are always shown, above the table.
+
+Each one names **which axis** is running away, from the mode shape AVL gives, because that is what decides what
+to change: pitch is the centre of gravity, a fast lateral one is the fin, a slow one is the spiral mode most
+models have and most pilots fly through, and without a mode shape it says it cannot tell rather than guessing.
+The doubling time carries the urgency — under half a second there is no flying it at all.
+
 An empty result has to say what the analysis **answered**, not what the user might have forgotten. The
 modal table used to read *'No oscillatory eigenmodes available. Define mass/inertia and run AVL again'*
 whenever it came out empty — including when AVL had the masses, had answered, and the answer was eight

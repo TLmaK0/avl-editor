@@ -41,6 +41,64 @@ object MilF8785cEvaluator {
   private val ModeDominanceThreshold = 0.55f
   private val OscillatoryOmegaThreshold = 1.0e-6f
 
+  /**
+   * A motion that runs away: a real root with a positive real part, which grows without ever swinging back.
+   *
+   * This is the most important thing an AVL run can say, and it used to be the easiest to miss. The
+   * divergences were only reported when the modal table came out **empty** — so an aircraft with one oscillatory
+   * mode and three divergences showed a green PASS and nothing else, which is exactly backwards. They are
+   * reported now whatever else was found.
+   *
+   * `axis` comes from the mode shape when AVL gave one, because which axis is running away decides what to
+   * change: a pitch divergence is the centre of gravity, a fast yaw one is the fin, and a slow lateral one is
+   * the spiral mode, which most models have and most pilots fly through.
+   */
+  final case class Divergence(sigma: Double, doublingTime: Double, axis: String, says: String)
+
+  def divergences(calculation: AvlCalculation): List[Divergence] = {
+    val all = Option(calculation).map(_.getEigenvalues.asScala.toList).getOrElse(Nil)
+    all.filter(e => e.getSigma > 0f && e.getOmega <= OscillatoryOmegaThreshold)
+      .sortBy(e => -e.getSigma)
+      .map { mode =>
+        // A real positive root doubles every ln(2)/sigma seconds.
+        val doubling = math.log(2.0) / mode.getSigma.toDouble
+        val (axis, remedy) =
+          if (!mode.hasModeShape)
+            ("unknown", "AVL gave no mode shape for it, so which axis runs away cannot be told from here.")
+          else if (mode.getLongitudinalRatio >= ModeDominanceThreshold && mode.getPitchRatio >= mode.getSpeedRatio)
+            ("pitch", "The centre of gravity is behind the neutral point: move it forward, with weight in " +
+              "the nose or by moving what is already there.")
+          else if (mode.getLongitudinalRatio >= ModeDominanceThreshold)
+            ("speed", "The aircraft cannot hold a speed: it accelerates or decays away from the trimmed " +
+              "point. Usually the trim itself, or a centre of gravity far from where it was analysed.")
+          else if (doubling > 10.0)
+            ("spiral", "A slow spiral. Most models have one and it is flown through easily; more dihedral " +
+              "or a smaller fin tightens it.")
+          else
+            ("yaw and roll", "The nose is not held into the wind. A larger fin, or the same fin further " +
+              "back, is what settles this.")
+        val urgency =
+          if (doubling < 0.5) "There is no flying this: it is gone before a pilot can react. "
+          else if (doubling < 3.0) "A pilot would be fighting it constantly. "
+          else ""
+        Divergence(mode.getSigma.toDouble, doubling, axis,
+          f"$axis%s runs away: the motion doubles every $doubling%.2f s (sigma +${mode.getSigma}%.3f). " +
+            urgency + remedy)
+      }
+  }
+
+  /** The headline: what the whole run says in one sentence, when something is running away. */
+  def runawaySummary(calculation: AvlCalculation): Option[String] = {
+    val found = divergences(calculation)
+    if (found.isEmpty) None
+    else {
+      val worst = found.minBy(_.doublingTime)
+      val count = if (found.size == 1) "one of its motions runs away" else s"${found.size} of its motions run away"
+      Some(f"This aircraft will not fly as it stands: $count%s, the fastest doubling every " +
+        f"${worst.doublingTime}%.2f s in ${worst.axis}%s. Whatever the modes below say, this comes first.")
+    }
+  }
+
   def oscillatoryPositiveModes(calculation: AvlCalculation): List[AvlEigenvalue] = {
     calculation.getEigenvalues.asScala.toList
       .filter(e => e.getOmega > OscillatoryOmegaThreshold)
@@ -62,20 +120,13 @@ object MilF8785cEvaluator {
       return List("AVL returned no eigenvalues for this run. It computes them from the mass and the " +
         "inertias, so check that the model has masses and that the run converged.")
 
-    val divergent = all.filter(_.getSigma > 0f).sortBy(e => -e.getSigma)
     val header = s"AVL returned ${all.size} modes and none of them oscillates, so there is no short " +
       "period, phugoid or dutch roll to measure: this aircraft's motions grow or decay without " +
       "swinging. The mass and the inertias did reach AVL — the eigenvalues below are its answer."
 
-    val divergences = divergent.map { mode =>
-      // A real positive root doubles every ln(2)/sigma seconds.
-      val doublingTime = math.log(2.0) / mode.getSigma.toDouble
-      f"sigma = +${mode.getSigma}%.3f /s is a divergence: the motion doubles every " +
-        f"${doublingTime}%.2f s. Nothing damps it, so it is not a mode a pilot flies through. The " +
-        "usual cause is a centre of gravity too far aft; move it forward and run AVL again."
-    }
-
-    header :: divergences
+    // The divergences themselves are listed above this, whether or not any mode was found, so they are not
+    // repeated here: they used to appear only in this branch, which hid them the moment one mode was found.
+    List(header)
   }
 
   /** How long one swing takes: the damped period, which is the one you would count with a stopwatch. */

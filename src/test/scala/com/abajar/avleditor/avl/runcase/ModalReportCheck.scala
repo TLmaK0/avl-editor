@@ -43,17 +43,54 @@ object ModalReportCheck {
     check("counts what AVL returned", says(lines, "8 modes"))
     check("says none of them oscillates", says(lines, "none of them oscillates"))
     check("and does not blame the masses", says(lines, "did reach AVL"))
-    check("names the divergence", says(lines, "divergence"))
+    // The divergences are reported on their own, whatever else was found: they used to appear only when the
+    // modal table came out empty, so one oscillatory mode was enough to hide three runaways behind a PASS.
+    val runaways = MilF8785cEvaluator.divergences(run(real))
+    runaways.foreach(d => println("  ! " + d.says))
+    check("the divergence is reported", runaways.size == 1)
     // ln(2) / 4.92 = 0.141 s.
-    check("with the time it doubles in", says(lines, "0.14 s"))
-    check("and the centre of gravity as the usual cause", says(lines, "aft"))
+    check("with the time it doubles in", runaways.head.says.contains("0.14 s"))
+    check("and it is the headline, above whatever the modes say",
+      MilF8785cEvaluator.runawaySummary(run(real)).exists(_.contains("will not fly")))
+    check("said in the aircraft's own terms, not in sigma alone",
+      runaways.head.says.contains("runs away"))
     check("no oscillatory mode is claimed",
       MilF8785cEvaluator.oscillatoryPositiveModes(run(real)).isEmpty)
 
     println("a stable aircraft with a divergence in it")
-    val mixed = MilF8785cEvaluator.whyNoModes(run(Seq((-2.0f, 0f), (0.5f, 0f))))
     check("one line per divergence, and only for those",
-      mixed.count(_.contains("divergence")) == 1)
+      MilF8785cEvaluator.divergences(run(Seq((-2.0f, 0f), (0.5f, 0f)))).size == 1)
+
+    println("and a divergence alongside a mode that oscillates and passes")
+    // The case from the screenshot: a phugoid that passes, and a runaway nobody was being told about.
+    val withOscillation = run(Seq((-1.0f, 3.0f), (5.567f, 0f), (0.443f, 0f)))
+    check("both divergences are still reported",
+      MilF8785cEvaluator.divergences(withOscillation).size == 2)
+    check("and the headline says the aircraft will not fly",
+      MilF8785cEvaluator.runawaySummary(withOscillation).exists(_.contains("0.12 s")))
+    check("even though a mode was found and could pass",
+      MilF8785cEvaluator.oscillatoryPositiveModes(withOscillation).size == 1)
+    check("an aircraft with nothing running away gets no headline",
+      MilF8785cEvaluator.runawaySummary(run(Seq((-1.0f, 3.0f), (-0.5f, 0f)))).isEmpty)
+
+    println("which axis is running away, when AVL says enough to tell")
+    val pitchRunaway = run(Seq((3.0f, 0f)))
+    pitchRunaway.getEigenvalues.get(0).setModeStateAmplitude("w", 1.0f)
+    pitchRunaway.getEigenvalues.get(0).setModeStateAmplitude("q", 0.9f)
+    pitchRunaway.getEigenvalues.get(0).setModeStateAmplitude("the", 0.8f)
+    val pitched = MilF8785cEvaluator.divergences(pitchRunaway).head
+    println("  ! " + pitched.says)
+    check("a pitch runaway names the centre of gravity",
+      pitched.axis == "pitch" && pitched.says.contains("centre of gravity"))
+    val yawRunaway = run(Seq((2.0f, 0f)))
+    yawRunaway.getEigenvalues.get(0).setModeStateAmplitude("v", 1.0f)
+    yawRunaway.getEigenvalues.get(0).setModeStateAmplitude("r", 0.9f)
+    yawRunaway.getEigenvalues.get(0).setModeStateAmplitude("phi", 0.8f)
+    val yawed = MilF8785cEvaluator.divergences(yawRunaway).head
+    println("  ! " + yawed.says)
+    check("a fast lateral one names the fin", yawed.says.contains("fin"))
+    check("and without a mode shape it says it cannot tell",
+      MilF8785cEvaluator.divergences(run(Seq((1.0f, 0f)))).head.axis == "unknown")
 
     println("when there are oscillatory modes, this is not used")
     val oscillatory = run(Seq((-1.0f, 3.0f), (-0.1f, 0.4f)))
