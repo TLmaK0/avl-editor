@@ -135,9 +135,26 @@ stated in pitch control **force and position gradients**, which a radio-controll
 For the landing approach, the local slope of flight-path angle against true airspeed at `Vomin` shall be
 negative or less positive than 0.06 deg/knot (Level 1), 0.15 (Level 2), 0.24 (Level 3).
 
-**Not implemented, and not for want of a drag polar.** It is measured *at* `Vomin`, the minimum operational
-speed, with "the thrust setting required for the normal approach glide path" — two inputs the model does
-not state. Inventing either would decide the verdict. It is also Category C only.
+**Not implemented, and the reason is the stall — not a missing field.**
+
+It is measured *at* `Vomin`. TABLE I (p. 7) defines that per Flight Phase, and for the approach it declines
+to give a formula at all: it says **"Minimum Normal Approach Speed"** — an operational figure, how the
+aircraft is actually flown, not something its geometry decides. Everywhere the table *does* give a formula
+it is a multiple of `Vs`: 1.2, 1.3 or 1.4 times the stall speed.
+
+The thrust is not the obstacle it first looks like — fix the glide path and the speed and it follows from
+the drag polar the alpha sweep already gives, `T = D − W sin(gamma)`.
+
+**Asking the user for the approach speed would be a trap, not an input.** To choose one sensibly you have
+to know where the aircraft stalls; to know that you need `CLmax`; and AVL is inviscid and cannot see a
+stall. A user who enters a speed below the stall would get a confident Level 1 for a flight condition the
+aeroplane cannot reach — the same failure as an invented default, with the pen in the user's hand instead
+of ours.
+
+So this criterion sits **behind the stall**, which is a documented and deliberate boundary of what this
+editor knows (see AGENTS.md on the aero tables holding their last row). Wiring XFOIL — present in the
+project and connected to nothing — gives `CLmax`, and then `Vs`, and then an approach speed that can be
+sanity-checked rather than guessed. B2 is a consequence of that feature, not a task of its own.
 
 ---
 
