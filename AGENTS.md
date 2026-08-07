@@ -360,12 +360,82 @@ together — replaces both the parasite constant and the induced term.
 
 A table also **holds its last row** rather than extrapolating, so lift stops growing at absurd attitudes. That
 is not a stall: a stall is viscous, AVL cannot see one, and the difference has to be stated rather than
-implied. Adding a real one needs XFOIL (present in the project, wired to nothing) and is a separate feature.
+implied. Where the wing gives up **is** now measured — see the next section — but nothing yet models what it
+does past that point, and the exported tables are unchanged.
 
 The evidence is not the assertions. `JsbsimCurveCheck` exports the model for real, runs **JSBSim from the
 command line** on a pull-up and compares the lift and drag JSBSim computes at each instant against the tables
 in the file it loaded — they agree to 1e-16, and the aircraft holds 0.885 of lift past +20° instead of
 inventing more.
+
+## Where the wing gives up, which AVL cannot say
+
+AVL is inviscid: it will hand you lift at forty degrees as confidently as at four. XFOIL is viscous and knows
+where **one aerofoil** stops lifting. Between the two is the question that matters — where does *this
+aeroplane* stop lifting — and it is answered by the **critical-section method**, from NACA Report No. 572,
+*Determination of the Characteristics of Tapered Wings* (Anderson, 1936), which is in the repository at
+`docs/references/naca-tr-572.pdf` along with everything else the editor cites:
+
+> As soon as the `c_l` curve becomes tangent to the stalling `c_lmax` curve, the section at that point reaches
+> its maximum lift coefficient and stalling should soon spread over a considerable part of the wing.
+
+So: AVL's `fs` gives the **spanwise loading** — every strip's local `c_l`, referred to that strip's own area
+and chord, which is exactly what a section `clmax` is measured against, so nothing has to be rescaled between
+them. It rides along in the alpha sweep's own AVL session, because the solve that produces the totals already
+contains it. XFOIL gives each section's `clmax` at that section's own Reynolds number. The wing stalls at the
+attitude where the first strip reaches its own section's limit, and `CLmax` is read off AVL's measured `CL(α)`
+there. `xfoil.WingMaximumLift` is the arithmetic, `xfoil.StallAnalysis` the plumbing.
+
+This **replaces `AeroDerivation.CLMAX_3D_FACTOR`**, a flat 0.9 whose own comment said the accurate route was
+this one. The factor is not nonsense — on the check aircraft's rectangular wing the answer is 0.901 of the
+section limit — but on the same aeroplane with a 4:1 tapered wing of the same span and area it is 0.953, and
+nothing about either wing tells you which. `SpanwiseLoadingCheck` runs both through AVL and pins the other
+half of Anderson's finding as well: the rectangular wing gives up at the **root**, the tapered one **two
+thirds of the way out**, where the ailerons are.
+
+Six things this had to get right, none of them guessable:
+
+- **A mirrored surface is a separate block** in AVL's file, named `wing (YDUP)`, with its stations at negative
+  `y`. Both halves are real strips of one aeroplane; the sections that state the aerofoil belong to the half
+  the model draws, so a mirrored strip is reflected back before it is told which two sections it lies between.
+- **A strip's `c_l` is not quite straight in attitude.** TR 572 splits the loading into a basic distribution
+  that does not change with attitude and an additional one proportional to it, which makes each strip a
+  straight line and the whole method two numbers per station. Measured across thirteen attitudes it is
+  straight to 2.5 % — and it bends the way it must, because AVL's solution is linear in the freestream
+  **vector**, whose components are `cos α` and `sin α`. Two and a half percent is about a degree of attitude
+  at the stall and there is no reason to spend it, so the crossing is read off the measurements and the
+  straight line survives only as a **reported residual**: the report's approximation measured, not assumed.
+- **Reynolds is circular and is iterated.** A section's `clmax` depends on Reynolds, which depends on the
+  speed, and the speed wanted is the one at which that `clmax` is reached. Two or three passes close it, and
+  polars are cached by aerofoil and Reynolds so the later passes mostly cost nothing.
+- **Air's viscosity is a stated assumption, and a derived one.** The model states a density and no
+  temperature, and `mu` depends on temperature and nothing else, so it is standard sea level — 288.15 K
+  through the U.S. Standard Atmosphere 1976's own Sutherland equation, `mu = beta T^(3/2)/(T+S)`, both
+  constants cited to the pages in `docs/references/ussa1976-excerpt.pdf`. It is a mild assumption and the
+  reason is worth stating: a factor of two in Reynolds moves `clmax` by a few percent and the stall speed by
+  the square root of that.
+- **XFOIL does not always show an aerofoil giving up**, and that is a real answer rather than an error. A 10 %
+  symmetric section at Re 60,000 — an ordinary model tailplane — comes back still climbing at 20°, because the
+  code does not model the separation that would end it. Such a station has **no known limit** and takes no
+  part in deciding where the aircraft stalls; refusing the whole aeroplane for it would throw away a wing that
+  answered perfectly well. The result **says which stations those were and what it means**, because the
+  aircraft could give up there first without this noticing.
+- **A file with its executable bit set is not a working XFOIL.** The published Linux binary was built by CI on
+  `ubuntu-latest` and needs a newer C library than Ubuntu 22.04 has; it dies at the loader before printing a
+  word, and every polar comes back empty — which, read through the analysis, looks exactly like an aerofoil
+  that never stalls. `XfoilManager.usable` now asks it to build a NACA 0012 and checks that it did, and the
+  workflow pins the build to `ubuntu-22.04`.
+
+The stall is a **stage of its own and never a refusal**: nothing AVL reports depends on it, so a missing XFOIL
+costs one row of the report rather than the run, and the row says which of these it was, by name, in place of
+a stall speed nobody measured (`Configuration.setStallProblem`).
+
+What it unblocks is MIL-F-8785C **3.2.1.3, flight-path stability** — the last longitudinal criterion, and the
+one that had been waiting on this rather than on a field. It is measured at `Vomin`, and asking the user for
+that would have been a trap: to choose an approach speed you have to know where the aircraft stalls, and a
+speed entered below the stall would have been answered with a confident Level 1 for a condition the aeroplane
+cannot reach. See `docs/mil-f-8785c.md` for the derivation, including why the thrust and the glide path both
+cancel out of the slope, and where the 1.3 comes from (14 CFR 23.73, also in the repository).
 
 ## A ducted fan is a propeller with different curves
 

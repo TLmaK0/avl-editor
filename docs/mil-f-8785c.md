@@ -132,29 +132,95 @@ stated in pitch control **force and position gradients**, which a radio-controll
 
 ### §3.2.1.3 Flight-path stability — p. 12
 
-For the landing approach, the local slope of flight-path angle against true airspeed at `Vomin` shall be
-negative or less positive than 0.06 deg/knot (Level 1), 0.15 (Level 2), 0.24 (Level 3).
+Verbatim:
 
-**Not implemented, and the reason is the stall — not a missing field.**
+> Flight-path stability is defined in terms of flight-path-angle change where the airspeed is changed by
+> the use of pitch control only (throttle setting not changed by the crew). For the landing approach
+> Flight Phase, the curve of flight-path angle versus true airspeed shall have a local slope at `Vomin`
+> which is negative or less positive than:
+>
+> a. Level 1 ----- 0.06 degrees/knot
+> b. Level 2 ----- 0.15 degrees/knot
+> c. Level 3 ----- 0.24 degrees/knot.
+>
+> The thrust setting shall be that required for the normal approach glide path at `Vomin`. The slope of
+> the curve of flight-path angle versus airspeed at 5 knots slower than `Vomin` shall not be more than
+> 0.05 degrees per knot more positive than the slope at `Vomin`, as illustrated by: [figure]
 
-It is measured *at* `Vomin`. TABLE I (p. 7) defines that per Flight Phase, and for the approach it declines
-to give a formula at all: it says **"Minimum Normal Approach Speed"** — an operational figure, how the
-aircraft is actually flown, not something its geometry decides. Everywhere the table *does* give a formula
-it is a multiple of `Vs`: 1.2, 1.3 or 1.4 times the stall speed.
+| Level | Max `dgamma/dV` at `Vomin` |
+|-------|----------------------------|
+| 1 | 0.06 deg/knot |
+| 2 | 0.15 deg/knot |
+| 3 | 0.24 deg/knot |
 
-The thrust is not the obstacle it first looks like — fix the glide path and the speed and it follows from
-the drag polar the alpha sweep already gives, `T = D − W sin(gamma)`.
+Plus the second sentence, which carries **no Level**: five knots slower, the slope may not be more than
+0.05 deg/knot more positive than at `Vomin`.
 
-**Asking the user for the approach speed would be a trap, not an input.** To choose one sensibly you have
-to know where the aircraft stalls; to know that you need `CLmax`; and AVL is inviscid and cannot see a
-stall. A user who enters a speed below the stall would get a confident Level 1 for a flight condition the
-aeroplane cannot reach — the same failure as an invented default, with the pen in the user's hand instead
-of ours.
+**Implemented**, and it is a **Category C** requirement — stated for the landing approach and for nothing
+else. Asked of a model flown as Category A or B the row reports `RowOutcome.DoesNotApply`, which is a
+different answer from a pass and from "not judged".
 
-So this criterion sits **behind the stall**, which is a documented and deliberate boundary of what this
-editor knows (see AGENTS.md on the aero tables holding their last row). Wiring XFOIL — present in the
-project and connected to nothing — gives `CLmax`, and then `Vs`, and then an approach speed that can be
-sanity-checked rather than guessed. B2 is a consequence of that feature, not a task of its own.
+#### What the criterion is actually about
+
+The back side of the drag curve. Below the minimum-drag speed, slowing down *increases* drag, so easing
+the nose down to descend makes the aircraft accelerate instead of go down, and the approach has to be
+flown on the throttle.
+
+#### Why no new input is asked for
+
+In a shallow steady descent at a fixed throttle — which is what "throttle setting not changed by the crew"
+means — `sin(gamma) = (T - D)/W`, so with `T` constant
+
+```
+dgamma/dV = -(1/W) (dD/dV) / cos(gamma)
+```
+
+Three things fall out of that:
+
+- **The thrust cancels.** It sets where the glide path is, not how it slopes with speed, so "the thrust
+  required for the normal approach glide path" never has to be worked out.
+- **The glide path cancels with it**, to within `cos(gamma)` — 0.14 % at 3 degrees — so the approach angle
+  need not be assumed either. It is taken as 1, and said so.
+- **`D(V)` is already measured.** Lift equals weight, so the attitude at any speed follows from
+  `CL = 2W/(rho V^2 S)`, and the alpha sweep gives `CD` there. Both curves are AVL's, at neutral controls,
+  over the range it was asked about — and outside that range the row **refuses** rather than extrapolating.
+
+A propeller at a fixed throttle loses thrust as speed rises, which makes `dgamma/dV` *more* negative than
+this. Holding the thrust constant, as the standard's own illustration does for a jet, is therefore the
+conservative reading and not a convenience.
+
+#### `Vomin`, which is ours and cited
+
+TABLE I (p. 7) defines `Vomin` per Flight Phase, and for APPROACH it declines to give a formula: it says
+**"Minimum Normal Approach Speed"** — how the aircraft is flown, not something its geometry decides.
+Everywhere the table *does* give one it is a multiple of `Vs`: 1.1, 1.2, 1.3, 1.4, 1.5.
+
+So the shape of the answer is the standard's and the number is taken from the airworthiness rule that
+fixes it for exactly this Flight Phase — **14 CFR § 23.73**, in the repository as
+[`references/cfr-14-23.73.pdf`](references/cfr-14-23.73.pdf):
+
+> the reference landing approach speed, VREF, must not be less than the greater of VMC ... and **1.3 VSO**.
+
+VMC is a two-engine minimum-control speed and does not apply here.
+
+**A field was deliberately not offered instead.** To choose an approach speed sensibly you have to know
+where the aircraft stalls; a user who entered one below the stall would be handed a confident Level 1 for
+a condition the aeroplane cannot reach. That is an invented default with the pen moved into the user's
+hand, and worse than ours because it looks like data. This criterion therefore waited on the stall speed
+being **measured** — see `xfoil.StallAnalysis` and AGENTS.md.
+
+#### Size
+
+`dgamma/dV` is an angle over a speed. Under Froude scaling a speed goes as `sqrt(b)`, so an inverse speed
+carries the same power of the span as a frequency does and takes the same factor: `size.frequency`. A 1.2 m
+model is allowed 0.17 deg/knot where the standard states 0.06. The 5-knot window is a speed and scales the
+other way, like a time.
+
+#### One thing worth knowing before reading a verdict
+
+The limit only bites on an aircraft that approaches **slowly**: `dgamma/dV` carries a `1/V`. A jet at 130
+knots cannot fail 3.2.1.3 whatever its polar looks like, and a light aircraft with the flaps down at 50
+knots can fail it easily. That is the requirement working as intended, not a scaling artefact.
 
 ---
 
@@ -318,9 +384,8 @@ Stated here rather than silently skipped.
 |---------|---------|
 | §3.2.2.2, §3.2.3.x forces, §3.3.4.3, **§3.3.5 in full** — all control-force requirements | A radio-controlled model has no stick feel system. There is no force to specify. §3.3.5.1, §3.3.5.1.1 and §3.3.5.2 (pp. 31-32) are stated entirely in pounds of yaw-control-pedal force. |
 | §3.3.2.2 roll rate oscillations, §3.3.2.3 bank angle oscillations, §3.3.2.4 sideslip excursions (p. 24, definitions on p. 78) | Not blocked by physics — blocked by machinery the editor does not have. See below. |
-| §3.2.1.3 flight-path stability | Needs `Vomin` and the approach thrust setting; the model states neither. Category C only. |
 | §3.3.9 asymmetric thrust, §3.3.9.5 two engines inoperative | Single-engine models. |
-| §3.4.2 flight at high angle of attack, stalls | AVL is inviscid and cannot see a stall. See AGENTS.md. |
+| §3.4.2 flight at high angle of attack, stalls | AVL is inviscid and cannot see one. Where a wing **stops** lifting is now measured (XFOIL plus AVL's spanwise loading — see AGENTS.md and §3.2.1.3 above), but what it does *past* that point is not modelled at all. |
 | §3.7 atmospheric disturbances | Needs a turbulence model the editor does not have. |
 | Carrier-based, catapult takeoff, dives, wave-off | Not applicable. |
 
