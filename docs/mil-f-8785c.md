@@ -223,15 +223,65 @@ So each criterion has to be marked for what it is:
 
 Two consequences worth knowing before reading a verdict:
 
-1. A model clears the dutch-roll frequency floors (0.4 rad/s, 0.15 rad/s) by a wide margin whatever it
-   is like, so **two of the three criteria deciding that verdict are nearly vacuous here** and only
-   `ζd ≥ 0.08` really bites.
-2. The invented 10 s for the spiral may well have been defensible: 20 s full-scale is about 9 s on a 1/5
-   model. It was never written down, so it could not be checked — which is exactly the objection.
+1. Applied unchanged, a model clears the dutch-roll frequency floors (0.4 rad/s, 0.15 rad/s) by a wide
+   margin whatever it is like, so **two of the three criteria deciding that verdict become vacuous** and
+   only `ζd ≥ 0.08` really bites.
+2. The same applies at the other end. This editor is used for large aircraft as well as small ones, and
+   a criterion written around a 10-metre airplane is no more valid for a 60-metre one.
 
-Until a model scale is something the editor knows, the dimensional criteria are quoted **as the standard
-states them**, and the fact that they are being applied outside their stated domain is said here rather
-than assumed away.
+### The standard's own numbers are already Froude-scaled
+
+They are not stated that way, but they behave that way, and that is what makes an automatic correction a
+derivation rather than a guess.
+
+Table VI's minimum ωnd is **1.0 rad/s for Classes I and IV, and 0.4 rad/s for Classes II and III**.
+Class I is a light trainer and Class IV a fighter — as different as two airplanes get — and the standard
+puts them in the same row. What they have in common is size: both are around 11 m of span. Classes II
+and III are the big ones.
+
+Test the hypothesis that the real rule is the pendulum frequency of the span, `ωnd ≥ sqrt(g/b)`:
+
+| Class | Representative span | `sqrt(g/b)` | Table VI states |
+|-------|--------------------|-------------|-----------------|
+| I (Cessna 172), IV (F-16, F-4, F-15) | ~11 m | **0.94 rad/s** | 1.0 |
+| III (B-52, C-5, 747) | ~60 m | **0.40 rad/s** | 0.4 |
+| II (Gulfstream, C-130) | ~28 m | 0.59 rad/s | 0.4, in a row shared with Class III |
+
+Two rows of the standard, airplanes differing by a factor of five in span, reproduced to within 6 % with
+**no fitted constant at all**. The Class II mismatch is the expected direction: II and III share a row,
+so the row is set by its largest member.
+
+The representative spans are ours, not the standard's, and that is the assumption in this derivation.
+
+### What the editor therefore does
+
+The **dimensionless** criteria — every damping ratio — are applied exactly as written, at any size.
+
+The **dimensional** ones are expressed in units of the aircraft's own Froude time `tF = sqrt(b/g)`,
+calibrated so that a Class I/IV airplane reproduces the table:
+
+| Criterion | Section | As stated | As applied |
+|-----------|---------|-----------|------------|
+| Dutch-roll min ωnd | Table VI | 0.4 rad/s (Cat. B) | `ωnd >= 1/tF` |
+| Dutch-roll min ζd·ωnd | Table VI | 0.15 rad/s | `ζd·ωnd >= 0.15 · tF_I / tF` |
+| Roll-mode max τR | Table VII | 1.4 s (Cat. B) | `τR <= 1.35 · tF` |
+| Spiral min T2 | Table VIII | 20 s (Cat. B L1) | `T2 >= 19.3 · tF` |
+| Phugoid min T2 | §3.2.1.2 c | 55 s (L3) | `T2 >= 53 · tF` |
+
+with `tF_I = sqrt(11 m / g) = 1.06 s` the Froude time of the airplane the table was written around.
+
+**For a full-size aircraft this changes nothing** — an 11 m airplane gets 1.0 rad/s and a 60 m one gets
+0.4 rad/s, which is what the table says. It only bites outside the range the standard covers, which is
+exactly where the standard stops being able to speak for itself. A 1.5 m model gets `ωnd >= 2.6 rad/s`
+and a spiral that must take at least 7.6 s to double.
+
+That last number is worth noticing: the 10 s that was invented for the spiral, with no derivation behind
+it, lands close to the 7.6 s this produces. It was a decent guess. The difference is that this one can be
+checked, and a check asserts the property — that the rule reproduces Table VI at both ends — rather than
+the number, so it survives rescaling.
+
+Both figures are always reported: what the standard states, and what is applied here after scaling. A
+verdict that silently moved the goalposts would be worse than one that never moved them.
 
 ---
 
