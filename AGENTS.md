@@ -503,6 +503,20 @@ none of them guessable:
 
 With all three, every coefficient agrees with AVL to better than 2.5 %.
 
+On that model **3.3.2.2 and 3.3.2.4 are then measured, not derived**: a step aileron input is integrated,
+the peaks of the roll-rate trace give `p_osc/p_av` by 6.2.6's own formula, and the largest sideslip in the
+stated window gives `delta_beta`. Two things about the window, both of which changed the answer:
+
+- The command is held *"until the bank angle has changed **at least** 90 degrees"* — at least, a minimum.
+  Cut at exactly ninety, a model that rolls at 450 deg/s reaches it in a fifth of a second and the dutch
+  roll never gets to put the sag in the roll rate that the criterion is entirely about. One peak, nothing
+  to measure. Held for three dutch-roll periods there are three.
+- The sideslip window's "2 seconds" is a **dimensional** time and scales with the aircraft like every other
+  one here — and is then cut at ninety degrees of bank anyway, because the term that drives sideslip is
+  `g cos(alpha) phi / V`, linear in `phi`, and a model that has rolled through three hundred degrees is
+  being asked a question its equations cannot answer. Read out that far it claimed 38 degrees of sideslip;
+  cut where the linearisation still holds, 16.6. The verdict says which window it used.
+
 ## An inertia is about a point, and that point is the centre of gravity
 
 `Config.calculateInertiasMasses` summed the moments of inertia about the **origin of the drawing** — wherever

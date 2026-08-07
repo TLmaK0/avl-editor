@@ -499,7 +499,7 @@ object MilF8785cEvaluator {
       rollPerformanceRow(calculation, category, rollMode, size),
       speedStabilityRow(calculation, size, shapesReported),
       sideslipRow(calculation, shapesReported)
-    )
+    ) ++ rollSideslipRows(calculation, category, dutchRoll, size)
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -1017,6 +1017,79 @@ object MilF8785cEvaluator {
     if (stab == null || stab.getCld == null) "the control derivatives did not reach the calculation."
     else if (aileron < 0 || aileron >= stab.getCld.length) "no aileron was identified among the controls."
     else "the aileron states no gain, no travel, or produces no rolling moment."
+  }
+
+  /**
+   * MIL-F-8785C 3.3.2.2 and 3.3.2.4 (p. 24): what the roll rate and the sideslip do when the stick goes
+   * hard over with the rudder left alone. Both are measured on the response [[LateralModel]] builds, which
+   * is verified root-for-root against AVL's own eigenvalues.
+   *
+   * The two rows share every input, so they share the flying: one trajectory, measured twice.
+   */
+  private def rollSideslipRows(calculation: AvlCalculation, category: FlightPhaseCategory,
+                               dutchRoll: Option[AvlEigenvalue], size: FroudeScale): List[ModalNormRow] = {
+    val oscillationIs = "the roll rate wobbling: it builds, sags and builds again as the nose swings"
+    val sideslipIs = "how far the nose slips sideways while the aircraft rolls, with the rudder left alone"
+    val oscillationLimits = RollSideslipCoupling.rollOscillationLimits(category)
+    val sideslipRules = RollSideslipCoupling.sideslipLimits(category)
+    val oscillationWants = f"the roll rate at the first sag to keep at least " +
+      f"${(oscillationLimits.head._2 * 100).toInt}%d%% of its peak"
+    val sideslipWants = f"no more than ${sideslipRules.head._2}%.0f degrees of adverse sideslip, or " +
+      f"${sideslipRules.head._3}%.0f proverse"
+
+    def refused(why: String) = List(
+      ModalNormRow("Roll rate oscillation", oscillationIs, None, None, None, None, oscillationWants,
+        "Not judged: " + why, None, None),
+      ModalNormRow("Sideslip in a roll", sideslipIs, None, None, None, None, sideslipWants,
+        "Not judged: " + why, None, None))
+
+    val aileron = calculation.getAileronPosition
+    val stops = calculation.getControlMaxDeflections
+    if (stops == null || aileron < 0 || aileron >= stops.length || stops(aileron).isNaN ||
+        stops(aileron) <= 0f)
+      return refused("the aileron's travel did not reach the calculation.")
+
+    LateralModel.of(calculation) match {
+      case Left(why) => refused(why)
+      case Right(model) =>
+        val period = dutchRoll.flatMap(mode =>
+          periodOf(mode.getNaturalFrequency.toDouble, mode.getDampingRatio.toDouble))
+        val damping = dutchRoll.map(_.getDampingRatio.toDouble).getOrElse(0.0)
+        RollSideslipCoupling.of(model, math.toRadians(stops(aileron).toDouble), period, damping,
+            size.time(2.0)) match {
+          case None => refused("the aircraft did not roll enough to measure anything on.")
+          case Some(measured) =>
+            val oscillationKept = 1.0 - measured.oscillationRatio
+            val oscillationLevel = levelMet(oscillationLimits.map { case (n, keep) =>
+              (n, oscillationKept >= keep) })
+            val oscillationRow = ModalNormRow("Roll rate oscillation", oscillationIs, None, None, None, None,
+              oscillationWants,
+              levelVerdict(oscillationLevel,
+                f"the roll rate holds ${oscillationKept * 100}%.0f%% of its peak at the first sag.",
+                f"the roll rate sags to ${oscillationKept * 100}%.0f%% of its peak, against the " +
+                  f"${(oscillationLimits.head._2 * 100).toInt}%d%% wanted — the roll stalls and picks up " +
+                  "again. More fin, or less adverse yaw from the ailerons."),
+              Some(oscillationLevel == Some(1)), oscillationLevel)
+
+            val sideslipLevel = levelMet(sideslipRules.map { case (n, adverse, proverse) =>
+              (n, measured.sideslipDegrees <= (if (measured.proverse) proverse else adverse)) })
+            val kind = if (measured.proverse) "proverse" else "adverse"
+            val allowed = if (measured.proverse) sideslipRules.head._3 else sideslipRules.head._2
+            val sideslipRow = ModalNormRow("Sideslip in a roll", sideslipIs, None, None, None, None,
+              sideslipWants,
+              levelVerdict(sideslipLevel,
+                f"${measured.sideslipDegrees}%.1f degrees of $kind%s sideslip" +
+                  (if (measured.windowCutAtNinetyDegrees)
+                    f", measured over the ${measured.windowSeconds}%.2f s it takes to bank 90 degrees."
+                   else f" over ${measured.windowSeconds}%.2f s."),
+                f"${measured.sideslipDegrees}%.1f degrees of $kind%s sideslip, against the $allowed%.0f " +
+                  f"allowed — the nose goes the wrong way as the aircraft rolls. " +
+                  (if (measured.proverse) "Less fin, or more adverse yaw." else "More fin, or differential ailerons.")),
+              Some(sideslipLevel == Some(1)), sideslipLevel)
+
+            List(oscillationRow, sideslipRow)
+        }
+    }
   }
 
   /** The first time a monotonically rising quantity reaches a target, or None if it never does. */

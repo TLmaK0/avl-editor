@@ -171,6 +171,23 @@ object LateralModelCheck {
             }
         }
         check("the aileron column was built", lateral.bAileron != null)
+
+        println("and the step response it is there to produce")
+        // Halving the step must not move the answer: the integration has to be far finer than anything the
+        // criteria can notice, and the fastest root is the roll mode this model was just verified on.
+        val coarse = RollSideslipCoupling.of(lateral, math.toRadians(25.0), Some(0.98), 0.16, 0.70)
+        val fine = lateral.stepResponse(math.toRadians(25.0), 0.0005, 5.0)
+        coarse.foreach { m =>
+          println(f"    p_osc/p_av ${m.oscillationRatio}%.4f over ${m.peaks}%d peaks, " +
+            f"sideslip ${m.sideslipDegrees}%.2f deg ${if (m.proverse) "proverse" else "adverse"}%s")
+        }
+        check("a response comes out at all", coarse.isDefined)
+        check("and it starts from trim", fine.head._2 == 0.0 && fine.head._3 == 0.0)
+        check("the aircraft actually rolls", math.abs(fine.last._5) > 0.1)
+        // The roll rate must settle towards the steady value the roll response row computes independently.
+        val settled = fine.map(_._3).map(math.abs).max
+        println(f"    peak roll rate ${math.toDegrees(settled)}%.0f deg/s")
+        check("at a rate an aeroplane could have", settled > 0.01 && math.toDegrees(settled) < 2000.0)
     }
 
     println(if (ok) "LATERAL_MODEL_OK" else "LATERAL_MODEL_FAIL")

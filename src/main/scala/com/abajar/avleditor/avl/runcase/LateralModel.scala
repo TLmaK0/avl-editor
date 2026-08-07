@@ -35,6 +35,39 @@ package com.abajar.avleditor.avl.runcase
  */
 final case class LateralModel(a: Array[Array[Double]], bAileron: Array[Double]) {
 
+  /**
+   * The response to a step aileron deflection, rudder untouched — the manoeuvre MIL-F-8785C 3.3.2.2 and
+   * 3.3.2.4 are both written about. Returns `(t, beta, p, r, phi)` at every step.
+   *
+   * Integrated with a fixed-step RK4 rather than expanded in modes. The system is linear and its fastest
+   * root is known — it is the roll mode this very class was verified against — so a step a small fraction
+   * of `1/|lambda|` leaves an error far below anything the criteria can notice, and `LateralResponseCheck`
+   * pins that by halving the step and finding the same answer.
+   */
+  def stepResponse(deflectionRad: Double, dt: Double, duration: Double): List[(Double, Double, Double, Double, Double)] = {
+    if (bAileron == null) return Nil
+    val u = bAileron.map(_ * deflectionRad)
+    def derivative(x: Array[Double]): Array[Double] =
+      (0 until 4).map(i => (0 until 4).map(j => a(i)(j) * x(j)).sum + u(i)).toArray
+    def add(x: Array[Double], d: Array[Double], f: Double): Array[Double] =
+      (0 until 4).map(i => x(i) + f * d(i)).toArray
+
+    var x = Array(0.0, 0.0, 0.0, 0.0)
+    var t = 0.0
+    val out = scala.collection.mutable.ListBuffer[(Double, Double, Double, Double, Double)]()
+    out += ((t, x(0), x(1), x(2), x(3)))
+    while (t < duration) {
+      val k1 = derivative(x)
+      val k2 = derivative(add(x, k1, dt / 2))
+      val k3 = derivative(add(x, k2, dt / 2))
+      val k4 = derivative(add(x, k3, dt))
+      x = (0 until 4).map(i => x(i) + dt / 6.0 * (k1(i) + 2 * k2(i) + 2 * k3(i) + k4(i))).toArray
+      t += dt
+      out += ((t, x(0), x(1), x(2), x(3)))
+    }
+    out.toList
+  }
+
   /** Coefficients of `lambda^4 + c3 lambda^3 + c2 lambda^2 + c1 lambda + c0`, from the matrix. */
   def characteristicPolynomial: Array[Double] = {
     val m = a
