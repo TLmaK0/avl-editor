@@ -692,6 +692,21 @@ to change: pitch is the centre of gravity, a fast lateral one is the fin, a slow
 models have and most pilots fly through, and without a mode shape it says it cannot tell rather than guessing.
 The doubling time carries the urgency — under half a second there is no flying it at all.
 
+**A growing motion is not a badly damped one, in the row as well as the headline.** That hole was closed
+by halves: a mode with `sigma > 0` and a frequency was added to the runaways, so the headline says the
+aircraft will not fly — but the row went on describing it in the language of damping, *"too lightly damped
+at −0.16, more tailplane"*, which reads like an aeroplane that wants a bigger tail rather than one that is
+leaving. Wherever `zeta` comes out negative the row now says the motion **grows**, every swing bigger than
+the last, and points at the runaway list. `MilF8785cEvaluator.growingInstead`.
+
+**Every branch is walked, because a total function cannot report a case nobody thought of.** Each verdict
+comes from an `if/else` chain ending in an `else`, so the evaluator always answers — the cheapest guarantee
+there is, and the one that hides gaps. `VerdictSweepCheck` walks **1764 cases**: every sign of sigma against
+every kind of omega, seven mode shapes, three sizes, three Flight Phases. It asserts the properties that
+must hold whatever comes back — a Level and its pass flag agreeing, no `NaN` reaching a sentence a user
+reads, no Level claimed by a row that says it could not judge, the runaway list and the table telling the
+same story — rather than the wording of any one case. It found the half-closed hole above on its first run.
+
 `RunawayAxis` is a **sealed set**, not a chain of `if/else` ending in a bare `else`. An `else` answers every
 case with confidence, including the ones nobody thought about — which is how a mode with no dominant axis
 came to be announced as "yaw and roll". It has a `Mixed` case now, which says so.

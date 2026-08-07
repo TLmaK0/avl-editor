@@ -462,6 +462,22 @@ object MilF8785cEvaluator {
    * A Level below 1 still has to say **what kept it from Level 1**. Reporting the Level alone would be the
    * old bare FAIL with a number on it: it tells the reader where they are and not which way to move.
    */
+  /**
+   * What to say about a motion whose damping ratio is **negative** — which means it is not badly damped, it
+   * is growing. Every swing is bigger than the last.
+   *
+   * This is the second half of a hole that was only half closed. Such a mode was added to the runaways, so
+   * the headline says the aircraft will not fly; but the row itself went on describing it in the language of
+   * damping — "too lightly damped at -0.16, more tailplane" — which reads like an aeroplane that wants a
+   * bigger tail rather than one that is leaving. `VerdictSweepCheck` walks every sign of sigma against every
+   * omega and refuses that wording wherever zeta is negative.
+   */
+  private def growingInstead(zeta: Double, motion: String): Option[String] =
+    if (zeta >= 0.0) None
+    else Some(f"it does not settle at all — it **grows**, every swing bigger than the last " +
+      f"(damping $zeta%.2f, which is negative). This is $motion%s running away, and it is listed above " +
+      "with the time its motion doubles in. Damping is not the thing to change here.")
+
   private def levelVerdict(level: Option[Int], meets: String, misses: String): String = level match {
     case Some(1) => "Meets it: " + meets
     // The Level itself is not repeated here: whoever displays this puts it in front, and saying it twice
@@ -521,11 +537,11 @@ object MilF8785cEvaluator {
         val zeta = mode.getDampingRatio.toDouble
         val wn = mode.getNaturalFrequency.toDouble
         val level = levelMet(limits.map { case (n, lo, hi) => (n, zeta >= lo && zeta <= hi) })
-        val miss =
+        val miss = growingInstead(zeta, "the short period").getOrElse(
           if (zeta < minLevel1)
             f"too lightly damped at $zeta%.2f — the nose keeps bobbing after a gust. More tailplane, a " +
               "longer tail arm or a centre of gravity further forward."
-          else f"too heavily damped at $zeta%.2f — the aircraft answers the elevator sluggishly."
+          else f"too heavily damped at $zeta%.2f — the aircraft answers the elevator sluggishly.")
         ModalNormRow("Short-period", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
           wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level)
       case None => unidentified("Short-period", is, wants,
@@ -605,13 +621,13 @@ object MilF8785cEvaluator {
               f"against the $trigger%.0f it starts at")
            else if (size.scales) List(f"damping x wn at least ${size.frequency(minZetaWn1)}%.2f")
            else Nil)
-        val miss =
+        val miss = growingInstead(zeta, "the dutch roll").getOrElse(
           if (zeta < minZeta1)
             f"too lightly damped at $zeta%.2f — the tail keeps wagging. A bigger fin, or further back, is " +
               "what settles it."
           else
             f"damped enough at $zeta%.2f but too slow to settle (${zeta * wn}%.2f against the " +
-              f"${wantedZetaWn(1, minZetaWn1)}%.2f wanted) — the wag dies away, but it takes a long time about it."
+              f"${wantedZetaWn(1, minZetaWn1)}%.2f wanted) — the wag dies away, but it takes a long time about it.")
         ModalNormRow("Dutch-roll", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
           wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level,
           if (notes.isEmpty) None else Some("at this condition: " + notes.mkString(", ")))
@@ -639,9 +655,9 @@ object MilF8785cEvaluator {
           (1, zeta >= PhugoidMinZetaLevel1),
           (2, zeta >= PhugoidMinZetaLevel2),
           (3, doubling >= level3Seconds)))
-        val miss =
+        val miss = growingInstead(zeta, "the phugoid").getOrElse(
           f"too lightly damped at $zeta%.2f — the aircraft keeps porpoising and the pilot has to fly it " +
-            "out. It is a slow motion and easy to correct, so this is the least pressing of the three."
+            "out. It is a slow motion and easy to correct, so this is the least pressing of the three.")
         ModalNormRow("Phugoid", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
           wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level, applied)
       case None => unidentified("Phugoid", is, wants,
