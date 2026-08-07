@@ -474,16 +474,88 @@ and must produce the same moment; `ControlEffectivenessCheck` asserts exactly th
 different gains. A gain of zero contributes nothing, because a surface AVL never deflects does nothing
 whatever the units.
 
-**What runs away is the headline, whatever else was found.** A real root with a positive real part grows and
-never swings back, and it is the most important thing an AVL run can say — and it was the easiest to miss: the
-divergences were reported *only when the modal table came out empty*, so an aircraft with one passing
-oscillatory mode and three runaways showed a green PASS and said nothing about them. `MilF8785cEvaluator
-.divergences` and `runawaySummary` are always shown, above the table.
+## The standard is in the repository
+
+The flying-qualities criteria come from **MIL-F-8785C** (5 November 1980), and it is committed as
+`docs/MIL-F-8785C.pdf` with its tables transcribed and its pages cited in `docs/mil-f-8785c.md`. **Every
+threshold in `MilF8785cEvaluator` names its section, its table and its PDF page.**
+
+That is not ceremony. The three limits the editor already applied turned out to be exactly right, and one
+number sitting beside them — a 10-second threshold deciding whether a lateral divergence counted as a slow
+spiral — was in no table at all; the standard says 20 s (TABLE VIII). A reader had no way to tell the two
+apart, because neither cited anything. A number that cannot trace itself to a page is either a stated
+assumption, said out loud as one, or a bug.
+
+**Six motions are judged, not three.** The roll mode (3.3.1.2, TABLE VII) and the spiral (3.3.1.3,
+TABLE VIII) are **real roots**, and the table used to be built from the oscillatory modes alone, so both were
+thrown away with the rest of the real roots — and the table was drawn only when something oscillated, which
+is exactly when an aircraft with nothing but real roots has least to say for itself. The coupled roll-spiral
+(3.3.1.4) is the sixth.
+
+**A Level, not a pass.** The standard is written in three of them and only Level 1 is "clearly adequate";
+an aircraft that misses it is usually flyable rather than broken. A row now says which Level it reached
+**and what kept it from Level 1** — a bare Level would be the old FAIL with a number on it, telling the
+reader where they are and not which way to move.
+
+**The Flight Phase Category is the one thing the aircraft cannot tell us.** It is the mission, not the
+machine: the same airframe flown gently is Category B and thrown around is Category A, which wants 0.35 of
+short-period damping rather than 0.30 and 0.19 of dutch-roll damping rather than 0.08. So it is a choice,
+defaulting to B. Everything else is read off the model.
+
+### The criteria follow the aircraft's size
+
+This editor designs large aircraft and small ones, and MIL-F-8785C is written for **piloted, full-scale**
+airplanes. A frequency floor in radians per second written around a ten-metre airplane means nothing to a
+metre and a half of one: applied unchanged, a model clears both dutch-roll frequency floors whatever it is
+like, leaving one of the three criteria doing any work. So the aircraft's own span sets them — no scale
+field, no class to pick, nothing to know in advance.
+
+**The standard's own numbers already work this way**, which is what makes this a derivation rather than a
+guess. TABLE VI asks 1.0 rad/s of Classes I and IV and 0.4 rad/s of Classes II and III. A light trainer and
+a fighter share a row — as different as two airplanes get — and what they have in common is about 11 m of
+span; the other row is the 60 m ones. `sqrt(g/b)` gives 0.94 at 11 m and 0.40 at 60 m: two rows five-to-one
+apart in span, reproduced to 6 % **with no fitted constant**. A size-independent threshold could not do
+that. `FroudeScaleCheck` asserts the property, not the numbers, so it survives any rescaling.
+
+It is applied **conservatively**: a threshold is used exactly as written for any aircraft at least as big as
+the smallest the standard contemplates (Class I, "small, light airplanes", ~11 m), and scaled only below
+that — the range the standard never covered. A full-size aircraft is therefore judged by the standard
+verbatim, and a 1.5 m model gets a dutch roll wanting 1.08 rad/s and a spiral that must take 7.4 s to
+double. Both figures are always shown, the stated one and the applied one: a verdict that silently moved the
+goalposts would be worse than one that never moved them.
+
+The span reaches the evaluator through `Configuration.getSpanMetres()`, written beside `Bref` from the same
+AVL run. It is the one place in the editor that stores a unit factor rather than following the model, and
+deliberately: a `Configuration` is the record of one run, so the pair cannot go stale against each other
+however the model is edited afterwards. An aircraft whose span never arrived is quoted verbatim, never
+guessed at.
+
+**What runs away is the headline, whatever else was found.** A root with a positive real part grows, and it
+is the most important thing an AVL run can say — and it was the easiest to miss, twice over. The divergences
+were reported *only when the modal table came out empty*, so an aircraft with one passing oscillatory mode
+and three runaways showed a green PASS and said nothing about them. And a **growing oscillation** — positive
+real part *and* a frequency — was not counted as a runaway at all: it went into the table, where its damping
+ratio comes out negative and the verdict read "too lightly damped at −0.12", as though it merely wanted a
+bigger fin. An oscillation that grows is a runaway that swings on its way out. `MilF8785cEvaluator
+.divergences` and `runawaySummary` are always shown, above the table, and they now include both kinds.
+
+A mode with **no real part at all** used to vanish from both: `sigma > 0` excluded it from the runaways and
+`omega > 0` from the table. `neutralModes` says it sits exactly on the boundary of stability, which is not a
+fault but is worth a sentence.
 
 Each one names **which axis** is running away, from the mode shape AVL gives, because that is what decides what
 to change: pitch is the centre of gravity, a fast lateral one is the fin, a slow one is the spiral mode most
 models have and most pilots fly through, and without a mode shape it says it cannot tell rather than guessing.
 The doubling time carries the urgency — under half a second there is no flying it at all.
+
+`RunawayAxis` is a **sealed set**, not a chain of `if/else` ending in a bare `else`. An `else` answers every
+case with confidence, including the ones nobody thought about — which is how a mode with no dominant axis
+came to be announced as "yaw and roll". It has a `Mixed` case now, which says so.
+
+And none of it is MIL-F-8785C. The standard says how much damping a motion needs; it has no opinion about
+fins or centres of gravity. The remedies are model-flying judgement and are reported under their own
+heading — *"read from AVL's eigenvalues, not from MIL-F-8785C"* — rather than inside the table of the
+standard's verdicts, where they used to sit and read like quotations.
 
 An empty result has to say what the analysis **answered**, not what the user might have forgotten. The
 modal table used to read *'No oscillatory eigenmodes available. Define mass/inertia and run AVL again'*

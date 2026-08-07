@@ -257,28 +257,33 @@ The representative spans are ours, not the standard's, and that is the assumptio
 
 The **dimensionless** criteria — every damping ratio — are applied exactly as written, at any size.
 
-The **dimensional** ones are expressed in units of the aircraft's own Froude time `tF = sqrt(b/g)`,
-calibrated so that a Class I/IV airplane reproduces the table:
+The **dimensional** ones are scaled, but **only below the range the standard covers**. The evidence above
+says that size matters; it is not licence to rewrite the standard where it already applies. So:
 
-| Criterion | Section | As stated | As applied |
-|-----------|---------|-----------|------------|
-| Dutch-roll min ωnd | Table VI | 0.4 rad/s (Cat. B) | `ωnd >= 1/tF` |
-| Dutch-roll min ζd·ωnd | Table VI | 0.15 rad/s | `ζd·ωnd >= 0.15 · tF_I / tF` |
-| Roll-mode max τR | Table VII | 1.4 s (Cat. B) | `τR <= 1.35 · tF` |
-| Spiral min T2 | Table VIII | 20 s (Cat. B L1) | `T2 >= 19.3 · tF` |
-| Phugoid min T2 | §3.2.1.2 c | 55 s (L3) | `T2 >= 53 · tF` |
+- for any aircraft at least as big as the smallest MIL-F-8785C contemplates — Class I, "small, light
+  airplanes", taken as **11 m of span** — every threshold is used **exactly as written**;
+- below that, with `r = sqrt(11 m / b)`, a threshold in rad/s is multiplied by `r` and one in seconds is
+  divided by it.
 
-with `tF_I = sqrt(11 m / g) = 1.06 s` the Froude time of the airplane the table was written around.
+That is Froude scaling with the reference fixed at the bottom of the standard's own range.
 
-**For a full-size aircraft this changes nothing** — an 11 m airplane gets 1.0 rad/s and a 60 m one gets
-0.4 rad/s, which is what the table says. It only bites outside the range the standard covers, which is
-exactly where the standard stops being able to speak for itself. A 1.5 m model gets `ωnd >= 2.6 rad/s`
-and a spiral that must take at least 7.6 s to double.
+| Criterion | Section | As stated (Cat. B, Level 1) | At 1.5 m of span |
+|-----------|---------|------------------------------|------------------|
+| Dutch-roll min ωnd | Table VI | 0.40 rad/s | 1.08 rad/s |
+| Dutch-roll min ζd·ωnd | Table VI | 0.15 rad/s | 0.41 rad/s |
+| Roll-mode max τR | Table VII | 1.40 s | 0.52 s |
+| Spiral min T2 | Table VIII | 20 s | 7.4 s |
+| Phugoid min T2 (Level 3) | §3.2.1.2 c | 55 s | 20.3 s |
 
-That last number is worth noticing: the 10 s that was invented for the spiral, with no derivation behind
-it, lands close to the 7.6 s this produces. It was a decent guess. The difference is that this one can be
-checked, and a check asserts the property — that the rule reproduces Table VI at both ends — rather than
-the number, so it survives rescaling.
+**A full-size aircraft is therefore judged by the standard verbatim** — nothing is scaled at 11 m, at 30 m
+or at 60 m. Scaling bites only where the standard stops being able to speak for itself, and that is
+exactly where it goes vacuous: applied unchanged, a model clears both dutch-roll frequency floors whatever
+it is like, leaving one of the three criteria doing any work.
+
+The 7.4 s is worth noticing. The 10 s that was invented for the spiral, with no derivation behind it, lands
+close to it. It was a decent guess. The difference is that this one can be checked — and `FroudeScaleCheck`
+asserts the **property**, that the law reproduces Table VI at both ends and leaves a full-size aircraft
+alone, rather than any of the numbers, so it survives rescaling.
 
 Both figures are always reported: what the standard states, and what is applied here after scaling. A
 verdict that silently moved the goalposts would be worse than one that never moved them.

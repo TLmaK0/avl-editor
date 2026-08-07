@@ -28,6 +28,40 @@ public class Configuration {
     private float Clb;
     private Float e;
 
+    /**
+     * How many metres one of the model's length units is, so that {@link #getSpanMetres()} can answer in
+     * physical units without the reference span stopping being displayed in the units the user works in.
+     *
+     * It is a stored factor rather than a link back to the model, and it is allowed to be one here for a
+     * reason the rest of the editor's units rule does not cover: a {@code Configuration} is the record of
+     * one AVL run, not a live part of the model. The factor is written at the same moment as {@code Bref},
+     * from the same run, so the two cannot disagree with each other however the user edits the model
+     * afterwards — and a stale pair is exactly what would be wrong here.
+     *
+     * One metre per unit is what a model that has not said otherwise states, the same default as
+     * {@link com.abajar.avleditor.ModelUnits#DEFAULTS}.
+     */
+    private float metresPerLengthUnit = 1f;
+
+    public void setMetresPerLengthUnit(float metresPerLengthUnit) {
+        this.metresPerLengthUnit = metresPerLengthUnit;
+    }
+
+    public float getMetresPerLengthUnit() {
+        return metresPerLengthUnit;
+    }
+
+    /**
+     * The reference span in metres, whatever the model states its lengths in.
+     *
+     * This is what the flying-qualities criteria need: MIL-F-8785C's frequencies and times depend on how big
+     * the aircraft is, and an aircraft's size is a physical quantity rather than a number in the user's
+     * chosen unit. See {@code MilF8785cEvaluator.FroudeScale}.
+     */
+    public float getSpanMetres() {
+        return Bref * metresPerLengthUnit;
+    }
+
 //Cmtot
 //Cma
 //Cmq

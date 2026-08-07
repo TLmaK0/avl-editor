@@ -108,6 +108,32 @@ public class AvlEigenvalue {
         );
     }
 
+    /**
+     * How much of the motion is rolling: the roll rate and the bank angle.
+     *
+     * This is what tells the roll subsidence from the spiral, and both are real roots rather than
+     * oscillations, so neither can be found by frequency. The roll mode is the aircraft's roll rate dying
+     * away and is dominated by {@code p}; the spiral is a bank angle that slowly grows or slowly rights
+     * itself, and is dominated by {@code phi} and {@code psi} with very little roll rate in it.
+     */
+    public float getRollRateParticipation() {
+        return sumFinite(pAmplitude);
+    }
+
+    public float getBankParticipation() {
+        return sumFinite(phiAmplitude, psiAmplitude);
+    }
+
+    public float getRollRateRatio() {
+        float lateral = getLateralParticipation();
+        return lateral == 0 ? 0 : getRollRateParticipation() / lateral;
+    }
+
+    public float getBankRatio() {
+        float lateral = getLateralParticipation();
+        return lateral == 0 ? 0 : getBankParticipation() / lateral;
+    }
+
     public float getLongitudinalRatio() {
         float total = getTotalParticipation();
         return total == 0 ? 0 : getLongitudinalParticipation() / total;

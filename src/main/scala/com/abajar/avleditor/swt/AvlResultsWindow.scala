@@ -19,6 +19,7 @@ import org.eclipse.swt.events.{SelectionAdapter, SelectionEvent}
 import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.avl.runcase.MilF8785cEvaluator
 import com.abajar.avleditor.avl.runcase.ModalNormRow
+import com.abajar.avleditor.avl.runcase.FlightPhaseCategory
 import scala.collection.JavaConverters._
 
 class AvlResultsWindow(display: Display) {
@@ -98,7 +99,7 @@ class AvlResultsWindow(display: Display) {
 
     // Modal analysis vs MIL-F-8785C
     val modalGroup = new Group(content, SWT.NONE)
-    modalGroup.setText("Modal Analysis vs MIL-F-8785C (Level 1, Phase B)")
+    modalGroup.setText("Flying qualities vs MIL-F-8785C")
     modalGroup.setLayout(new GridLayout(5, false))
     val modalGridData = new GridData(GridData.FILL_HORIZONTAL)
     modalGridData.horizontalSpan = 2
@@ -117,35 +118,59 @@ class AvlResultsWindow(display: Display) {
       grid.widthHint = 900
       headline.setLayoutData(grid)
     }
-    MilF8785cEvaluator.divergences(calculation).foreach { divergence =>
+    def wideLine(text: String, indent: Int): Unit = {
       val line = new Label(modalGroup, SWT.WRAP)
-      line.setText("• " + divergence.says)
+      line.setText(text)
       val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
       grid.horizontalSpan = 5
       grid.widthHint = 900
-      grid.horizontalIndent = 12
+      grid.horizontalIndent = indent
       line.setLayoutData(grid)
     }
+
+    // What runs away, and what a neutral mode means. Both are ours rather than the standard's: MIL-F-8785C
+    // says how much damping a motion needs and has no opinion about fins or centres of gravity, so they are
+    // said under their own heading instead of inside the table of its verdicts.
+    val runaways = MilF8785cEvaluator.divergences(calculation)
+    val neutrals = MilF8785cEvaluator.neutralModes(calculation)
+    if (runaways.nonEmpty || neutrals.nonEmpty) {
+      wideLine("What the motions do — read from AVL's eigenvalues, not from MIL-F-8785C:", 0)
+      runaways.foreach(divergence => wideLine("• " + divergence.says, 12))
+      neutrals.foreach(line => wideLine("• " + line, 12))
+    }
+
+    // Which Flight Phase these verdicts are for, and whether the aircraft's size moved any of them. The
+    // Category is the one thing here that cannot be derived from the model: it is the mission, not the
+    // machine.
+    val size = MilF8785cEvaluator.sizeOf(calculation)
+    val category = FlightPhaseCategory.Default
+    wideLine(f"Judged as Flight Phase Category ${category.label}%s — ${category.describes}%s." +
+      (if (size.scales)
+        f" This aircraft spans ${size.spanMetres}%.2f m, below the ${size.ReferenceSpanMetres}%.0f m of the " +
+          "smallest airplane the standard was written for, so its frequencies and times are scaled to that " +
+          "size; both figures are given on each row."
+      else if (size.known)
+        f" This aircraft spans ${size.spanMetres}%.2f m, within the range the standard covers, so every " +
+          "figure is exactly as it states it."
+      else ""), 0)
 
     val modes = MilF8785cEvaluator.oscillatoryPositiveModes(calculation)
     if (modes.isEmpty) {
       // What AVL actually answered, not a guess at what the user forgot.
-      MilF8785cEvaluator.whyNoModes(calculation).foreach { line =>
-        val label = new Label(modalGroup, SWT.WRAP)
-        label.setText(line)
-        val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
-        grid.horizontalSpan = 5
-        grid.widthHint = 640
-        label.setLayoutData(grid)
-      }
-    } else {
+      MilF8785cEvaluator.whyNoModes(calculation).foreach(line => wideLine(line, 0))
+    }
+
+    // The table is drawn whenever AVL answered at all, not only when something oscillates: the roll mode and
+    // the spiral are **real roots**, so an aircraft with nothing but real roots still has two of the six
+    // motions to judge. It used to be all or nothing, and those two were thrown away with the rest.
+    if (!calculation.getEigenvalues.isEmpty) {
       addModalHeader(modalGroup, "Motion")
       addModalHeader(modalGroup, "What it is")
       addModalHeader(modalGroup, "How often")
       addModalHeader(modalGroup, "Damping")
       addModalHeader(modalGroup, "Verdict")
 
-      val rows = MilF8785cEvaluator.evaluate(calculation)
+      val rows = MilF8785cEvaluator.evaluate(calculation, category)
       rows.foreach(row => addModalNormRow(modalGroup, row))
     }
 
@@ -300,9 +325,12 @@ class AvlResultsWindow(display: Display) {
     // The verdict is the one cell that carries a colour, and it carries both of them: a light background and
     // a dark text on it, chosen together so the pair is readable whatever the desktop theme is.
     val verdict = new Label(parent, SWT.WRAP)
-    verdict.setText(row.pass match {
-      case Some(true) => "PASS — " + row.verdict
-      case Some(false) => "FAIL — " + row.verdict
+    // The Level, not a pass: the standard is written in three of them, and an aircraft that misses Level 1 is
+    // usually flyable rather than broken. The verdict says which one it reached; the colour still marks
+    // Level 1 apart, because that is the one to aim at.
+    verdict.setText(row.level match {
+      case Some(n) => f"LEVEL $n%d — " + row.verdict
+      case None if row.pass.isDefined => "WORSE THAN LEVEL 3 — " + row.verdict
       case None => row.verdict
     })
     verdict.setBackground(bgColor)
@@ -320,7 +348,10 @@ class AvlResultsWindow(display: Display) {
     // having to quote, not worth reading first.
     val footnote = new Label(parent, SWT.WRAP)
     footnote.setText(row.wn.map(w => f"wn ${w}%.3f rad/s · ").getOrElse("") +
-      "MIL-F-8785C Level 1 Phase B wants " + row.requirement)
+      "MIL-F-8785C Level 1 wants " + row.requirement +
+      // What the requirement became at this aircraft's size, when its size moved it. Both are always shown:
+      // a verdict that silently moved the goalposts would be worse than one that never moved them.
+      row.applied.map(applied => " · " + applied).getOrElse(""))
     // Neither: the theme's own text colour, whatever it is. Grey on a dark theme is as unreadable as white
     // on white was, and this line is already set apart by sitting under the row and indented.
     val footGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)

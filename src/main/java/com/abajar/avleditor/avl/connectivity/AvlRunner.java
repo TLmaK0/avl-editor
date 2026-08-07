@@ -277,6 +277,9 @@ public class AvlRunner {
         config.setSref(readFloat("Sref =", scanner));
         config.setCref(readFloat("Cref =", scanner));
         config.setBref(readFloat("Bref =", scanner));
+        // Written beside Bref, from the same run: the flying-qualities criteria scale with how big the
+        // aircraft physically is, and Bref alone does not say whether it is 1.5 of something or 60.
+        config.setMetresPerLengthUnit(avl.units().metresPerLengthUnit());
 
         config.setAlpha(readFloat("Alpha =", scanner));
 

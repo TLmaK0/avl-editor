@@ -20,9 +20,17 @@ object ModalReportCheck {
   private def says(lines: List[String], fragment: String): Boolean =
     lines.exists(_.toLowerCase.contains(fragment.toLowerCase))
 
-  private def run(eigenvalues: Seq[(Float, Float)]): AvlCalculation = {
+  /**
+   * `spanMetres` of 0 is an aircraft whose size never reached us, which is what a calculation built by hand
+   * has — and it is quoted verbatim, never guessed at, so most of these cases are judged by the standard's
+   * own numbers.
+   */
+  private def run(eigenvalues: Seq[(Float, Float)], spanMetres: Float = 0f): AvlCalculation = {
     val calc = new AvlCalculation(0, 0, 0)
-    calc.setConfiguration(new Configuration)
+    val config = new Configuration
+    config.setBref(spanMetres)
+    config.setMetresPerLengthUnit(1f)
+    calc.setConfiguration(config)
     calc.setEigenvalues(new java.util.ArrayList[AvlEigenvalue](
       eigenvalues.map { case (sigma, omega) => new AvlEigenvalue(sigma, omega) }.asJava))
     calc
@@ -81,7 +89,7 @@ object ModalReportCheck {
     val pitched = MilF8785cEvaluator.divergences(pitchRunaway).head
     println("  ! " + pitched.says)
     check("a pitch runaway names the centre of gravity",
-      pitched.axis == "pitch" && pitched.says.contains("centre of gravity"))
+      pitched.axis == RunawayAxis.Pitch && pitched.says.contains("centre of gravity"))
     val yawRunaway = run(Seq((2.0f, 0f)))
     yawRunaway.getEigenvalues.get(0).setModeStateAmplitude("v", 1.0f)
     yawRunaway.getEigenvalues.get(0).setModeStateAmplitude("r", 0.9f)
@@ -90,19 +98,55 @@ object ModalReportCheck {
     println("  ! " + yawed.says)
     check("a fast lateral one names the fin", yawed.says.contains("fin"))
     check("and without a mode shape it says it cannot tell",
-      MilF8785cEvaluator.divergences(run(Seq((1.0f, 0f)))).head.axis == "unknown")
+      MilF8785cEvaluator.divergences(run(Seq((1.0f, 0f)))).head.axis == RunawayAxis.Unknown)
+    // A mode shape with nothing dominant is a third case, and it used to fall into the final `else` and be
+    // announced as "yaw and roll" with total confidence.
+    val mixedRunaway = run(Seq((1.5f, 0f)))
+    mixedRunaway.getEigenvalues.get(0).setModeStateAmplitude("q", 1.0f)
+    mixedRunaway.getEigenvalues.get(0).setModeStateAmplitude("r", 1.0f)
+    val mixed = MilF8785cEvaluator.divergences(mixedRunaway).head
+    println("  ! " + mixed.says)
+    check("and a mode with no dominant axis is not assigned one",
+      mixed.axis == RunawayAxis.Mixed && mixed.says.contains("No one axis"))
+
+    println("an oscillation that grows is a runaway, not a badly damped mode")
+    // The hole this closes: sigma > 0 with omega > 0 was excluded from the divergences (which demanded
+    // omega ~ 0) and went into the table instead, where zeta comes out negative and the verdict read
+    // "too lightly damped" — as though it merely wanted a bigger fin, rather than growing every swing.
+    val growing = run(Seq((0.5f, 2.0f)))
+    val growingDivergence = MilF8785cEvaluator.divergences(growing)
+    growingDivergence.foreach(d => println("  ! " + d.says))
+    check("it is reported as a runaway at all", growingDivergence.size == 1)
+    check("it says the swings grow", growingDivergence.head.says.contains("swings grow"))
+    check("it knows it oscillates, and says how often",
+      growingDivergence.head.oscillates && growingDivergence.head.period.isDefined)
+    check("and it reaches the headline",
+      MilF8785cEvaluator.runawaySummary(growing).exists(_.contains("will not fly")))
+
+    println("a mode that neither grows nor decays is said out loud")
+    // The other hole: sigma exactly 0 was excluded by `sigma > 0` from the runaways and by `omega > 0` from
+    // the table, so it vanished from both.
+    val neutral = MilF8785cEvaluator.neutralModes(run(Seq((0.0f, 0f), (-1.0f, 2.0f))))
+    neutral.foreach(l => println("  ~ " + l))
+    check("the neutral mode is reported", neutral.size == 1)
+    check("and named as the boundary of stability, not as a fault",
+      neutral.head.contains("boundary of stability"))
+    check("a neutral mode is not called a runaway",
+      MilF8785cEvaluator.divergences(run(Seq((0.0f, 0f)))).isEmpty)
 
     println("when there are oscillatory modes, this is not used")
     val oscillatory = run(Seq((-1.0f, 3.0f), (-0.1f, 0.4f)))
     check("the evaluator has modes to judge",
       MilF8785cEvaluator.oscillatoryPositiveModes(oscillatory).size == 2)
     // Without the mode shapes AVL prints alongside each eigenvalue there is nothing to tell a short
-    // period from a dutch roll, and the evaluator says so rather than picking one.
+    // period from a dutch roll, and the evaluator says so rather than picking one. The roll mode and the
+    // spiral are real roots, so they are absent here for a different reason and are not part of this.
+    val oscillatoryRows = MilF8785cEvaluator.evaluate(oscillatory)
+      .filter(r => Set("Short-period", "Dutch-roll", "Phugoid").contains(r.modeName))
     check("but it will not name a mode it cannot identify",
-      MilF8785cEvaluator.evaluate(oscillatory).forall(row =>
-        row.pass.isEmpty && row.verdict.contains("Not judged")))
+      oscillatoryRows.forall(row => row.pass.isEmpty && row.verdict.contains("Not judged")))
     check("and says it is the run that cannot tell them apart, not the aircraft that lacks them",
-      MilF8785cEvaluator.evaluate(oscillatory).forall(_.verdict.contains("no mode shapes")))
+      oscillatoryRows.forall(_.verdict.contains("no mode shapes")))
 
     println("and the row says what the motion is, not only what the standard calls it")
     val unnamed = MilF8785cEvaluator.evaluate(oscillatory)
@@ -153,6 +197,76 @@ object ModalReportCheck {
     }
     check("and the dutch roll is judged too",
       judged.exists(r => r.modeName == "Dutch-roll" && r.pass.isDefined))
+
+    println("the roll mode and the spiral, which are real roots and used to be thrown away")
+    // Neither oscillates, so neither was ever reached: the table was drawn from the oscillatory modes alone
+    // and an aircraft with nothing but real roots got no table at all.
+    val lateralReal = run(Seq((-3.0f, 0f), (0.05f, 0f)))
+    val rollRoot = lateralReal.getEigenvalues.get(0)
+    rollRoot.setModeStateAmplitude("p", 1.0f)
+    rollRoot.setModeStateAmplitude("phi", 0.2f)
+    val spiralRoot = lateralReal.getEigenvalues.get(1)
+    spiralRoot.setModeStateAmplitude("p", 0.1f)
+    spiralRoot.setModeStateAmplitude("phi", 1.0f)
+    spiralRoot.setModeStateAmplitude("psi", 0.8f)
+    val realRows = MilF8785cEvaluator.evaluate(lateralReal)
+    realRows.foreach(r => println(f"    ${r.modeName}%-20s level=${r.level}%s  ${r.verdict}%s"))
+    // tau = 1/3 s against TABLE VII's 1.4 s for Category B.
+    val rollRow = realRows.find(_.modeName == "Roll mode").get
+    check("the roll mode is found and judged", rollRow.level == Some(1))
+    check("and says how long the roll takes to arrive", rollRow.verdict.contains("0.33 s"))
+    // ln(2)/0.05 = 13.86 s, against TABLE VIII's 20 s for Level 1 and 8 s for Level 2.
+    val spiralRow = realRows.find(_.modeName == "Spiral").get
+    check("the spiral is found and judged", spiralRow.level == Some(2))
+    check("and a Level below 1 still says what kept it from Level 1",
+      spiralRow.verdict.contains("Level 2") && spiralRow.verdict.contains("wanted"))
+    check("a table is drawn even though nothing oscillates", realRows.size == 6)
+    // The spiral diverges, so it is also a runaway — and the two reports must agree about which it is.
+    check("a divergent spiral is reported as a runaway as well",
+      MilF8785cEvaluator.divergences(lateralReal).exists(_.axis == RunawayAxis.Spiral))
+
+    println("a stable spiral meets every Level at once, and says so rather than being judged")
+    val stableSpiral = run(Seq((-0.05f, 0f)))
+    stableSpiral.getEigenvalues.get(0).setModeStateAmplitude("phi", 1.0f)
+    stableSpiral.getEigenvalues.get(0).setModeStateAmplitude("psi", 0.8f)
+    val stableRow = MilF8785cEvaluator.evaluate(stableSpiral).find(_.modeName == "Spiral").get
+    println("    " + stableRow.verdict)
+    check("it meets Level 1", stableRow.level == Some(1))
+    check("and says the bank rights itself", stableRow.verdict.contains("rights itself"))
+
+    println("the same aircraft, judged at its own size")
+    // A spiral doubling in 13.86 s misses TABLE VIII's 20 s. At 1.5 m of span that 20 s becomes 7.4 s, and
+    // the same motion now meets Level 1 — which is the point: 20 s was written for an airplane forty times
+    // the size, and applying it unchanged fails a model for being small.
+    val small = run(Seq((-3.0f, 0f), (0.05f, 0f)), spanMetres = 1.5f)
+    small.getEigenvalues.get(0).setModeStateAmplitude("p", 1.0f)
+    small.getEigenvalues.get(0).setModeStateAmplitude("phi", 0.2f)
+    small.getEigenvalues.get(1).setModeStateAmplitude("p", 0.1f)
+    small.getEigenvalues.get(1).setModeStateAmplitude("phi", 1.0f)
+    small.getEigenvalues.get(1).setModeStateAmplitude("psi", 0.8f)
+    val smallSpiral = MilF8785cEvaluator.evaluate(small).find(_.modeName == "Spiral").get
+    println("    " + smallSpiral.verdict)
+    println("    " + smallSpiral.applied.getOrElse("(not scaled)"))
+    check("the same motion reaches Level 1 at model size", smallSpiral.level == Some(1))
+    check("and the row states what the requirement became", smallSpiral.applied.isDefined)
+    check("while still stating what the standard says",
+      smallSpiral.requirement.contains("20 s"))
+    check("a full-size aircraft has nothing scaled",
+      MilF8785cEvaluator.evaluate(run(Seq((0.05f, 0f)), spanMetres = 30f))
+        .forall(_.applied.isEmpty))
+
+    println("the Flight Phase changes what is asked, and it is the one thing the aircraft cannot tell us")
+    // TABLE IV: Category B wants 0.30 of short-period damping, Category A wants 0.35. Same aircraft.
+    val marginal = run(Seq((-1.0f, 3.05f)))
+    marginal.getEigenvalues.get(0).setModeStateAmplitude("w", 1.0f)
+    marginal.getEigenvalues.get(0).setModeStateAmplitude("q", 0.9f)
+    marginal.getEigenvalues.get(0).setModeStateAmplitude("the", 0.7f)
+    def shortLevel(category: FlightPhaseCategory): Option[Int] =
+      MilF8785cEvaluator.evaluate(marginal, category).find(_.modeName == "Short-period").get.level
+    println(f"    zeta ${marginal.getEigenvalues.get(0).getDampingRatio}%.3f: " +
+      f"Category B -> ${shortLevel(FlightPhaseCategory.B)}%s, Category A -> ${shortLevel(FlightPhaseCategory.A)}%s")
+    check("gentle flying accepts it", shortLevel(FlightPhaseCategory.B) == Some(1))
+    check("and rapid maneuvering does not", shortLevel(FlightPhaseCategory.A) == Some(2))
 
     println(if (ok) "MODAL_REPORT_OK" else "MODAL_REPORT_FAIL")
     if (!ok) sys.exit(1)

@@ -24,6 +24,14 @@ import scala.collection.JavaConverters._
  *
  * `whatItIs` says which motion this is in plain words, `requirement` states the rule without repeating the
  * name of the standard on every row, and `verdict` says whether it is met and by how much.
+ *
+ * `level` is the MIL-F-8785C Level the motion reaches — 1, 2 or 3, or `None` for worse than Level 3 or not
+ * measured. It replaces a bare pass/fail, because "Level 2: flyable, more work for the pilot" is a far more
+ * useful answer than FAIL. `pass` stays as Level 1, which is what colours the row.
+ *
+ * `applied` is what the requirement became at this aircraft's size, and is `None` when the criterion is a
+ * damping ratio and so does not depend on size at all. Both are always shown: a verdict that silently moved
+ * the goalposts would be worse than one that never moved them.
  */
 case class ModalNormRow(
   modeName: String,
@@ -34,91 +42,273 @@ case class ModalNormRow(
   swingsToHalf: Option[Double],
   requirement: String,
   verdict: String,
-  pass: Option[Boolean]
+  pass: Option[Boolean],
+  level: Option[Int] = None,
+  applied: Option[String] = None
 )
+
+/**
+ * Which Flight Phase the aircraft is being judged in (MIL-F-8785C 1.3.2, PDF p. 5-6).
+ *
+ * This is the one thing about the judgement that **cannot be derived from the aircraft**: it is the mission,
+ * not the machine. The same airframe flown gently is Category B and thrown around is Category A, and Category
+ * A wants noticeably more of it — short-period damping from 0.35 rather than 0.30, dutch-roll damping 0.19
+ * rather than 0.08. So it is a choice, and its default is B: gradual maneuvering, which is cruise.
+ */
+sealed abstract class FlightPhaseCategory(val label: String, val describes: String)
+
+object FlightPhaseCategory {
+  /** Rapid maneuvering, precision tracking: combat, ground attack, terrain following. */
+  case object A extends FlightPhaseCategory("A", "thrown around: aerobatics, rapid maneuvering")
+  /** Gradual maneuvers without precision tracking: climb, cruise, loiter, descent. */
+  case object B extends FlightPhaseCategory("B", "flown gently: climb, cruise, loiter, descent")
+  /** Terminal: takeoff, approach, landing. */
+  case object C extends FlightPhaseCategory("C", "takeoff, approach and landing")
+
+  val Default: FlightPhaseCategory = B
+}
+
+/**
+ * What a motion running away means, and what to do about it.
+ *
+ * **None of this is MIL-F-8785C.** The standard says how much damping a motion needs; it has no opinion about
+ * fins or centres of gravity. This is model-flying judgement, and it is kept in its own type so that it cannot
+ * be mistaken for a quotation — it is reported under its own heading, not inside the table of the standard's
+ * verdicts.
+ *
+ * It is a sealed set on purpose. The axis used to be decided by a chain of `if/else` ending in a bare `else`,
+ * and an `else` answers every case with confidence, including the ones nobody thought about — which is how a
+ * mixed mode with no dominant axis came to be reported as "yaw and roll" with no hint that nothing dominated.
+ */
+sealed abstract class RunawayAxis(val label: String, val remedy: String)
+
+object RunawayAxis {
+  case object Pitch extends RunawayAxis("pitch",
+    "The centre of gravity is behind the neutral point: move it forward, with weight in the nose or by " +
+      "moving what is already there.")
+
+  case object Speed extends RunawayAxis("speed",
+    "The aircraft cannot hold a speed: it accelerates or decays away from the trimmed point. Usually the " +
+      "trim itself, or a centre of gravity far from where it was analysed.")
+
+  case object Spiral extends RunawayAxis("spiral",
+    "A slow spiral. Most models have one and it is flown through easily; more dihedral or a smaller fin " +
+      "tightens it.")
+
+  case object YawAndRoll extends RunawayAxis("yaw and roll",
+    "The nose is not held into the wind. A larger fin, or the same fin further back, is what settles this.")
+
+  /** Mode shapes were reported, but nothing dominates. Saying which axis would be inventing one. */
+  case object Mixed extends RunawayAxis("several axes at once",
+    "No one axis dominates the motion, so there is no single thing to change. A divergence that mixes " +
+      "pitch with yaw usually means the aircraft is far from where it was trimmed.")
+
+  /** AVL gave no mode shape at all. About the run, not about the aircraft. */
+  case object Unknown extends RunawayAxis("unknown",
+    "AVL gave no mode shape for it, so which axis runs away cannot be told from here.")
+}
 
 /**
  * The criteria come from MIL-F-8785C, which is in the repository: `docs/MIL-F-8785C.pdf`, with the tables
  * transcribed and the pages cited in `docs/mil-f-8785c.md`. **Every threshold below names its section and
  * table**, so a reader can check it against the page it came from rather than take it on trust — which is
- * how the one number here that is *not* in the standard went unnoticed for so long (see `SpiralGuess`).
+ * how the one number here that was *not* in the standard went unnoticed for years.
  *
- * All of them are Level 1, Flight Phase Category B — gradual maneuvering, which is cruise. Neither the Level
- * nor the Category is a choice the user can make yet, and Category A wants noticeably more of the aircraft.
+ * Two things this object does that the standard does not do for itself.
+ *
+ * It reports a **Level**, not a pass. The standard is written in three of them and only the first is "clearly
+ * adequate"; an aircraft that misses it is usually flyable rather than broken, and saying so is more useful
+ * than FAIL.
+ *
+ * And it **follows the aircraft's size**. See [[FroudeScale]]: this editor is used for large aircraft and for
+ * models, and a frequency in radians per second written around a ten-metre airplane means nothing to a metre
+ * and a half of one.
  */
 object MilF8785cEvaluator {
   private val ModeDominanceThreshold = 0.55f
   private val OscillatoryOmegaThreshold = 1.0e-6f
 
-  // MIL-F-8785C 3.2.2.1.2, TABLE IV (PDF p. 13): Category B, Level 1.
-  private val ShortPeriodMinZeta = 0.30
-  private val ShortPeriodMaxZeta = 2.00
+  /** Below this a real part is neither growing nor decaying, and that is worth saying rather than ignoring. */
+  private val NeutralSigmaThreshold = 1.0e-6f
 
-  // MIL-F-8785C 3.3.1.1, TABLE VI (PDF p. 22): Category B, all Classes, Level 1.
-  // The table's footnote raises the min zeta*wn when wn^2 |phi/beta| exceeds 20 (rad/s)^2, which a model
-  // clears easily — that augmentation is not applied here yet.
-  private val DutchRollMinZeta = 0.08
-  private val DutchRollMinWn = 0.40
-  private val DutchRollMinZetaWn = 0.15
+  private val Gravity = 9.80665
 
-  // MIL-F-8785C 3.2.1.2 a (PDF p. 12): Level 1.
-  private val PhugoidMinZeta = 0.04
+  // ---------------------------------------------------------------------------------------------------
+  // Size
+  // ---------------------------------------------------------------------------------------------------
 
   /**
-   * **This one is not from the standard.** MIL-F-8785C 3.3.1.3, TABLE VIII (PDF p. 23) asks a Category B
-   * aircraft's spiral to take at least 20 s to double at Level 1, 8 s at Level 2 and 4 s at Level 3. This is
-   * a guess at where a *model's* spiral stops being flyable, and it is used only to word a divergence, never
-   * to pass or fail anything.
+   * What the aircraft's own size does to a threshold the standard states in seconds or radians per second.
    *
-   * It may even be about right — 20 s full scale is about 9 s on a 1/5 model, since times scale with the
-   * square root of the scale — but nobody wrote that down, so nobody could check it. Temporary: it goes when
-   * the spiral is judged against TABLE VIII properly.
+   * MIL-F-8785C is written for piloted, full-scale airplanes. Under Froude scaling — the right similarity for
+   * a machine flying under gravity — an aircraft `n` times smaller has frequencies `sqrt(n)` times higher and
+   * times `sqrt(n)` shorter, while damping ratios, being dimensionless, are unchanged.
+   *
+   * **The standard's own numbers already behave this way**, which is what makes this a derivation rather than
+   * a guess. Table VI asks 1.0 rad/s of Classes I and IV and 0.4 rad/s of Classes II and III. A light trainer
+   * and a fighter share a row — as different as two airplanes get — and what they have in common is about
+   * 11 m of span; the other row is the 60 m ones. Test `wn >= sqrt(g/b)`: 11 m gives 0.94 rad/s against the
+   * table's 1.0, and 60 m gives 0.40 against its 0.4. Two rows, spans differing by a factor of five,
+   * reproduced to 6 % with no fitted constant. `FroudeScaleCheck` asserts exactly that.
+   *
+   * **Applied conservatively.** The rule is evidence that size matters, not licence to rewrite the standard
+   * where it already applies. So a threshold is used **exactly as written** for any aircraft at least as big
+   * as the smallest the standard contemplates — Class I, "small, light airplanes", about 11 m — and scaled
+   * only below that, which is the range the standard never covered and where it goes vacuous: applied
+   * unchanged, a model clears the dutch-roll frequency floors whatever it is like, leaving one of the three
+   * criteria doing any work.
    */
-  private val SpiralGuess = 10.0
+  final case class FroudeScale(spanMetres: Double) {
+
+    /**
+     * The smallest airplane MIL-F-8785C contemplates: Class I, "small, light airplanes" (1.3.1, PDF p. 3-4),
+     * a Cessna 172 at 11.0 m of span. Thresholds are quoted verbatim at this size and above.
+     */
+    val ReferenceSpanMetres = 11.0
+
+    def known: Boolean = spanMetres > 0.0 && !spanMetres.isNaN && !spanMetres.isInfinite
+
+    /** Below the standard's own range, and therefore scaled. */
+    def scales: Boolean = known && spanMetres < ReferenceSpanMetres
+
+    /** `sqrt(b/g)`, the time this aircraft's size sets. Times scale with it, frequencies against it. */
+    def froudeTime: Double = math.sqrt(spanMetres / Gravity)
+
+    private def ratio: Double = math.sqrt(ReferenceSpanMetres / spanMetres)
+
+    /** A threshold in rad/s: a smaller aircraft has to be quicker, by `sqrt(bref/b)`. */
+    def frequency(stated: Double): Double = if (scales) stated * ratio else stated
+
+    /** A threshold in seconds: a smaller aircraft has less of them, by `sqrt(b/bref)`. */
+    def time(stated: Double): Double = if (scales) stated / ratio else stated
+  }
+
+  /** An aircraft whose span never reached us: everything is quoted exactly as the standard states it. */
+  val UnknownSize = FroudeScale(Double.NaN)
+
+  def sizeOf(calculation: AvlCalculation): FroudeScale =
+    Option(calculation).flatMap(c => Option(c.getConfiguration))
+      .map(config => FroudeScale(config.getSpanMetres.toDouble))
+      .getOrElse(UnknownSize)
+
+  // ---------------------------------------------------------------------------------------------------
+  // The criteria, as data. Every one cites its section, its table and the PDF page it is on.
+  // ---------------------------------------------------------------------------------------------------
+
+  /** MIL-F-8785C 3.2.2.1.2, TABLE IV (PDF p. 13): equivalent short-period damping ratio limits. */
+  private def shortPeriodLimits(category: FlightPhaseCategory): List[(Int, Double, Double)] =
+    category match {
+      case FlightPhaseCategory.B => List((1, 0.30, 2.00), (2, 0.20, 2.00), (3, 0.15, Double.MaxValue))
+      case _                     => List((1, 0.35, 1.30), (2, 0.25, 2.00), (3, 0.15, Double.MaxValue))
+    }
+
+  /** MIL-F-8785C 3.2.1.2 (PDF p. 12): phugoid. Level 3 is a doubling time, not a damping ratio. */
+  private val PhugoidMinZetaLevel1 = 0.04
+  private val PhugoidMinZetaLevel2 = 0.0
+  private val PhugoidLevel3DoublingSeconds = 55.0
 
   /**
-   * A motion that runs away: a real root with a positive real part, which grows without ever swinging back.
+   * MIL-F-8785C 3.3.1.1, TABLE VI (PDF p. 22): minimum dutch roll damping and frequency, as
+   * `(level, min zeta, min zeta*wn, min wn)`.
    *
-   * This is the most important thing an AVL run can say, and it used to be the easiest to miss. The
-   * divergences were only reported when the modal table came out **empty** — so an aircraft with one oscillatory
-   * mode and three divergences showed a green PASS and nothing else, which is exactly backwards. They are
-   * reported now whatever else was found.
+   * Class is not asked for. Where the table splits by it, the Class I / IV row is taken — "small, light
+   * airplanes" and fighters, which is what this editor is used to design and the stricter of the two.
+   */
+  private def dutchRollLimits(category: FlightPhaseCategory): List[(Int, Double, Double, Double)] =
+    category match {
+      case FlightPhaseCategory.A => List((1, 0.19, 0.35, 1.0), (2, 0.02, 0.05, 0.4), (3, 0.0, 0.0, 0.4))
+      case FlightPhaseCategory.B => List((1, 0.08, 0.15, 0.4), (2, 0.02, 0.05, 0.4), (3, 0.0, 0.0, 0.4))
+      case FlightPhaseCategory.C => List((1, 0.08, 0.15, 1.0), (2, 0.02, 0.05, 0.4), (3, 0.0, 0.0, 0.4))
+    }
+
+  /** MIL-F-8785C 3.3.1.2, TABLE VII (PDF p. 23): maximum roll-mode time constant, seconds. */
+  private def rollModeLimits(category: FlightPhaseCategory): List[(Int, Double)] =
+    category match {
+      case FlightPhaseCategory.B => List((1, 1.4), (2, 3.0), (3, 10.0))
+      case _                     => List((1, 1.0), (2, 1.4), (3, 10.0))
+    }
+
+  /** MIL-F-8785C 3.3.1.3, TABLE VIII (PDF p. 23): spiral, minimum time to double amplitude, seconds. */
+  private def spiralLimits(category: FlightPhaseCategory): List[(Int, Double)] =
+    category match {
+      case FlightPhaseCategory.B => List((1, 20.0), (2, 8.0), (3, 4.0))
+      case _                     => List((1, 12.0), (2, 8.0), (3, 4.0))
+    }
+
+  /** MIL-F-8785C 3.3.1.4 (PDF p. 23): coupled roll-spiral, minimum `zeta*wn` in rad/s. */
+  private val CoupledRollSpiralLimits = List((1, 0.5), (2, 0.3), (3, 0.15))
+
+  // ---------------------------------------------------------------------------------------------------
+  // What runs away
+  // ---------------------------------------------------------------------------------------------------
+
+  /**
+   * A motion that grows: any root with a positive real part.
+   *
+   * This is the most important thing an AVL run can say, and it used to be the easiest to miss — twice over.
+   * The divergences were only reported when the modal table came out **empty**, so one oscillatory mode was
+   * enough to hide three runaways behind a green PASS. And a **growing oscillation** — positive real part and
+   * a frequency — was not counted as a runaway at all: it went into the table, where its damping ratio comes
+   * out negative and the verdict read "Too lightly damped at -0.12", as though it merely needed a bigger fin.
+   * An oscillation that grows is a runaway that happens to swing on its way out.
    *
    * `axis` comes from the mode shape when AVL gave one, because which axis is running away decides what to
    * change: a pitch divergence is the centre of gravity, a fast yaw one is the fin, and a slow lateral one is
    * the spiral mode, which most models have and most pilots fly through.
    */
-  final case class Divergence(sigma: Double, doublingTime: Double, axis: String, says: String)
+  final case class Divergence(sigma: Double, doublingTime: Double, axis: RunawayAxis, oscillates: Boolean,
+                              period: Option[Double], says: String) {
+    def axisLabel: String = axis.label
+  }
+
+  private def axisOf(mode: AvlEigenvalue, doubling: Double): RunawayAxis = {
+    if (!mode.hasModeShape) RunawayAxis.Unknown
+    else if (mode.getLongitudinalRatio >= ModeDominanceThreshold)
+      if (mode.getPitchRatio >= mode.getSpeedRatio) RunawayAxis.Pitch else RunawayAxis.Speed
+    else if (mode.getLateralRatio >= ModeDominanceThreshold)
+      if (doubling > 10.0) RunawayAxis.Spiral else RunawayAxis.YawAndRoll
+    else RunawayAxis.Mixed
+  }
 
   def divergences(calculation: AvlCalculation): List[Divergence] = {
     val all = Option(calculation).map(_.getEigenvalues.asScala.toList).getOrElse(Nil)
-    all.filter(e => e.getSigma > 0f && e.getOmega <= OscillatoryOmegaThreshold)
+    all.filter(_.getSigma > NeutralSigmaThreshold)
       .sortBy(e => -e.getSigma)
       .map { mode =>
-        // A real positive root doubles every ln(2)/sigma seconds.
+        // A root with a positive real part doubles every ln(2)/sigma seconds, whether it swings or not.
         val doubling = math.log(2.0) / mode.getSigma.toDouble
-        val (axis, remedy) =
-          if (!mode.hasModeShape)
-            ("unknown", "AVL gave no mode shape for it, so which axis runs away cannot be told from here.")
-          else if (mode.getLongitudinalRatio >= ModeDominanceThreshold && mode.getPitchRatio >= mode.getSpeedRatio)
-            ("pitch", "The centre of gravity is behind the neutral point: move it forward, with weight in " +
-              "the nose or by moving what is already there.")
-          else if (mode.getLongitudinalRatio >= ModeDominanceThreshold)
-            ("speed", "The aircraft cannot hold a speed: it accelerates or decays away from the trimmed " +
-              "point. Usually the trim itself, or a centre of gravity far from where it was analysed.")
-          else if (doubling > SpiralGuess)
-            ("spiral", "A slow spiral. Most models have one and it is flown through easily; more dihedral " +
-              "or a smaller fin tightens it.")
-          else
-            ("yaw and roll", "The nose is not held into the wind. A larger fin, or the same fin further " +
-              "back, is what settles this.")
+        val axis = axisOf(mode, doubling)
+        val oscillates = mode.getOmega > OscillatoryOmegaThreshold
+        val period = if (oscillates) Some(2.0 * math.Pi / mode.getOmega.toDouble) else None
         val urgency =
           if (doubling < 0.5) "There is no flying this: it is gone before a pilot can react. "
           else if (doubling < 3.0) "A pilot would be fighting it constantly. "
           else ""
-        Divergence(mode.getSigma.toDouble, doubling, axis,
-          f"$axis%s runs away: the motion doubles every $doubling%.2f s (sigma +${mode.getSigma}%.3f). " +
-            urgency + remedy)
+        val what =
+          if (oscillates)
+            f"${axis.label}%s oscillates and the swings grow: each one doubles every $doubling%.2f s " +
+              f"(sigma +${mode.getSigma}%.3f, a swing every ${period.get}%.2f s). "
+          else
+            f"${axis.label}%s runs away: the motion doubles every $doubling%.2f s (sigma +${mode.getSigma}%.3f). "
+        Divergence(mode.getSigma.toDouble, doubling, axis, oscillates, period, what + urgency + axis.remedy)
+      }
+  }
+
+  /**
+   * A motion that neither grows nor decays. It is not a divergence and it is not damped, and it used to fall
+   * between the two filters and vanish: `sigma > 0` excluded it from the runaways and `omega > 0` from the
+   * table. An aircraft on the edge of stability is worth a sentence.
+   */
+  def neutralModes(calculation: AvlCalculation): List[String] = {
+    val all = Option(calculation).map(_.getEigenvalues.asScala.toList).getOrElse(Nil)
+    all.filter(e => math.abs(e.getSigma) <= NeutralSigmaThreshold)
+      .map { mode =>
+        if (mode.getOmega > OscillatoryOmegaThreshold)
+          f"A motion swings on for ever without dying away (a swing every ${2.0 * math.Pi / mode.getOmega}%.2f s, " +
+            "sigma 0). It will not run away, but nothing damps it either: it sits exactly on the edge."
+        else
+          "A motion neither grows nor decays (sigma 0). Displace the aircraft in it and it simply stays " +
+            "displaced, which is the boundary of stability rather than a fault."
       }
   }
 
@@ -130,7 +320,7 @@ object MilF8785cEvaluator {
       val worst = found.minBy(_.doublingTime)
       val count = if (found.size == 1) "one of its motions runs away" else s"${found.size} of its motions run away"
       Some(f"This aircraft will not fly as it stands: $count%s, the fastest doubling every " +
-        f"${worst.doublingTime}%.2f s in ${worst.axis}%s. Whatever the modes below say, this comes first.")
+        f"${worst.doublingTime}%.2f s in ${worst.axisLabel}%s. Whatever the modes below say, this comes first.")
     }
   }
 
@@ -138,6 +328,12 @@ object MilF8785cEvaluator {
     calculation.getEigenvalues.asScala.toList
       .filter(e => e.getOmega > OscillatoryOmegaThreshold)
       .sortBy(e => -e.getNaturalFrequency)
+  }
+
+  /** The real roots, which carry the roll mode and the spiral and used to be thrown away unless they grew. */
+  private def realModes(calculation: AvlCalculation): List[AvlEigenvalue] = {
+    Option(calculation).map(_.getEigenvalues.asScala.toList).getOrElse(Nil)
+      .filter(e => e.getOmega <= OscillatoryOmegaThreshold)
   }
 
   /**
@@ -193,7 +389,25 @@ object MilF8785cEvaluator {
           "another. The eigenvalues below are still its answer."
       else "Not found: " + absent, None)
 
-  def evaluate(calculation: AvlCalculation): List[ModalNormRow] = {
+  /** The first Level whose limits the measurement meets, worst-first order being 1, 2, 3. */
+  private def levelMet(levels: List[(Int, Boolean)]): Option[Int] =
+    levels.find(_._2).map(_._1)
+
+  /**
+   * A Level below 1 still has to say **what kept it from Level 1**. Reporting the Level alone would be the
+   * old bare FAIL with a number on it: it tells the reader where they are and not which way to move.
+   */
+  private def levelVerdict(level: Option[Int], meets: String, misses: String): String = level match {
+    case Some(1) => "Meets it: " + meets
+    case Some(n) => f"Level $n%d — flyable, but more work for the pilot. Short of Level 1: " + misses
+    case None    => "Worse than Level 3: " + misses
+  }
+
+  def evaluate(calculation: AvlCalculation): List[ModalNormRow] =
+    evaluate(calculation, FlightPhaseCategory.Default)
+
+  def evaluate(calculation: AvlCalculation, category: FlightPhaseCategory): List[ModalNormRow] = {
+    val size = sizeOf(calculation)
     val modes = oscillatoryPositiveModes(calculation)
     val longitudinalModes = longitudinalOscillatoryModes(modes)
     val shortPeriod = findShortPeriodCandidate(longitudinalModes)
@@ -201,77 +415,216 @@ object MilF8785cEvaluator {
 
     // Whether AVL gave the mode shapes at all: without them nothing can be identified, and saying so is a
     // different statement from saying the aircraft has no such motion.
-    val shapesReported = modes.exists(_.hasModeShape)
+    val shapesReported = modes.exists(_.hasModeShape) || realModes(calculation).exists(_.hasModeShape)
     val consumed = shortPeriod.toList ++ phugoid.toList
-    val dutchPool = lateralOscillatoryModes(modes).filterNot(mode => consumed.exists(c => c eq mode))
+    val lateralOscillatory = lateralOscillatoryModes(modes).filterNot(mode => consumed.exists(c => c eq mode))
+    val coupledRollSpiral = findCoupledRollSpiralCandidate(lateralOscillatory, size)
+    val dutchPool = lateralOscillatory.filterNot(mode => coupledRollSpiral.exists(c => c eq mode))
     val dutchRoll = findDutchRollCandidate(dutchPool)
 
-    val shortPeriodIs = "the quick nose bob after a gust or a stick input, at nearly constant speed"
-    val shortPeriodWants = f"damping between $ShortPeriodMinZeta%.2f and $ShortPeriodMaxZeta%.2f"
-    val shortRow = shortPeriod match {
+    List(
+      shortPeriodRow(shortPeriod, category, shapesReported),
+      dutchRollRow(dutchRoll, category, size, shapesReported),
+      phugoidRow(phugoid, category, size, shapesReported),
+      rollModeRow(findRollModeCandidate(realModes(calculation)), category, size, shapesReported),
+      spiralRow(findSpiralCandidate(realModes(calculation)), category, size, shapesReported),
+      coupledRollSpiralRow(coupledRollSpiral, category, size)
+    )
+  }
+
+  // ---------------------------------------------------------------------------------------------------
+  // One row per motion
+  // ---------------------------------------------------------------------------------------------------
+
+  private def shortPeriodRow(candidate: Option[AvlEigenvalue], category: FlightPhaseCategory,
+                             shapesReported: Boolean): ModalNormRow = {
+    val is = "the quick nose bob after a gust or a stick input, at nearly constant speed"
+    val limits = shortPeriodLimits(category)
+    val (_, minLevel1, maxLevel1) = limits.head
+    val wants = f"damping between $minLevel1%.2f and $maxLevel1%.2f"
+    candidate match {
       case Some(mode) =>
         val zeta = mode.getDampingRatio.toDouble
         val wn = mode.getNaturalFrequency.toDouble
-        val pass = zeta >= ShortPeriodMinZeta && zeta <= ShortPeriodMaxZeta
-        val verdict =
-          if (pass) f"Meets it: damping $zeta%.2f."
-          else if (zeta < ShortPeriodMinZeta)
-            f"Too lightly damped at $zeta%.2f, against the $ShortPeriodMinZeta%.2f wanted: the nose keeps " +
-              "bobbing after a gust. More tailplane, a longer tail arm or a centre of gravity further forward."
-          else
-            f"Too heavily damped at $zeta%.2f, against the $ShortPeriodMaxZeta%.2f allowed: the aircraft " +
-              "answers the elevator sluggishly."
-        ModalNormRow("Short-period", shortPeriodIs, Some(wn), Some(zeta),
-          periodOf(wn, zeta), swingsToHalfOf(zeta), shortPeriodWants, verdict, Some(pass))
-      case None => unidentified("Short-period", shortPeriodIs, shortPeriodWants,
+        val level = levelMet(limits.map { case (n, lo, hi) => (n, zeta >= lo && zeta <= hi) })
+        val miss =
+          if (zeta < minLevel1)
+            f"too lightly damped at $zeta%.2f — the nose keeps bobbing after a gust. More tailplane, a " +
+              "longer tail arm or a centre of gravity further forward."
+          else f"too heavily damped at $zeta%.2f — the aircraft answers the elevator sluggishly."
+        ModalNormRow("Short-period", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
+          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level)
+      case None => unidentified("Short-period", is, wants,
         "none of the oscillating motions AVL found is a pitch one. On a strongly damped model the short " +
           "period can split into two motions that do not swing at all, which is not a fault.", shapesReported)
     }
+  }
 
-    val dutchRollIs = "the tail wagging: the nose swings side to side while the wings rock with it"
-    val dutchRollWants = f"damping at least $DutchRollMinZeta%.2f, and quick enough with it"
-    val dutchRow = dutchRoll match {
+  private def dutchRollRow(candidate: Option[AvlEigenvalue], category: FlightPhaseCategory,
+                           size: FroudeScale, shapesReported: Boolean): ModalNormRow = {
+    val is = "the tail wagging: the nose swings side to side while the wings rock with it"
+    val limits = dutchRollLimits(category)
+    val (_, minZeta1, minZetaWn1, minWn1) = limits.head
+    val wants = f"damping at least $minZeta1%.2f, and quick enough with it " +
+      f"(wn at least $minWn1%.2f rad/s, damping x wn at least $minZetaWn1%.2f)"
+    val applied =
+      if (size.scales) Some(f"at this size: wn at least ${size.frequency(minWn1)}%.2f rad/s, " +
+        f"damping x wn at least ${size.frequency(minZetaWn1)}%.2f")
+      else None
+    candidate match {
       case Some(mode) =>
         val zeta = mode.getDampingRatio.toDouble
         val wn = mode.getNaturalFrequency.toDouble
-        val pass = zeta >= DutchRollMinZeta && wn >= DutchRollMinWn && (zeta * wn) >= DutchRollMinZetaWn
-        val verdict =
-          if (pass) f"Meets it: damping $zeta%.2f."
-          else if (zeta < DutchRollMinZeta)
-            f"Too lightly damped at $zeta%.2f, against the $DutchRollMinZeta%.2f wanted: the tail keeps " +
-              "wagging. A bigger fin, or further back, is what settles it."
+        val level = levelMet(limits.map { case (n, mz, mzw, mw) =>
+          (n, zeta >= mz && wn >= size.frequency(mw) && (zeta * wn) >= size.frequency(mzw))
+        })
+        val miss =
+          if (zeta < minZeta1)
+            f"too lightly damped at $zeta%.2f — the tail keeps wagging. A bigger fin, or further back, is " +
+              "what settles it."
           else
-            f"Damped enough at $zeta%.2f but too slow to settle (${zeta * wn}%.2f against the " +
-              f"$DutchRollMinZetaWn%.2f wanted): the wag dies away, but it takes a long time about it."
-        ModalNormRow("Dutch-roll", dutchRollIs, Some(wn), Some(zeta),
-          periodOf(wn, zeta), swingsToHalfOf(zeta), dutchRollWants, verdict, Some(pass))
-      case None => unidentified("Dutch-roll", dutchRollIs, dutchRollWants,
+            f"damped enough at $zeta%.2f but too slow to settle (${zeta * wn}%.2f against the " +
+              f"${size.frequency(minZetaWn1)}%.2f wanted) — the wag dies away, but it takes a long time about it."
+        ModalNormRow("Dutch-roll", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
+          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level, applied)
+      case None => unidentified("Dutch-roll", is, wants,
         "none of the oscillating motions AVL found is a yaw-and-roll one. With a large fin the wag can be " +
           "damped out of existence, which is not a fault either.", shapesReported)
     }
+  }
 
-    val phugoidIs = "the slow rollercoaster: the aircraft trades height for speed and back, over many seconds"
-    val phugoidWants = f"damping at least $PhugoidMinZeta%.2f"
-    val phugoidRow = phugoid match {
+  private def phugoidRow(candidate: Option[AvlEigenvalue], category: FlightPhaseCategory,
+                         size: FroudeScale, shapesReported: Boolean): ModalNormRow = {
+    val is = "the slow rollercoaster: the aircraft trades height for speed and back, over many seconds"
+    val wants = f"damping at least $PhugoidMinZetaLevel1%.2f"
+    val level3Seconds = size.time(PhugoidLevel3DoublingSeconds)
+    val applied = if (size.scales) Some(f"at this size, Level 3 wants doubling no faster than $level3Seconds%.0f s")
+                  else None
+    candidate match {
       case Some(mode) =>
         val zeta = mode.getDampingRatio.toDouble
         val wn = mode.getNaturalFrequency.toDouble
-        val pass = zeta >= PhugoidMinZeta
-        val verdict =
-          if (pass) f"Meets it: damping $zeta%.2f."
-          else
-            f"Too lightly damped at $zeta%.2f, against the $PhugoidMinZeta%.2f wanted: the aircraft keeps " +
-              "porpoising and the pilot has to fly it out. It is a slow motion and easy to correct, so this " +
-              "is the least pressing of the three."
-        ModalNormRow("Phugoid", phugoidIs, Some(wn), Some(zeta),
-          periodOf(wn, zeta), swingsToHalfOf(zeta), phugoidWants, verdict, Some(pass))
-      case None => unidentified("Phugoid", phugoidIs, phugoidWants,
+        // Level 3 is stated as a doubling time rather than a damping ratio: a phugoid may grow, provided it
+        // takes long enough about it that the pilot simply flies it out.
+        val doubling = if (mode.getSigma > 0f) math.log(2.0) / mode.getSigma.toDouble else Double.MaxValue
+        val level = levelMet(List(
+          (1, zeta >= PhugoidMinZetaLevel1),
+          (2, zeta >= PhugoidMinZetaLevel2),
+          (3, doubling >= level3Seconds)))
+        val miss =
+          f"too lightly damped at $zeta%.2f — the aircraft keeps porpoising and the pilot has to fly it " +
+            "out. It is a slow motion and easy to correct, so this is the least pressing of the three."
+        ModalNormRow("Phugoid", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
+          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level, applied)
+      case None => unidentified("Phugoid", is, wants,
         "none of the remaining oscillating motions is a slow speed-and-height one. It is the easiest of the " +
           "three to lose in the numbers, and the least consequential to fly without.", shapesReported)
     }
-
-    List(shortRow, dutchRow, phugoidRow)
   }
+
+  /**
+   * MIL-F-8785C 3.3.1.2, TABLE VII: how quickly the roll rate settles after the stick is moved. It is a real
+   * root, not an oscillation, which is why it was invisible until the real roots were kept.
+   */
+  private def rollModeRow(candidate: Option[AvlEigenvalue], category: FlightPhaseCategory,
+                          size: FroudeScale, shapesReported: Boolean): ModalNormRow = {
+    val is = "how quickly the roll settles: move the stick and the roll rate takes this long to arrive"
+    val limits = rollModeLimits(category)
+    val wants = f"settling within ${limits.head._2}%.1f s"
+    val applied = if (size.scales) Some(f"at this size: within ${size.time(limits.head._2)}%.2f s") else None
+    candidate match {
+      case Some(mode) =>
+        // The roll mode is a decaying real root: tau = -1/sigma.
+        val tau = -1.0 / mode.getSigma.toDouble
+        val level = levelMet(limits.map { case (n, maxTau) => (n, tau <= size.time(maxTau)) })
+        val miss =
+          f"the roll takes $tau%.2f s to build up, against the ${size.time(limits.head._2)}%.2f s wanted: the " +
+            "aircraft feels slow and mushy in roll. More aileron, or less roll damping — a shorter span or " +
+            "less dihedral."
+        ModalNormRow("Roll mode", is, None, None, None, None, wants,
+          levelVerdict(level, f"the roll settles in $tau%.2f s.", miss), Some(level == Some(1)), level, applied)
+      case None => unidentified("Roll mode", is, wants,
+        "none of the real roots AVL found is a rolling one. Without ailerons, or with a mode shape that does " +
+          "not single out roll rate, there is nothing here to measure.", shapesReported)
+    }
+  }
+
+  /**
+   * MIL-F-8785C 3.3.1.3, TABLE VIII: the spiral. A stable one meets every Level at once; an unstable one is
+   * judged on how long it takes to double, which is what most models have and most pilots fly through.
+   *
+   * This row is what retired the invented 10-second threshold that used to stand in for the whole table.
+   */
+  private def spiralRow(candidate: Option[AvlEigenvalue], category: FlightPhaseCategory,
+                        size: FroudeScale, shapesReported: Boolean): ModalNormRow = {
+    val is = "the slow bank that will not right itself: let go and the aircraft gradually rolls further in"
+    val limits = spiralLimits(category)
+    val wants = f"if it diverges, taking at least ${limits.head._2}%.0f s to double the bank"
+    val applied = if (size.scales) Some(f"at this size: at least ${size.time(limits.head._2)}%.1f s") else None
+    candidate match {
+      case Some(mode) if mode.getSigma <= 0f =>
+        val halving = if (mode.getSigma < 0f) math.log(2.0) / -mode.getSigma.toDouble else Double.PositiveInfinity
+        ModalNormRow("Spiral", is, None, None, None, None, wants,
+          if (halving.isPosInfinity) "Meets it: the spiral neither tightens nor rights itself."
+          else f"Meets it: the bank rights itself, halving every $halving%.1f s. A stable spiral meets every Level.",
+          Some(true), Some(1), applied)
+      case Some(mode) =>
+        val doubling = math.log(2.0) / mode.getSigma.toDouble
+        val level = levelMet(limits.map { case (n, minT2) => (n, doubling >= size.time(minT2)) })
+        val miss =
+          f"the bank doubles every $doubling%.1f s, against the ${size.time(limits.head._2)}%.1f s wanted: it " +
+            "tightens faster than a pilot would want to keep correcting. More dihedral, or a smaller fin."
+        ModalNormRow("Spiral", is, None, None, None, None, wants,
+          levelVerdict(level, f"it diverges, but slowly — the bank doubles every $doubling%.1f s.", miss),
+          Some(level == Some(1)), level, applied)
+      case None => unidentified("Spiral", is, wants,
+        "none of the real roots AVL found is a slow banking one. A model with plenty of dihedral can have " +
+          "no distinct spiral at all.", shapesReported)
+    }
+  }
+
+  /**
+   * MIL-F-8785C 3.3.1.4: the roll mode and the spiral merged into one oscillation, which happens when the
+   * two real roots meet. Not permitted at all for Category A; judged on `zeta*wn` for B and C.
+   */
+  private def coupledRollSpiralRow(candidate: Option[AvlEigenvalue],
+                                   category: FlightPhaseCategory, size: FroudeScale): ModalNormRow = {
+    val is = "roll and spiral merged into one slow wallow, instead of settling separately"
+    val wants =
+      if (category == FlightPhaseCategory.A) "not to exist at all in this Flight Phase"
+      else f"damping x wn at least ${CoupledRollSpiralLimits.head._2}%.2f rad/s"
+    val applied =
+      if (size.scales && category != FlightPhaseCategory.A)
+        Some(f"at this size: at least ${size.frequency(CoupledRollSpiralLimits.head._2)}%.2f rad/s")
+      else None
+    candidate match {
+      case Some(mode) =>
+        val zeta = mode.getDampingRatio.toDouble
+        val wn = mode.getNaturalFrequency.toDouble
+        val product = zeta * wn
+        if (category == FlightPhaseCategory.A)
+          ModalNormRow("Coupled roll-spiral", is, Some(wn), Some(zeta), periodOf(wn, zeta),
+            swingsToHalfOf(zeta), wants,
+            f"Not allowed: the standard forbids a coupled roll-spiral outright for rapid maneuvering, and " +
+              f"this aircraft has one (damping x wn $product%.2f).", Some(false), None, applied)
+        else {
+          val level = levelMet(CoupledRollSpiralLimits.map { case (n, m) => (n, product >= size.frequency(m)) })
+          ModalNormRow("Coupled roll-spiral", is, Some(wn), Some(zeta), periodOf(wn, zeta),
+            swingsToHalfOf(zeta), wants,
+            levelVerdict(level, f"damping x wn $product%.2f.",
+              f"damping x wn is only $product%.2f — the wallow takes far too long to settle."),
+            Some(level == Some(1)), level, applied)
+        }
+      case None =>
+        ModalNormRow("Coupled roll-spiral", is, None, None, None, None, wants,
+          "Not present, which is what is wanted: the roll and the spiral settle separately.",
+          Some(true), Some(1), applied)
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------
+  // Which motion is which
+  // ---------------------------------------------------------------------------------------------------
 
   private def longitudinalOscillatoryModes(modes: List[AvlEigenvalue]): List[AvlEigenvalue] = {
     modes.filter(mode => mode.hasModeShape && mode.getLongitudinalRatio >= ModeDominanceThreshold)
@@ -295,5 +648,41 @@ object MilF8785cEvaluator {
   private def findDutchRollCandidate(modes: List[AvlEigenvalue]): Option[AvlEigenvalue] = {
     if (modes.isEmpty) None
     else Some(modes.maxBy(_.getNaturalFrequency))
+  }
+
+  /**
+   * A coupled roll-spiral is the roll mode and the spiral having merged, so it is a lateral oscillation with
+   * a great deal of bank in it and a frequency far below the dutch roll's — the dutch roll is a yawing motion
+   * and this one is a wallowing roll. Below the Froude frequency of the aircraft's own size, which is where
+   * the roll and spiral roots live, and bank-dominated rather than yaw-dominated.
+   */
+  private def findCoupledRollSpiralCandidate(modes: List[AvlEigenvalue], size: FroudeScale): Option[AvlEigenvalue] = {
+    if (!size.known) return None
+    val slowLimit = 1.0 / size.froudeTime
+    val candidates = modes.filter(mode =>
+      mode.getNaturalFrequency < slowLimit && mode.getBankRatio > mode.getRollRateRatio)
+    if (candidates.isEmpty) None else Some(candidates.minBy(_.getNaturalFrequency))
+  }
+
+  /**
+   * The roll subsidence: a decaying real root dominated by roll **rate**. It is the fastest of the lateral
+   * real roots, because that is what "subsidence" means — the roll rate settling almost at once.
+   */
+  private def findRollModeCandidate(modes: List[AvlEigenvalue]): Option[AvlEigenvalue] = {
+    val candidates = modes.filter(mode => mode.hasModeShape && mode.getSigma < 0f &&
+      mode.getLateralRatio >= ModeDominanceThreshold &&
+      mode.getRollRateRatio >= mode.getBankRatio)
+    if (candidates.isEmpty) None else Some(candidates.minBy(_.getSigma))
+  }
+
+  /**
+   * The spiral: the slowest lateral real root, dominated by bank and heading rather than by roll rate. It may
+   * be stable or divergent, and both are ordinary — which is why it is picked before its sign is looked at.
+   */
+  private def findSpiralCandidate(modes: List[AvlEigenvalue]): Option[AvlEigenvalue] = {
+    val candidates = modes.filter(mode => mode.hasModeShape &&
+      mode.getLateralRatio >= ModeDominanceThreshold &&
+      mode.getBankRatio > mode.getRollRateRatio)
+    if (candidates.isEmpty) None else Some(candidates.maxBy(_.getSigma))
   }
 }
