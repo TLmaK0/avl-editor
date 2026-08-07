@@ -26,9 +26,14 @@ class AvlResultsWindow(display: Display) {
   private val boldFont = new Font(display, "Sans", 10, SWT.BOLD)
   private val monoFont = new Font(display, "Monospace", 9, SWT.NORMAL)
   private val headerFont = new Font(display, "Sans", 9, SWT.BOLD)
+  // Backgrounds, and the text colours that go on them. Always in pairs: a background on its own leaves the
+  // text to the theme, and a dark theme's text on these is invisible.
   private val passBgColor = new Color(display, 220, 245, 220)
   private val failBgColor = new Color(display, 250, 220, 220)
   private val naBgColor = new Color(display, 240, 240, 230)
+  private val passFgColor = new Color(display, 0, 90, 0)
+  private val failFgColor = new Color(display, 150, 0, 0)
+  private val naFgColor = new Color(display, 60, 60, 60)
 
   def open(calculation: AvlCalculation): Unit = {
     if (shell != null && !shell.isDisposed) {
@@ -244,10 +249,12 @@ class AvlResultsWindow(display: Display) {
       case None        => naBgColor
     }
 
+    // No background on the data cells. Setting one without setting a foreground is how this table came out
+    // white on white: the colours below are light, and a dark theme's default text is light too. The rule is
+    // that whoever sets a background sets the text colour with it — so these set neither and inherit both.
     def cell(text: String, width: Int, wrap: Boolean = false, font: Font = null): Label = {
       val label = new Label(parent, if (wrap) SWT.WRAP else SWT.NONE)
       label.setText(text)
-      label.setBackground(bgColor)
       if (font != null) label.setFont(font)
       val grid = new GridData(SWT.FILL, SWT.CENTER, wrap, false)
       if (width > 0) grid.widthHint = width
@@ -267,6 +274,8 @@ class AvlResultsWindow(display: Display) {
     }
     cell(damping, 190, font = monoFont)
 
+    // The verdict is the one cell that carries a colour, and it carries both of them: a light background and
+    // a dark text on it, chosen together so the pair is readable whatever the desktop theme is.
     val verdict = new Label(parent, SWT.WRAP)
     verdict.setText(row.pass match {
       case Some(true) => "PASS — " + row.verdict
@@ -274,11 +283,12 @@ class AvlResultsWindow(display: Display) {
       case None => row.verdict
     })
     verdict.setBackground(bgColor)
+    verdict.setForeground(row.pass match {
+      case Some(true) => passFgColor
+      case Some(false) => failFgColor
+      case None => naFgColor
+    })
     verdict.setFont(headerFont)
-    row.pass.foreach { passed =>
-      verdict.setForeground(display.getSystemColor(
-        if (passed) SWT.COLOR_DARK_GREEN else SWT.COLOR_DARK_RED))
-    }
     val verdictGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
     verdictGrid.widthHint = 380
     verdict.setLayoutData(verdictGrid)
@@ -288,8 +298,8 @@ class AvlResultsWindow(display: Display) {
     val footnote = new Label(parent, SWT.WRAP)
     footnote.setText(row.wn.map(w => f"wn ${w}%.3f rad/s · ").getOrElse("") +
       "MIL-F-8785C Level 1 Phase B wants " + row.requirement)
-    footnote.setBackground(bgColor)
-    footnote.setForeground(display.getSystemColor(SWT.COLOR_DARK_GRAY))
+    // Neither: the theme's own text colour, whatever it is. Grey on a dark theme is as unreadable as white
+    // on white was, and this line is already set apart by sitting under the row and indented.
     val footGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
     footGrid.horizontalSpan = 5
     footGrid.horizontalIndent = 12
