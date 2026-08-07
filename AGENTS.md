@@ -562,18 +562,30 @@ like, leaving one of the three criteria doing any work. So the aircraft's own sp
 field, no class to pick, nothing to know in advance.
 
 **The standard's own numbers already work this way**, which is what makes this a derivation rather than a
-guess. TABLE VI asks 1.0 rad/s of Classes I and IV and 0.4 rad/s of Classes II and III. A light trainer and
-a fighter share a row — as different as two airplanes get — and what they have in common is about 11 m of
-span; the other row is the 60 m ones. `sqrt(g/b)` gives 0.94 at 11 m and 0.40 at 60 m: two rows five-to-one
-apart in span, reproduced to 6 % **with no fitted constant**. A size-independent threshold could not do
-that. `FroudeScaleCheck` asserts the property, not the numbers, so it survives any rescaling.
+guess. TABLE VI asks 1.0 rad/s of Classes I and IV and 0.4 rad/s of Classes II and III. Against spans read
+off NASA CR-2144, *Aircraft Handling Qualities Data* (1972) — a contemporary of the standard, tabulating
+the fleet it was written around — `sqrt(g/b)` gives:
 
-It is applied **conservatively**: a threshold is used exactly as written for any aircraft at least as big as
-the smallest the standard contemplates (Class I, "small, light airplanes", ~11 m), and scaled only below
-that — the range the standard never covered. A full-size aircraft is therefore judged by the standard
-verbatim, and a 1.5 m model gets a dutch roll wanting 1.08 rad/s and a spiral that must take 7.4 s to
-double. Both figures are always shown, the stated one and the applied one: a verdict that silently moved the
-goalposts would be worse than one that never moved them.
+| Aircraft | Class | Span | `sqrt(g/b)` | TABLE VI asks |
+|----------|-------|------|-------------|---------------|
+| F-104A | IV | 6.687 m | 1.211 | 1.0 |
+| F-4C | IV | 11.787 m | 0.912 | 1.0 |
+| C-5A | III | 66.812 m | 0.383 | 0.4 |
+
+The two Class IV aircraft **bracket** their row rather than one of them approximating it, and the Class III
+figure is within 4 %. Two rows an order of magnitude apart in span, one formula, **no fitted constant**. A
+size-independent threshold could not do that.
+
+**The reference span is derived too**: `sqrt(g/b)` equals TABLE VI's 1.0 rad/s exactly when `b = g =
+9.81 m`, which is where the standard's own floor and the law agree — and it lands between the two fighters
+rather than on either. It was 11 m, a Cessna's span recalled rather than looked up, until the spans were
+verified. `FroudeScaleCheck` asserts the property, not the numbers, so it survives any rescaling.
+
+It is applied **conservatively**: a threshold is used exactly as written at the reference span and above,
+and scaled only below it — the range the standard never covered. A full-size aircraft is therefore judged
+by the standard verbatim, and a 1.5 m model gets a dutch roll wanting 1.02 rad/s and a spiral that must take
+7.8 s to double. Both figures are always shown, the stated one and the applied one: a verdict that silently
+moved the goalposts would be worse than one that never moved them.
 
 The span reaches the evaluator through `Configuration.getSpanMetres()`, written beside `Bref` from the same
 AVL run. It is the one place in the editor that stores a unit factor rather than following the model, and

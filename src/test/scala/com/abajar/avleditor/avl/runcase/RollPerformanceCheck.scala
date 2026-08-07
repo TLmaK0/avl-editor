@@ -92,11 +92,11 @@ object RollPerformanceCheck {
       math.abs(math.toDegrees(bank(0.435)) - 60.0) < 1.0)
 
     println("judged against TABLE IXa, at the aircraft's own size")
-    // Class I, Category B, Level 1 wants 60 degrees in 1.7 s. At 1.6 m of span that is 0.65 s, and this
+    // Class I, Category B, Level 1 wants 60 degrees in 1.7 s. At 1.6 m of span that is 0.69 s, and this
     // model banks in 0.44 s.
     check("it reaches Level 1", judged.level == Some(1))
     check("the requirement is stated as the standard writes it", judged.requirement.contains("1.7 s"))
-    check("and as it applies at this size", judged.applied.exists(_.contains("0.65 s")))
+    check("and as it applies at this size", judged.applied.exists(_.contains("0.69 s")))
 
     println("a sluggish aircraft is marked down rather than passed")
     val sluggish = row(aircraft(cld = 0.004f))

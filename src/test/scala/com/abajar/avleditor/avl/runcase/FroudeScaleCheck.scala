@@ -2,7 +2,7 @@
  * MIL-F-8785C is written for piloted, full-scale airplanes, and this editor is used for models. The
  * correction is Froude scaling, and the evidence that it is the right correction is that **the standard's
  * own numbers already obey it**: Table VI asks 1.0 rad/s of Classes I and IV and 0.4 rad/s of Classes II
- * and III, and those two rows are the same dimensionless requirement evaluated at 11 m and at 60 m of span.
+ * and III, and those two rows are the same dimensionless requirement evaluated at the spans of the aircraft they cover.
  *
  * This check asserts the property rather than the numbers, so it survives any rescaling: whatever reference
  * span or constant the evaluator uses, the law it implements must reproduce Table VI at both ends and must
@@ -26,24 +26,42 @@ object FroudeScaleCheck {
 
   def main(args: Array[String]): Unit = {
     println("the law itself: MIL-F-8785C's own frequency floors are sqrt(g/b)")
-    // TABLE VI (PDF p. 22), minimum wn_d at Level 1: 1.0 rad/s for Classes I and IV, 0.4 for II and III.
-    // Class I is a light trainer and Class IV a fighter — as different as two airplanes get, and in the same
-    // row. What they share is about 11 m of span. Classes II and III are the 60 m ones.
-    val smallSpan = 11.0
-    val largeSpan = 60.0
-    val atSmall = math.sqrt(Gravity / smallSpan)
-    val atLarge = math.sqrt(Gravity / largeSpan)
-    println(f"    sqrt(g/b) at $smallSpan%.0f m = $atSmall%.3f rad/s, TABLE VI states 1.0")
-    println(f"    sqrt(g/b) at $largeSpan%.0f m = $atLarge%.3f rad/s, TABLE VI states 0.4")
-    check("reproduces the Class I/IV row to within 10 %", math.abs(atSmall - 1.0) / 1.0 < 0.10)
-    check("reproduces the Class II/III row to within 10 %", math.abs(atLarge - 0.4) / 0.4 < 0.10)
-    // Two rows five-to-one apart in span reproduced by one formula with no fitted constant is the whole
-    // argument: a size-independent threshold could not do that.
-    check("and a size-independent threshold could not, the two rows differing by a factor of 2.5",
-      math.abs(1.0 / 0.4 - math.sqrt(largeSpan / smallSpan)) < 0.35)
+    // TABLE VI (p. 22), minimum wn_d at Level 1: 1.0 rad/s for Classes I and IV, 0.4 for II and III.
+    //
+    // The spans are **not** recalled: they are read off NASA CR-2144, *Aircraft Handling Qualities Data*
+    // (Heffley and Jewell, 1972), a contemporary of the standard tabulating the fleet it was written
+    // around. An earlier version of this check used remembered figures, and one of them was picked because
+    // it flattered the fit.
+    val Foot = 0.3048
+    val f104a = 21.94 * Foot   // CR-2144 figure III-2, p. 35.  Class IV
+    val f4c = 38.67 * Foot     // CR-2144 figure IV-2,  p. 64.  Class IV
+    val c5a = 219.2 * Foot     // CR-2144 figure X-2,   p. 246. Class III
+    def law(span: Double) = math.sqrt(Gravity / span)
+    println(f"    F-104A  b = ${f104a}%6.3f m   sqrt(g/b) = ${law(f104a)}%.3f   TABLE VI asks 1.0 of I and IV")
+    println(f"    F-4C    b = ${f4c}%6.3f m   sqrt(g/b) = ${law(f4c)}%.3f")
+    println(f"    C-5A    b = ${c5a}%6.3f m   sqrt(g/b) = ${law(c5a)}%.3f   TABLE VI asks 0.4 of II and III")
+
+    // The strongest form of the claim: the two Class IV aircraft **bracket** the row's 1.0, rather than one
+    // of them approximating it. That cannot be arranged by choosing a convenient aircraft.
+    check("the Class I/IV row falls between the two Class IV aircraft",
+      law(f4c) < 1.0 && law(f104a) > 1.0)
+    check("and the Class II/III row is reproduced within 10 %", math.abs(law(c5a) - 0.4) / 0.4 < 0.10)
+    // Two rows an order of magnitude apart in span, reproduced by one formula with no fitted constant.
+    check("a size-independent threshold could not do that, the rows differing by a factor of 2.5",
+      math.abs(1.0 / 0.4 - math.sqrt(c5a / f4c)) < 0.35)
+
+    println("so the reference is derived, not chosen")
+    // sqrt(g/b) = 1.0 exactly when b = g. That is where the standard's own Class I/IV floor and the law
+    // agree, and it lands between the two fighters rather than on either.
+    val reference = FroudeScale(1.0).ReferenceSpanMetres
+    println(f"    reference span ${reference}%.2f m, between the F-104A's ${f104a}%.2f and the F-4C's ${f4c}%.2f")
+    check("it is the span at which the law equals TABLE VI's 1.0 rad/s",
+      math.abs(law(reference) - 1.0) < 1.0e-9)
+    check("and it sits between the two aircraft that share that row",
+      reference > f104a && reference < f4c)
 
     println("a full-size aircraft is judged by the standard exactly as written")
-    List(11.0, 20.0, 60.0, 80.0).foreach { span =>
+    List(9.81, 11.0, 20.0, 60.0, 80.0).foreach { span =>
       val size = FroudeScale(span)
       check(f"$span%.0f m: nothing is scaled", !size.scales)
       check(f"$span%.0f m: a frequency stays put", size.frequency(0.4) == 0.4)
@@ -66,7 +84,7 @@ object FroudeScaleCheck {
     check("and the scaled floor is high enough to mean something", wn > 1.0)
 
     println("the scaling is Froude's: times as sqrt(b), frequencies as 1/sqrt(b)")
-    val quarter = FroudeScale(11.0 / 4.0)
+    val quarter = FroudeScale(FroudeScale(1.0).ReferenceSpanMetres / 4.0)
     check("a quarter-size aircraft doubles its required frequency",
       math.abs(quarter.frequency(0.4) - 0.8) < 1.0e-9)
     check("and halves the time it is given", math.abs(quarter.time(20.0) - 10.0) < 1.0e-9)

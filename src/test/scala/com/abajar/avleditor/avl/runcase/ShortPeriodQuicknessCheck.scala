@@ -95,8 +95,8 @@ object ShortPeriodQuicknessCheck {
     val small = row(aircraft(wn = 3.0, span = 1.5f))
     println("    " + small.applied.getOrElse("(not scaled)"))
     check("a model's requirement is stated as well as the standard's", small.applied.isDefined)
-    // The floor scales by (11/1.5) = 7.33, so 0.085 becomes 0.623.
-    check("and it is the square of the frequency ratio", small.applied.exists(_.contains("0.62")))
+    // The floor scales by the square of the frequency ratio, (9.81/1.5) = 6.54, so 0.085 becomes 0.556.
+    check("and it is the square of the frequency ratio", small.applied.exists(_.contains("0.56")))
     check("a full-size aircraft has nothing scaled", row(aircraft(wn = 3.0, span = 30f)).applied.isEmpty)
 
     println("and nothing is invented when the aircraft is not in level flight")

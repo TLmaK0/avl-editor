@@ -300,19 +300,24 @@ Class I is a light trainer and Class IV a fighter — as different as two airpla
 puts them in the same row. What they have in common is size: both are around 11 m of span. Classes II
 and III are the big ones.
 
-Test the hypothesis that the real rule is the pendulum frequency of the span, `ωnd ≥ sqrt(g/b)`:
+Test the hypothesis that the real rule is the pendulum frequency of the span, `ωnd ≥ sqrt(g/b)`. The spans
+below are **not recalled**: they are read off [NASA CR-2144, *Aircraft Handling Qualities
+Data*](https://ntrs.nasa.gov/citations/19730003312) (Heffley and Jewell, 1972) — a contemporary of the
+standard, tabulating the fleet it was written around.
 
-| Class | Representative span | `sqrt(g/b)` | Table VI states |
-|-------|--------------------|-------------|-----------------|
-| I (Cessna 172), IV (F-16, F-4, F-15) | ~11 m | **0.94 rad/s** | 1.0 |
-| III (B-52, C-5, 747) | ~60 m | **0.40 rad/s** | 0.4 |
-| II (Gulfstream, C-130) | ~28 m | 0.59 rad/s | 0.4, in a row shared with Class III |
+| Aircraft | Class | Span | Source | `sqrt(g/b)` | Table VI asks |
+|----------|-------|------|--------|-------------|---------------|
+| F-104A | IV | 21.94 ft = 6.687 m | CR-2144 fig. III-2, p. 35 | **1.211** | 1.0 |
+| F-4C | IV | 38.67 ft = 11.787 m | CR-2144 fig. IV-2, p. 64 | **0.912** | 1.0 |
+| C-5A | III | 219.2 ft = 66.812 m | CR-2144 fig. X-2, p. 246 | **0.383** | 0.4 |
 
-Two rows of the standard, airplanes differing by a factor of five in span, reproduced to within 6 % with
-**no fitted constant at all**. The Class II mismatch is the expected direction: II and III share a row,
-so the row is set by its largest member.
+The two Class IV aircraft **bracket** their row's 1.0 rad/s — one above, one below — rather than one of
+them approximating it, and the Class III figure lands within 4 % of its row. Two rows an order of
+magnitude apart in span, reproduced by one formula with **no fitted constant at all**. A size-independent
+threshold could not do that.
 
-The representative spans are ours, not the standard's, and that is the assumption in this derivation.
+An earlier version of this section used spans recalled from memory, and one of them was picked because it
+flattered the fit. These are cited; `FroudeScaleCheck` holds the arithmetic.
 
 ### What the editor therefore does
 
@@ -321,30 +326,33 @@ The **dimensionless** criteria — every damping ratio — are applied exactly a
 The **dimensional** ones are scaled, but **only below the range the standard covers**. The evidence above
 says that size matters; it is not licence to rewrite the standard where it already applies. So:
 
-- for any aircraft at least as big as the smallest MIL-F-8785C contemplates — Class I, "small, light
-  airplanes", taken as **11 m of span** — every threshold is used **exactly as written**;
-- below that, with `r = sqrt(11 m / b)`, a threshold in rad/s is multiplied by `r` and one in seconds is
+- for any aircraft at least as big as the **reference span**, every threshold is used **exactly as
+  written**;
+- below it, with `r = sqrt(b_ref / b)`, a threshold in rad/s is multiplied by `r` and one in seconds is
   divided by it.
 
-That is Froude scaling with the reference fixed at the bottom of the standard's own range.
+**The reference is derived, not chosen.** `sqrt(g/b)` equals the 1.0 rad/s that Table VI asks of Classes I
+and IV exactly when `b = g = 9.81 m`. That is where the standard's own floor and the law agree, and it
+lands between the two Class IV aircraft above rather than on either of them. Nothing about it is a
+judgement call: change the table entry and the reference follows.
 
 | Criterion | Section | As stated (Cat. B, Level 1) | At 1.5 m of span |
 |-----------|---------|------------------------------|------------------|
-| Dutch-roll min ωnd | Table VI | 0.40 rad/s | 1.08 rad/s |
-| Dutch-roll min ζd·ωnd | Table VI | 0.15 rad/s | 0.41 rad/s |
-| Roll-mode max τR | Table VII | 1.40 s | 0.52 s |
-| Spiral min T2 | Table VIII | 20 s | 7.4 s |
-| Phugoid min T2 (Level 3) | §3.2.1.2 c | 55 s | 20.3 s |
+| Dutch-roll min ωnd | Table VI | 0.40 rad/s | 1.02 rad/s |
+| Roll-mode max τR | Table VII | 1.40 s | 0.55 s |
+| Spiral min T2 | Table VIII | 20 s | 7.8 s |
+| Phugoid min T2 (Level 3) | §3.2.1.2 c | 55 s | 21.5 s |
+| Short-period CAP floor | Figures 1-3 | 0.085 | 0.56 (a frequency squared) |
 
-**A full-size aircraft is therefore judged by the standard verbatim** — nothing is scaled at 11 m, at 30 m
-or at 60 m. Scaling bites only where the standard stops being able to speak for itself, and that is
+**A full-size aircraft is therefore judged by the standard verbatim** — nothing is scaled at 9.81 m, at
+30 m or at 60 m. Scaling bites only where the standard stops being able to speak for itself, and that is
 exactly where it goes vacuous: applied unchanged, a model clears both dutch-roll frequency floors whatever
 it is like, leaving one of the three criteria doing any work.
 
-The 7.4 s is worth noticing. The 10 s that was invented for the spiral, with no derivation behind it, lands
+The 7.8 s is worth noticing. The 10 s that was invented for the spiral, with no derivation behind it, lands
 close to it. It was a decent guess. The difference is that this one can be checked — and `FroudeScaleCheck`
-asserts the **property**, that the law reproduces Table VI at both ends and leaves a full-size aircraft
-alone, rather than any of the numbers, so it survives rescaling.
+asserts the **property**, that the law brackets Table VI's Class I/IV row and reproduces its Class III one
+and leaves a full-size aircraft alone, rather than any of the numbers, so it survives rescaling.
 
 Both figures are always reported: what the standard states, and what is applied here after scaling. A
 verdict that silently moved the goalposts would be worse than one that never moved them.

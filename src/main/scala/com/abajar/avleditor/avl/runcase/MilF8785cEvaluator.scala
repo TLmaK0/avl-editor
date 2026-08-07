@@ -143,6 +143,13 @@ object MilF8785cEvaluator {
 
   private val Gravity = 9.80665
 
+  /**
+   * MIL-F-8785C 3.3.1.1, TABLE VI (p. 22): the minimum dutch-roll frequency asked of Classes I and IV, in
+   * rad/s. It is here rather than only in the dutch-roll limits because it is also what **calibrates the
+   * size scaling** — see [[FroudeScale.ReferenceSpanMetres]].
+   */
+  private val ClassOneAndFourFloor = 1.0
+
   // ---------------------------------------------------------------------------------------------------
   // Size
   // ---------------------------------------------------------------------------------------------------
@@ -171,10 +178,24 @@ object MilF8785cEvaluator {
   final case class FroudeScale(spanMetres: Double) {
 
     /**
-     * The smallest airplane MIL-F-8785C contemplates: Class I, "small, light airplanes" (1.3.1, PDF p. 3-4),
-     * a Cessna 172 at 11.0 m of span. Thresholds are quoted verbatim at this size and above.
+     * The span the standard's own numbers are calibrated at, and it is **derived rather than chosen**: it is
+     * the span at which `sqrt(g/b)` equals the 1.0 rad/s that TABLE VI asks of Classes I and IV, so
+     * `b = g / 1.0^2 = 9.81 m`. Thresholds are quoted verbatim at this size and above, and scaled below it.
+     *
+     * It was 11.0 m, a Cessna's span recalled from memory rather than looked up. The verified figures put it
+     * where it belongs — between the two Class IV aircraft that share that row, not at one of them:
+     *
+     * <pre>
+     * F-104A   b = 21.94 ft = 6.687 m   sqrt(g/b) = 1.211      TABLE VI asks 1.0 of Classes I and IV
+     * F-4C     b = 38.67 ft = 11.787 m  sqrt(g/b) = 0.912
+     * C-5A     b = 219.2 ft = 66.812 m  sqrt(g/b) = 0.383      TABLE VI asks 0.4 of Classes II and III
+     * </pre>
+     *
+     * All three spans are from NASA CR-2144, *Aircraft Handling Qualities Data* (Heffley and Jewell, 1972),
+     * figures III-2 p. 35, IV-2 p. 64 and X-2 p. 246 — a contemporary of the standard, tabulating the fleet
+     * it was written around. `FroudeScaleCheck` holds the arithmetic.
      */
-    val ReferenceSpanMetres = 11.0
+    val ReferenceSpanMetres = Gravity / (ClassOneAndFourFloor * ClassOneAndFourFloor)
 
     def known: Boolean = spanMetres > 0.0 && !spanMetres.isNaN && !spanMetres.isInfinite
 
