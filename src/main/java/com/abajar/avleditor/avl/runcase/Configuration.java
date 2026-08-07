@@ -62,6 +62,48 @@ public class Configuration {
         return Bref * metresPerLengthUnit;
     }
 
+    /**
+     * What the aircraft was flown with, in SI: kg, kg·m² and kg/m³.
+     *
+     * These are written beside the reference geometry, from the same run, because the lateral model that
+     * MIL-F-8785C's roll-and-sideslip criteria are built on needs them and they must not be able to drift
+     * apart from the derivatives they are used with. Zero means the run did not record them, which is what
+     * a calculation assembled by hand has, and nothing is guessed in their place.
+     */
+    private float analysisMassKg;
+    private float analysisIxx;
+    private float analysisIzz;
+    private float analysisIxz;
+    private float airDensity;
+
+    public void setAnalysisInertias(float massKg, float ixx, float izz, float ixz, float airDensity) {
+        this.analysisMassKg = massKg;
+        this.analysisIxx = ixx;
+        this.analysisIzz = izz;
+        this.analysisIxz = ixz;
+        this.airDensity = airDensity;
+    }
+
+    public float getAnalysisMassKg() {
+        return analysisMassKg;
+    }
+
+    public float getAnalysisIxx() {
+        return analysisIxx;
+    }
+
+    public float getAnalysisIzz() {
+        return analysisIzz;
+    }
+
+    public float getAnalysisIxz() {
+        return analysisIxz;
+    }
+
+    public float getAirDensity() {
+        return airDensity;
+    }
+
     /** Written beside {@link #metresPerLengthUnit}, and for the same reason. */
     private float secondsPerTimeUnit = 1f;
 

@@ -242,6 +242,38 @@ public class AVL implements Serializable{
         this.analysisWeightKg = analysisWeightKg;
     }
 
+    /**
+     * The inertias the aircraft was analysed with, in kg·m², pushed here by
+     * {@link com.abajar.avleditor.crrcsim.CRRCSim#calculate()} beside the weight and for the same reason:
+     * they are derived from one list of masses, and an analysis run against inertias the model no longer
+     * has describes a different aeroplane.
+     *
+     * They are here rather than fetched from {@code Config} because {@code AVL} is what
+     * {@link com.abajar.avleditor.avl.connectivity.AvlRunner} is handed, and a run has to be able to record
+     * what it was flown with. Transient, like the weight and every other derived link.
+     */
+    private transient float analysisIxx;
+    private transient float analysisIzz;
+    private transient float analysisIxz;
+
+    public void setAnalysisInertias(float ixx, float izz, float ixz) {
+        this.analysisIxx = ixx;
+        this.analysisIzz = izz;
+        this.analysisIxz = ixz;
+    }
+
+    public float getAnalysisIxx() {
+        return analysisIxx;
+    }
+
+    public float getAnalysisIzz() {
+        return analysisIzz;
+    }
+
+    public float getAnalysisIxz() {
+        return analysisIxz;
+    }
+
     public float getAnalysisWeightKg() {
         return analysisWeightKg;
     }

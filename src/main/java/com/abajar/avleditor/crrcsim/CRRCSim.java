@@ -203,6 +203,11 @@ public class CRRCSim implements Serializable{
         // The operating point AVL is asked for follows from the weight, so it belongs to the same funnel:
         // derive it here and the analysis cannot run against a weight the model no longer has.
         avl.setAnalysisWeightKg(kilograms(masses, avl.units()));
+        // And the inertias, from the same list: the lateral model MIL-F-8785C's roll-and-sideslip criteria
+        // are built on needs Ixx, Izz and Ixz, and they must be the ones this run was flown with.
+        avl.setAnalysisInertias(this.config.getMass_inertia().getI_xx(),
+                this.config.getMass_inertia().getI_zz(),
+                this.config.getMass_inertia().getI_xz());
     }
 
     /**

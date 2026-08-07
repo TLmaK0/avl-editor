@@ -283,6 +283,8 @@ public class AvlRunner {
         // aircraft physically is, and Bref alone does not say whether it is 1.5 of something or 60.
         config.setMetresPerLengthUnit(avl.units().metresPerLengthUnit());
         config.setSecondsPerTimeUnit(avl.units().secondsPerTimeUnit());
+        config.setAnalysisInertias(avl.getAnalysisWeightKg(), avl.getAnalysisIxx(), avl.getAnalysisIzz(),
+                avl.getAnalysisIxz(), avl.getAirDensity());
 
         config.setAlpha(readFloat("Alpha =", scanner));
 

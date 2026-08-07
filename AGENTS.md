@@ -474,6 +474,25 @@ and must produce the same moment; `ControlEffectivenessCheck` asserts exactly th
 different gains. A gain of zero contributes nothing, because a surface AVL never deflects does nothing
 whatever the units.
 
+## An inertia is about a point, and that point is the centre of gravity
+
+`Config.calculateInertiasMasses` summed the moments of inertia about the **origin of the drawing** — wherever
+the user happened to start, usually the nose — so every inertia but `I_xx` carried a parallel-axis term
+`m d²` that does not belong to the aircraft. It is what the JSBSim export writes into `<mass_balance>`, and
+JSBSim reads those as inertias **about the CG** it is given on the very next line. An aircraft drawn with its
+origin 0.3 m ahead of its balance point went out far too reluctant to pitch and yaw, and nothing in the file
+pointed at it: every number looked plausible.
+
+AVL was never affected — it is handed the point masses themselves and works its own inertias out — and that
+is how the two came to disagree and how this was found: a lateral model assembled from these inertias gave
+roots that did not match the ones AVL had already returned for the same aeroplane. On the check aircraft
+`I_zz` was 16 % too large, and that aircraft's origin happens to sit close to its CG.
+
+`InertiaReferenceCheck` pins the **property**, not a number: **moving the whole aeroplane must not change
+what it weighs about its own centre**. That is the exact statement of the bug and it survives any rescaling.
+Forty-four checks were green before the fix and forty-four after — none of them was looking at the inertias
+at all, which is its own lesson.
+
 ## The standard is in the repository
 
 The flying-qualities criteria come from **MIL-F-8785C** (5 November 1980), and it is committed as

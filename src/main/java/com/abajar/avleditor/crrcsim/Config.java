@@ -132,12 +132,39 @@ public class Config  implements Serializable{
         float I_zz = 0;
         float I_xz = 0;
         float totalMass = 0;
-        for(Mass mass: masses){
-            I_xx += calculateMomentInertiaFromAxis(mass.getY(), mass.getZ(), mass.getIxx(), mass.getMass());
-            I_yy += calculateMomentInertiaFromAxis(mass.getX(), mass.getZ(), mass.getIyy(), mass.getMass());
-            I_zz += calculateMomentInertiaFromAxis(mass.getX(), mass.getY(), mass.getIzz(), mass.getMass());
-            I_xz += calculateProductInertiaFromAxis(mass.getX(), mass.getZ(), mass.getIxz(), mass.getMass());
+        // About the CENTRE OF GRAVITY, not about the origin of the drawing.
+        //
+        // These used to be summed about the origin, and the origin is wherever the user happened to start
+        // drawing — usually the nose. The parallel-axis terms m*x_cg^2 and m*z_cg^2 were therefore left in,
+        // so every inertia except I_xx came out too large, by more the further forward the origin sat.
+        //
+        // It matters because this is what the JSBSim export writes into <mass_balance>, and JSBSim reads
+        // those as inertias about the CG it is given on the next line. An aircraft whose origin is 0.3 m
+        // ahead of its CG was exported with a pitch and yaw inertia several times what it has, and flew
+        // sluggishly in a way nothing in the file pointed at. AVL was never affected: it is handed the point
+        // masses themselves and works its own inertias out, which is how the disagreement was found: a lateral
+        // model built from these inertias gave roots that did not match the ones AVL had already returned.
+        float xCg = 0, yCg = 0, zCg = 0;
+        for (Mass mass : masses) {
             totalMass += mass.getMass();
+            xCg += mass.getMass() * mass.getX();
+            yCg += mass.getMass() * mass.getY();
+            zCg += mass.getMass() * mass.getZ();
+        }
+        if (totalMass > 0) {
+            xCg /= totalMass;
+            yCg /= totalMass;
+            zCg /= totalMass;
+        }
+
+        for(Mass mass: masses){
+            float x = mass.getX() - xCg;
+            float y = mass.getY() - yCg;
+            float z = mass.getZ() - zCg;
+            I_xx += calculateMomentInertiaFromAxis(y, z, mass.getIxx(), mass.getMass());
+            I_yy += calculateMomentInertiaFromAxis(x, z, mass.getIyy(), mass.getMass());
+            I_zz += calculateMomentInertiaFromAxis(x, y, mass.getIzz(), mass.getMass());
+            I_xz += calculateProductInertiaFromAxis(x, z, mass.getIxz(), mass.getMass());
         }
 
         // Into kg and kg*m2, through the model's own units rather than a unit string picked up here.
