@@ -254,7 +254,7 @@ object ModalReportCheck {
     check("and a Level below 1 still says what kept it from Level 1",
       spiralRow.level == Some(2) && spiralRow.verdict.contains("wanted") &&
         !spiralRow.verdict.contains("Level 2"))
-    check("a table is drawn even though nothing oscillates", realRows.size == 14)
+    check("a table is drawn even though nothing oscillates", realRows.size == 15)
     // The spiral diverges, so it is also a runaway — and the two reports must agree about which it is.
     check("a divergent spiral is reported as a runaway as well",
       MilF8785cEvaluator.divergences(lateralReal).exists(_.axis == RunawayAxis.Spiral))

@@ -337,6 +337,7 @@ class AvlResultsWindow(display: Display) {
       case RowOutcome.OnTheBoundary        => "ON THE BOUNDARY — " + row.verdict
       case RowOutcome.NotFound             => row.verdict
       case RowOutcome.NotJudged            => row.verdict
+      case RowOutcome.DoesNotApply         => row.verdict
     })
     verdict.setBackground(bgColor)
     verdict.setForeground(row.pass match {

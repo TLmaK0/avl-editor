@@ -69,6 +69,15 @@ object RowOutcome {
   case object NotJudged extends RowOutcome
   /** Too close to a boundary **we** digitised to commit either way. No Level is claimed. */
   case object OnTheBoundary extends RowOutcome
+  /**
+   * The standard states this requirement for one Flight Phase and this aircraft is being judged in
+   * another. Nothing is missing and nothing failed: the question was not asked.
+   *
+   * It is its own case rather than a `NotJudged` with different words, because the two call for opposite
+   * responses — `NotJudged` is something to go and supply, and this is something to change the mission
+   * for, or to leave alone.
+   */
+  case object DoesNotApply extends RowOutcome
 }
 
 /**
@@ -545,6 +554,7 @@ object MilF8785cEvaluator {
       coupledRollSpiralRow(coupledRollSpiral, category, size),
       rollPerformanceRow(calculation, category, rollMode, size),
       speedStabilityRow(calculation, size, shapesReported),
+      flightPathStabilityRow(calculation, category, size),
       sideslipRow(calculation, shapesReported)
     ) ++ rollSideslipRows(calculation, category, dutchRoll, size) ++
       List(smallInputOscillationRow(calculation, category, dutchRoll),
@@ -977,6 +987,247 @@ object MilF8785cEvaluator {
       ModalNormRow("Speed stability", is, None, None, None, None, wants,
         levelVerdict(level, "", miss), Some(false), level, applied, outcomeOf(level))
     }
+  }
+
+  // ---------------------------------------------------------------------------------------------------
+  // 3.2.1.3 Flight-path stability
+  // ---------------------------------------------------------------------------------------------------
+
+  /**
+   * MIL-F-8785C 3.2.1.3 (p. 12), verbatim: "Flight-path stability is defined in terms of flight-path-angle
+   * change where the airspeed is changed by the use of pitch control only (throttle setting not changed by
+   * the crew). For the landing approach Flight Phase, the curve of flight-path angle versus true airspeed
+   * shall have a local slope at `Vomin` which is negative or less positive than:
+   * a. Level 1 - 0.06 degrees/knot, b. Level 2 - 0.15 degrees/knot, c. Level 3 - 0.24 degrees/knot."
+   */
+  private def flightPathSlopeLimits: List[(Int, Double)] = List((1, 0.06), (2, 0.15), (3, 0.24))
+
+  /**
+   * The rest of 3.2.1.3, which is a requirement in its own right and carries **no Level**: "The slope of
+   * the curve of flight-path angle versus airspeed at 5 knots slower than `Vomin` shall not be more than
+   * 0.05 degrees per knot more positive than the slope at `Vomin`."
+   *
+   * It is reported beside the Level rather than folded into it, because inventing a Level for a
+   * requirement the standard states without one would be putting words in its mouth.
+   */
+  private val FlightPathProvisoDegPerKnot = 0.05
+  private val FlightPathProvisoSlowerKnots = 5.0
+
+  /** International nautical mile per hour, exactly 1852/3600 m/s. */
+  private val MetresPerSecondPerKnot = 1852.0 / 3600.0
+
+  /**
+   * `Vomin` for the approach, as a multiple of the stall speed — and the multiple is **not** MIL-F-8785C's.
+   *
+   * TABLE I (p. 7) is where `Vomin` is defined per Flight Phase, and for APPROACH it declines to give a
+   * formula: it says "Minimum Normal Approach Speed", which is how the aircraft is flown and not something
+   * its geometry decides. Every phase where the table *does* give a formula gives a multiple of `Vs` —
+   * 1.1, 1.2, 1.3, 1.4, 1.5 — so the shape of the answer is the standard's, and the number is taken from
+   * the airworthiness rule that fixes it for exactly this Flight Phase:
+   *
+   * > 14 CFR 23.73 Reference landing approach speed. (a) For normal, utility, and acrobatic category
+   * > reciprocating engine-powered airplanes of 6,000 pounds or less maximum weight, the reference landing
+   * > approach speed, VREF, must not be less than the greater of VMC ... and **1.3 VSO**.
+   *
+   * (`docs/references/cfr-14-23.73.pdf`.) VMC is a two-engine minimum-control speed and does not apply.
+   *
+   * A field was **not** offered instead, and that is the whole reason this feature waited on the stall: to
+   * choose an approach speed sensibly you have to know where the aircraft stops flying, and a user who
+   * entered one below the stall would be handed a confident Level 1 for a condition the aeroplane cannot
+   * reach. That is an invented default with the pen moved into their hand, and worse than ours because it
+   * looks like data.
+   */
+  val ApproachSpeedFactorOfStall = 1.3
+
+  /**
+   * Whether the aircraft is on the back of the drag curve at the approach speed, which is what 3.2.1.3 is
+   * about: below the minimum-drag speed, slowing down **increases** drag, so easing the nose down to
+   * descend makes the aircraft speed up rather than go down, and the pilot is flying the approach on the
+   * throttle.
+   *
+   * The physics is one line and needs nothing the run has not already measured. In a shallow steady
+   * descent at a **fixed throttle** — which is what "throttle setting not changed by the crew" means —
+   * `sin(gamma) = (T - D)/W` with `T` constant, so
+   *
+   * {{{
+   *   dgamma/dV = -(1/W) (dD/dV) / cos(gamma)
+   * }}}
+   *
+   * Three things fall out of that, and all three are why no new input is asked for:
+   *
+   *  - **The thrust cancels.** It sets where the glide path is, not how it slopes with speed, so the
+   *    "thrust required for the normal approach glide path" never has to be worked out.
+   *  - **The glide path cancels with it**, to within `cos(gamma)` — 0.14 % at 3 degrees — so the approach
+   *    angle need not be assumed either. It is taken as 1 and said so.
+   *  - **`D(V)` is already measured.** In level flight the lift equals the weight, so the aircraft's
+   *    attitude at any speed follows from `CL = 2W/(rho V^2 S)`, and the alpha sweep gives `CD` at that
+   *    attitude. Both curves are AVL's, at neutral controls, over the range it was asked about.
+   *
+   * A propeller at a fixed throttle loses thrust as the speed rises, which makes `dgamma/dV` **more**
+   * negative than this — so holding the thrust constant, as the standard's own illustration does for a
+   * jet, is the conservative reading and not a convenience.
+   */
+  private def flightPathStabilityRow(calculation: AvlCalculation, category: FlightPhaseCategory,
+                                     size: FroudeScale): ModalNormRow = {
+    val is = "on the approach: whether easing the nose down steepens the descent, or only adds speed"
+    val limits = flightPathSlopeLimits
+    val wants = f"the flight-path angle to slope no more than ${limits.head._2}%.2f deg/knot with speed, " +
+      "at the minimum approach speed"
+    // Degrees per knot is an angle over a speed, and an angle does not scale. Under Froude scaling a speed
+    // goes as sqrt(b) with g fixed, so an **inverse speed** carries the same power of the span as a
+    // frequency does — which is why `frequency` is the right helper here and not a coincidence. A smaller
+    // aircraft covers the same change of flight path in a smaller change of speed, and is allowed to.
+    val applied =
+      if (size.scales) Some(f"at this size: no more than ${size.frequency(limits.head._2)}%.2f deg/knot")
+      else None
+
+    def cannot(why: String) =
+      ModalNormRow("Flight-path stability", is, None, None, None, None, wants,
+        "Not judged: " + why, None, None, applied, RowOutcome.NotJudged)
+
+    // The standard states it for the landing approach and for nothing else. Asked of an aircraft being
+    // flown as Category A or B, the honest answer is that the question was not asked — not a pass.
+    if (category != FlightPhaseCategory.C)
+      return ModalNormRow("Flight-path stability", is, None, None, None, None, wants,
+        s"Does not apply: 3.2.1.3 is stated for the landing approach, and this model says it is flown " +
+          s"${category.describes}. Set the Flight Phase to Category C — ${FlightPhaseCategory.C.describes} " +
+          "— to have it judged.", None, None, applied, RowOutcome.DoesNotApply)
+
+    val config = calculation.getConfiguration
+    if (config == null) return cannot("AVL returned no configuration for this run.")
+
+    val stallSpeed = config.getStallSpeedMetresPerSecond.toDouble
+    if (stallSpeed <= 0.0)
+      return cannot("the stall speed is not known, and the approach speed this is measured at is a " +
+        "multiple of it. " + Option(config.getStallProblem).getOrElse(
+          "No stall analysis was run for this calculation."))
+
+    val sweep = calculation.getAlphaSweep.asScala.toList
+    if (sweep.length < 3)
+      return cannot(f"AVL measured only ${sweep.length}%d attitudes, which is not a drag curve to take a " +
+        "slope off.")
+
+    val weight = config.getAnalysisMassKg.toDouble * Gravity
+    val density = config.getAirDensity.toDouble
+    val area = config.getReferenceAreaSquareMetres.toDouble
+    if (weight <= 0.0 || density <= 0.0 || area <= 0.0)
+      return cannot("the run recorded no weight, air density or reference area, and the drag at a speed " +
+        "is all three of them.")
+
+    val approachSpeed = ApproachSpeedFactorOfStall * stallSpeed
+    def slopeAt(speed: Double) = flightPathSlopeDegreesPerKnot(calculation, speed)
+
+    slopeAt(approachSpeed) match {
+      case Left(why) => cannot(why)
+      case Right(slope) =>
+        val level = levelMet(limits.map { case (n, most) => (n, slope <= size.frequency(most)) })
+
+        // The 5-knot proviso, which is a speed and therefore follows the aircraft's size the same way a
+        // time does: both go as the square root of the span.
+        val slower = size.time(FlightPathProvisoSlowerKnots) * MetresPerSecondPerKnot
+        val provisoLimit = size.frequency(FlightPathProvisoDegPerKnot)
+        val proviso =
+          if (approachSpeed - slower <= stallSpeed)
+            f" The standard's second sentence — the slope ${FlightPathProvisoSlowerKnots}%.0f knots slower " +
+              f"— was not tested: ${slower}%.2f m/s below the approach speed is at or below the stall " +
+              f"itself (${stallSpeed}%.2f m/s), where there is no steady flight to take a slope at."
+          else slopeAt(approachSpeed - slower) match {
+            case Left(why) => " The slope five knots slower was not tested: " + why
+            case Right(slowSlope) =>
+              val excess = slowSlope - slope
+              if (excess <= provisoLimit)
+                f" Its second sentence holds too: five knots slower the slope is ${slowSlope}%+.3f " +
+                  f"deg/knot, ${excess}%+.3f more positive, within the ${provisoLimit}%.2f allowed."
+              else
+                f" **Its second sentence does not**: five knots slower the slope is ${slowSlope}%+.3f " +
+                  f"deg/knot, ${excess}%+.3f more positive than at the approach speed against the " +
+                  f"${provisoLimit}%.2f allowed. The standard states that one without a Level, so it does " +
+                  "not move the one above; it means the approach gets worse as it gets slower."
+          }
+
+        val at = f"at ${approachSpeed}%.2f m/s, ${ApproachSpeedFactorOfStall}%.1f times the " +
+          f"${stallSpeed}%.2f m/s stall"
+        val meets = f"${slope}%+.3f deg/knot $at%s."
+        val miss = f"${slope}%+.3f deg/knot $at%s, against the ${size.frequency(limits.head._2)}%.2f " +
+          "allowed. The aircraft is on the back of the drag curve there: pushing the nose down adds speed " +
+          "instead of descent, and the approach has to be flown on the throttle. A faster approach, less " +
+          "drag at low speed, or more wing."
+        ModalNormRow("Flight-path stability", is, None, None, None, None, wants,
+          levelVerdict(level, meets, miss) + proviso, Some(level == Some(1)), level, applied,
+          outcomeOf(level))
+    }
+  }
+
+  /**
+   * `dgamma/dV` in **degrees per knot** at a true airspeed, which is the quantity 3.2.1.3 is written in.
+   *
+   * Public because it is the whole of the physics and it is worth being able to ask it at any speed: the
+   * one property that says the derivation is right is that it crosses zero at the minimum-drag speed and
+   * nowhere else, and that is a statement about a curve rather than about one point on it.
+   *
+   * The slope comes from the drag by a central difference of half a percent of the speed. An analytic
+   * derivative is not available and would not be wanted: `CD` here is AVL's measured curve, interpolated,
+   * so its exact derivative would be the slope of whichever straight segment the speed happened to land
+   * on — a step function. The difference spans several of them and is what the quantity means anyway.
+   */
+  def flightPathSlopeDegreesPerKnot(calculation: AvlCalculation,
+                                    speedMetresPerSecond: Double): Either[String, Double] = {
+    val config = calculation.getConfiguration
+    if (config == null) return Left("AVL returned no configuration for this run.")
+    val sweep = calculation.getAlphaSweep.asScala.toList
+    if (sweep.length < 3) return Left("AVL measured too few attitudes to be a drag curve.")
+    val weight = config.getAnalysisMassKg.toDouble * Gravity
+    val density = config.getAirDensity.toDouble
+    val area = config.getReferenceAreaSquareMetres.toDouble
+    if (weight <= 0.0 || density <= 0.0 || area <= 0.0 || speedMetresPerSecond <= 0.0)
+      return Left("the drag at a speed needs a weight, an air density, a reference area and a speed.")
+
+    /** Steady level drag in newtons at a true airspeed, through the attitude that speed needs. */
+    def drag(speed: Double): Either[String, Double] = {
+      val lift = 2.0 * weight / (density * area * speed * speed)
+      for {
+        alpha <- attitudeForLift(sweep, lift).right
+        cd <- dragCoefficientAt(sweep, alpha).right
+      } yield 0.5 * density * speed * speed * area * cd
+    }
+
+    val step = 0.005 * speedMetresPerSecond
+    for {
+      low <- drag(speedMetresPerSecond - step).right
+      high <- drag(speedMetresPerSecond + step).right
+    } yield -((high - low) / (2.0 * step)) / weight * (180.0 / math.Pi) * MetresPerSecondPerKnot
+  }
+
+  /**
+   * The attitude at which AVL measured a given lift coefficient, by interpolation between the attitudes it
+   * measured — and never beyond them.
+   */
+  private def attitudeForLift(sweep: List[AlphaSweepPoint], lift: Double): Either[String, Double] = {
+    val ordered = sweep.sortBy(_.getAlphaDeg)
+    val pair = ordered.sliding(2).collectFirst {
+      case Seq(low, high) if lift >= math.min(low.getCl, high.getCl) && lift <= math.max(low.getCl, high.getCl) =>
+        val span = high.getCl - low.getCl
+        if (span == 0f) low.getAlphaDeg.toDouble
+        else low.getAlphaDeg + (high.getAlphaDeg - low.getAlphaDeg) * (lift - low.getCl) / span
+    }
+    pair.map(_.toDouble).toRight(
+      f"level flight at that speed needs a lift coefficient of $lift%.3f, and AVL measured from " +
+        f"${ordered.map(_.getCl).min}%.3f to ${ordered.map(_.getCl).max}%.3f. Reading the drag out there " +
+        "would be extrapolating the very curve this measures.")
+  }
+
+  /** `CD` at an attitude, interpolated across the sweep. */
+  private def dragCoefficientAt(sweep: List[AlphaSweepPoint], alphaDeg: Double): Either[String, Double] = {
+    val ordered = sweep.sortBy(_.getAlphaDeg)
+    if (alphaDeg < ordered.head.getAlphaDeg || alphaDeg > ordered.last.getAlphaDeg)
+      return Left(f"$alphaDeg%.2f deg is outside the attitudes AVL measured.")
+    val pair = ordered.sliding(2).collectFirst {
+      case Seq(low, high) if alphaDeg >= low.getAlphaDeg && alphaDeg <= high.getAlphaDeg =>
+        val span = high.getAlphaDeg - low.getAlphaDeg
+        if (span == 0f) low.getCd.toDouble
+        else low.getCd + (high.getCd - low.getCd) * (alphaDeg - low.getAlphaDeg) / span
+    }
+    pair.map(_.toDouble).toRight(f"AVL measured no drag at $alphaDeg%.2f deg.")
   }
 
   /**

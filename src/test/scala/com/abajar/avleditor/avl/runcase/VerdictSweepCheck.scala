@@ -129,6 +129,11 @@ object VerdictSweepCheck {
               row.level.isEmpty && row.pass.isEmpty)
             check(s"'${row.modeName}' on the boundary says which figure ($where)",
               row.verdict.contains("figure"))
+          case RowOutcome.DoesNotApply =>
+            check(s"'${row.modeName}' not applying claims no Level ($where)",
+              row.level.isEmpty && row.pass.isEmpty)
+            check(s"'${row.modeName}' not applying says so, and says for which phase ($where)",
+              row.verdict.startsWith("Does not apply") && row.verdict.contains("Category"))
         }
       }
 
