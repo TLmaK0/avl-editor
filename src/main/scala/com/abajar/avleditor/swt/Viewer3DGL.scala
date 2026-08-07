@@ -116,6 +116,16 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   // Selected section for editing (surfaceIndex, sectionIndex, x, y, z, chord)
   @volatile private var selectedSection: Option[(Int, Int, Float, Float, Float, Float)] = None
   @volatile private var isDraggingSection: Boolean = false
+  /**
+   * A section can be dragged by an axis handle as well as by its centre.
+   *
+   * The centre drag snaps to the nearest vertex, which is what puts a station exactly on a fuselage; an axis
+   * handle moves it along one direction and nothing else, which is what a wing's geometry is usually built
+   * from. Both are wanted, so both are offered and the pointer picks whichever handle is nearest.
+   */
+  private var isDraggingSectionAxisX = false
+  private var isDraggingSectionAxisY = false
+  private var isDraggingSectionAxisZ = false
   @volatile private var isDraggingChord: Boolean = false
   private var sectionUpdateCallback: Option[(Int, Int, Float, Float, Float, Float) => Unit] = None
 
@@ -276,12 +286,12 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
             case _ => isDraggingBody = true  // center with snap
           }
         } else if (selectedSection.isDefined) {
-          // Check which handle is closer
-          val clickedHandle = getClosestHandle(e.getX, e.getY)
-          if (clickedHandle == "trailing") {
-            isDraggingChord = true
-          } else {
-            isDraggingSection = true
+          getClosestSectionHandle(e.getX, e.getY) match {
+            case "trailing" => isDraggingChord = true
+            case "x" => isDraggingSectionAxisX = true
+            case "y" => isDraggingSectionAxisY = true
+            case "z" => isDraggingSectionAxisZ = true
+            case _ => isDraggingSection = true // the leading edge itself: a free drag that snaps
           }
         }
       } else if (e.getButton == java.awt.event.MouseEvent.BUTTON3) {
@@ -342,9 +352,13 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         selectedBody.foreach { case (bodyIdx, dX, dY, dZ) =>
           bodyUpdateCallback.foreach(_(bodyIdx, dX, dY, dZ))
         }
-      } else if (isDraggingSection || isDraggingChord) {
+      } else if (isDraggingSection || isDraggingChord || isDraggingSectionAxisX ||
+                 isDraggingSectionAxisY || isDraggingSectionAxisZ) {
         isDraggingSection = false
         isDraggingChord = false
+        isDraggingSectionAxisX = false
+        isDraggingSectionAxisY = false
+        isDraggingSectionAxisZ = false
         // Notify callback with updated position and chord
         selectedSection.foreach { case (surfIdx, secIdx, x, y, z, chord) =>
           sectionUpdateCallback.foreach(_(surfIdx, secIdx, x, y, z, chord))
@@ -369,7 +383,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
           val shape = componentShapes(shapeIndex)
           if (shape.resizable(axis) && shape.pointIndex < massPoints.length) {
             val (x, y, z, _, _) = massPoints(shape.pointIndex)
-            val faceDelta = massAxisDelta(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
+            val faceDelta = axisDeltaAt(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
             val current = axis match {
               case 0 => shape.sizeX
               case 1 => shape.sizeY
@@ -401,7 +415,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
         selectedMassPoint.foreach { index =>
           if (index < massPoints.length) {
             val (x, y, z, mass, virtual) = massPoints(index)
-            val delta = massAxisDelta(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
+            val delta = axisDeltaAt(x, y, z, axis, e.getX - lastMouseX, e.getY - lastMouseY)
             val moved = axis match {
               case 0 => (x + delta, y, z, mass, virtual)
               case 1 => (x, y + delta, z, mass, virtual)
@@ -563,6 +577,21 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
             newDZ = avlZ
           }
           selectedBody = Some((bodyIdx, newDX, newDY, newDZ))
+        }
+        lastMouseX = e.getX
+        lastMouseY = e.getY
+      } else if (isDraggingSectionAxisX || isDraggingSectionAxisY || isDraggingSectionAxisZ) {
+        // One direction at a time, by however far the mouse travelled along it on screen, and no snapping:
+        // an axis handle is for placing a station cleanly, which snapping to a vertex would undo.
+        val axis = if (isDraggingSectionAxisX) 0 else if (isDraggingSectionAxisY) 1 else 2
+        selectedSection.foreach { case (surfIdx, secIdx, xle, yle, zle, chord) =>
+          val delta = axisDeltaAt(xle, yle, zle, axis, e.getX - lastMouseX, e.getY - lastMouseY)
+          val moved = axis match {
+            case 0 => (surfIdx, secIdx, xle + delta, yle, zle, chord)
+            case 1 => (surfIdx, secIdx, xle, yle + delta, zle, chord)
+            case _ => (surfIdx, secIdx, xle, yle, zle + delta, chord)
+          }
+          selectedSection = Some(moved)
         }
         lastMouseX = e.getX
         lastMouseY = e.getY
@@ -934,6 +963,30 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
     profilePointUpdateCallback = Some(callback)
   }
 
+  /**
+   * Which of the selected section's handles the pointer is nearest: the trailing edge, which sets the chord;
+   * one of the three axis arrows, which moves it along that direction alone; or the leading edge itself,
+   * which is the free drag that snaps to the nearest vertex.
+   */
+  private def getClosestSectionHandle(mouseX: Int, mouseY: Int): String = {
+    selectedSection.map { case (_, _, xle, yle, zle, chord) =>
+      def distance(point: Option[(Int, Int)]): Float = point match {
+        case Some((sx, sy)) =>
+          val dx = (mouseX - sx).toFloat
+          val dy = (mouseY - sy).toFloat
+          dx * dx + dy * dy
+        case None => Float.MaxValue
+      }
+      val candidates =
+        Seq((distance(projectToScreen(xle, yle, zle)), "leading"),
+            (distance(projectToScreen(xle + chord, yle, zle)), "trailing")) ++
+        axisHandlesAt(xle, yle, zle).zip(Seq("x", "y", "z")).map {
+          case ((hx, hy, hz), name) => (distance(projectToScreen(hx, hy, hz)), name)
+        }
+      candidates.minBy(_._1)._2
+    }.getOrElse("leading")
+  }
+
   private def getClosestHandle(mouseX: Int, mouseY: Int): String = {
     selectedSection.map { case (_, _, xle, yle, zle, chord) =>
       val leadingPos = projectToScreen(xle, yle, zle)
@@ -1068,7 +1121,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   private def massHandleOffset(): Float = avlExtent() * 0.12f
 
   /** The three handle positions of a mass marker, in AVL coordinates. */
-  private def massAxisHandles(x: Float, y: Float, z: Float): Seq[(Float, Float, Float)] = {
+  private def axisHandlesAt(x: Float, y: Float, z: Float): Seq[(Float, Float, Float)] = {
     val offset = massHandleOffset()
     Seq((x + offset, y, z), (x, y + offset, z), (x, y, z + offset))
   }
@@ -1104,7 +1157,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   private def getClosestMassAxisHandle(mouseX: Int, mouseY: Int): String = {
     selectedMassPoint.filter(_ < massPoints.length).map { index =>
       val (x, y, z, _, _) = massPoints(index)
-      val distances = massAxisHandles(x, y, z).zip(Seq("x", "y", "z")).map { case ((hx, hy, hz), axis) =>
+      val distances = axisHandlesAt(x, y, z).zip(Seq("x", "y", "z")).map { case ((hx, hy, hz), axis) =>
         val distance = projectToScreen(hx, hy, hz) match {
           case Some((sx, sy)) =>
             val dx = mouseX - sx
@@ -1136,7 +1189,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
 
     selectedMassPoint.filter(_ < massPoints.length).map { index =>
       val (x, y, z, _, _) = massPoints(index)
-      val position = massAxisHandles(x, y, z).zip(Seq("x", "y", "z"))
+      val position = axisHandlesAt(x, y, z).zip(Seq("x", "y", "z"))
       val sizes = selectedShapeIndex.toSeq.flatMap(shapeSizeHandles)
         .map { case (axis, handle) => (handle, "s" + axis) }
       (position ++ sizes).map { case (handle, name) => (screenDistance(handle), name) }.minBy(_._1)._2
@@ -1144,13 +1197,13 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
   }
 
   /**
-   * How far a mass moves along one axis for a mouse movement, by projecting the mouse movement onto
+   * How far a point moves along one axis for a mouse movement, by projecting the mouse movement onto
    * that axis's direction on screen. The handle offset is the yardstick: it is one known length
    * along the axis, so its projected length converts pixels back into AVL units.
    */
-  private def massAxisDelta(x: Float, y: Float, z: Float, axis: Int, mouseDx: Int, mouseDy: Int): Float = {
+  private def axisDeltaAt(x: Float, y: Float, z: Float, axis: Int, mouseDx: Int, mouseDy: Int): Float = {
     val offset = massHandleOffset()
-    val handle = massAxisHandles(x, y, z)(axis)
+    val handle = axisHandlesAt(x, y, z)(axis)
     (projectToScreen(x, y, z), projectToScreen(handle._1, handle._2, handle._3)) match {
       case (Some((originX, originY)), Some((handleX, handleY))) =>
         Viewer3DGL.axisDragDelta(handleX - originX, handleY - originY, mouseDx, mouseDy, offset)
@@ -1824,6 +1877,32 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       gl.glVertex3f(mx2 * displayScale, my2 * displayScale, mz2 * displayScale)
       gl.glEnd()
 
+      // The three axis arrows, in the same colours and the same places as a mass's: red along x, green along
+      // y, blue along z. A section can be dragged by its leading edge, which snaps to a vertex, or by one of
+      // these, which moves it along that direction and nothing else.
+      val dragging = Seq(isDraggingSectionAxisX, isDraggingSectionAxisY, isDraggingSectionAxisZ)
+      val colours = Seq((1.0f, 0.3f, 0.3f), (0.3f, 1.0f, 0.3f), (0.3f, 0.5f, 1.0f))
+      gl.glLineWidth(3.0f)
+      axisHandlesAt(xle, yle, zle).zip(colours).zip(dragging).foreach {
+        case (((hx, hy, hz), (r, g, b)), isActive) =>
+          val (ax, ay, az) = avlToModel(hx, hy, hz)
+          if (isActive) {
+            gl.glColor3f(scala.math.min(1.0f, r + 0.4f), scala.math.min(1.0f, g + 0.4f),
+              scala.math.min(1.0f, b + 0.4f))
+            gl.glPointSize(16.0f)
+          } else {
+            gl.glColor3f(r, g, b)
+            gl.glPointSize(12.0f)
+          }
+          gl.glBegin(GL.GL_POINTS)
+          gl.glVertex3f(ax * displayScale, ay * displayScale, az * displayScale)
+          gl.glEnd()
+          gl.glBegin(GL.GL_LINES)
+          gl.glVertex3f(mx1 * displayScale, my1 * displayScale, mz1 * displayScale)
+          gl.glVertex3f(ax * displayScale, ay * displayScale, az * displayScale)
+          gl.glEnd()
+      }
+
       // Draw chord line highlighted
       gl.glColor3f(1.0f, 0.7f, 0.0f)
       gl.glLineWidth(3.0f)
@@ -2230,7 +2309,7 @@ class Viewer3DGL(parent: Composite, style: Int) extends Composite(parent, style)
       gl.glTranslatef(-centerX, -centerY, -centerZ)
 
       val (cx, cy, cz) = avlToModel(x, y, z)
-      val handles = massAxisHandles(x, y, z)
+      val handles = axisHandlesAt(x, y, z)
       val colours = Seq((1.0f, 0.3f, 0.3f), (0.3f, 1.0f, 0.3f), (0.3f, 0.5f, 1.0f))
       val dragging = Seq(isDraggingMassAxisX, isDraggingMassAxisY, isDraggingMassAxisZ)
 

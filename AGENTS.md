@@ -212,6 +212,14 @@ point** read twice — one converted, one not. Everything now goes through `Jsbs
 The one thing already in SI is `Config.mass_inertia`: `calculate()` writes kilograms and kg·m² into it whatever
 the model states, and that is why nothing converts it again.
 
+**A section can be dragged by an axis as well as by its centre.** The centre drag snaps to the nearest vertex,
+which is what puts a station exactly on a fuselage; an axis handle moves it along one direction and nothing
+else, which is what a wing's geometry is usually built from. Both are wanted, so both are offered and the
+pointer takes whichever handle is nearest — the trailing edge for the chord, the three arrows for the
+directions, the leading edge for the snapping drag. The projection arithmetic is the same one the masses and
+the bodies use (`Viewer3DGL.axisDragDelta`, pinned by `AxisDragCheck`); it was never mass-specific, and it is
+no longer named as if it were.
+
 ## What an aircraft is made of
 
 A surface and a body state their **material**: a density in g/cm³ for what the part is filled with, a

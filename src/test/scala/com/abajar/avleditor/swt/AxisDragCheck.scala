@@ -1,6 +1,9 @@
 /*
- * Dragging a mass along one axis must follow that axis as it appears on screen. The viewer is always
- * looking at the model from an angle, so "horizontal means x" moves the mass the wrong way.
+ * Dragging along one axis must follow that axis as it appears on screen. The viewer is always looking at the
+ * model from an angle, so "horizontal means x" moves the thing the wrong way.
+ *
+ * One piece of arithmetic serves everything that has axis handles — a mass, a body, and now a wing section —
+ * which is why it lives in the companion object where it can be checked without a display.
  * Run with:  sbt "test:runMain com.abajar.avleditor.swt.AxisDragCheck"
  */
 package com.abajar.avleditor.swt
