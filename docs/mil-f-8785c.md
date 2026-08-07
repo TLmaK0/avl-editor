@@ -114,10 +114,30 @@ them.
 
 **Implemented** (Category B, Level 1) and correct.
 
-### §3.2.1.1 Longitudinal static stability, §3.2.1.3 Flight-path stability
+### §3.2.1.1 Longitudinal static stability — p. 11
 
-Not judged. The editor displays `Cma` raw. Flight-path stability (`dγ/dV`) is a Category C requirement
-and needs the drag polar, which the alpha sweep now provides.
+**It is not `Cma < 0`, and it is not the static margin.** Section 3.2.1 is "longitudinal stability *with
+respect to speed*", and 3.2.1.1 reads: "For Levels 1 and 2 there shall be **no tendency for airspeed to
+diverge aperiodically** when the airplane is disturbed from trim". The quantitative part is a Level 3
+relaxation — "in no event shall its time to double amplitude be less than **6 seconds**".
+
+| Level | Requirement |
+|-------|-------------|
+| 1 and 2 | no aperiodic airspeed divergence at all |
+| 3 | if one exists, T2 ≥ 6 s |
+
+**Implemented.** An aircraft either has an aperiodic speed divergence or it does not, and the eigenvalues
+already say which: it is the runaway whose mode shape is speed-dominated. The rest of the section is
+stated in pitch control **force and position gradients**, which a radio-controlled model has none of.
+
+### §3.2.1.3 Flight-path stability — p. 12
+
+For the landing approach, the local slope of flight-path angle against true airspeed at `Vomin` shall be
+negative or less positive than 0.06 deg/knot (Level 1), 0.15 (Level 2), 0.24 (Level 3).
+
+**Not implemented, and not for want of a drag polar.** It is measured *at* `Vomin`, the minimum operational
+speed, with "the thrust setting required for the normal approach glide path" — two inputs the model does
+not state. Inventing either would decide the verdict. It is also Category C only.
 
 ---
 
@@ -244,11 +264,32 @@ Two things about it:
   damping, it **says which one is missing** rather than filling it in. A roll rate computed from an
   invented deflection would look exactly like a measured one.
 
-### §3.3.6 Lateral-directional characteristics in steady sideslips — PDF p. 32-33
+### §3.3.6 Lateral-directional characteristics in steady sideslips — pp. 32-33
 
-§3.3.6.1 yawing moments, §3.3.6.2 side forces, §3.3.6.3 rolling moments (positive effective dihedral),
-§3.3.6.3.2 the upper limit on it. All are sign and magnitude conditions on `Cnb`, `Cyb` and `Clb`, which
-the editor already displays raw and never judges.
+Most of this family cannot be applied to a model, and the editor does not pretend otherwise.
+
+- **§3.3.6.1** (yawing moments) and **§3.3.6.2** (side forces) are written in **yaw-control-pedal deflection
+  and force**, and what they quantify is that the response be "essentially linear" between ±15° and ±10° of
+  sideslip. AVL is a **linear** solver, so it cannot fail a linearity requirement — asserting it would be
+  asserting nothing. What survives is the **sign convention** they encode.
+- **§3.3.6.3** (rolling moments) likewise, plus the same linearity.
+- **§3.3.6.3.2, the positive effective dihedral limit**, is the one requirement here that is quantitative
+  and needs no forces: positive effective dihedral "shall never be so great that more than **75 percent of
+  roll control power** available to the pilot ... are required for sideslip angles which might be
+  experienced in service employment". §3.3.7.1 (p. 33) puts a number on that angle for the approach — "at
+  least **10 degrees of sideslip**", again with roll control not exceeding 75 percent of control power.
+
+**Implemented** as one row: the three signs, and the dihedral limit at 10° of sideslip.
+
+| Quantity | Sign wanted | What it means |
+|----------|-------------|---------------|
+| `Cnb` | positive | the nose weathercocks into the sideslip |
+| `CYb` | negative | the side force opposes the sideslip |
+| `Clb` | negative | positive effective dihedral |
+
+The aileron needed is `abs(Clb) x 10°` against the rolling moment the ailerons make at their stop,
+`abs(Cldelta) x (travel / gain)` — the same roll control power §3.3.4 uses. Both are ratios, so nothing
+here scales with the aircraft's size.
 
 ---
 
@@ -258,7 +299,9 @@ Stated here rather than silently skipped.
 
 | Section | Why not |
 |---------|---------|
-| §3.2.2.2, §3.2.3.x forces, §3.3.4.3 — all control-force requirements | A radio-controlled model has no stick feel system. There is no force to specify. |
+| §3.2.2.2, §3.2.3.x forces, §3.3.4.3, **§3.3.5 in full** — all control-force requirements | A radio-controlled model has no stick feel system. There is no force to specify. §3.3.5.1, §3.3.5.1.1 and §3.3.5.2 (pp. 31-32) are stated entirely in pounds of yaw-control-pedal force. |
+| §3.3.2.2 roll rate oscillations, §3.3.2.3 bank angle oscillations, §3.3.2.4 sideslip excursions (p. 24) | These are **time-domain step responses**, not closed forms in the derivatives: "following a yaw-control-free step roll control command", held "until the bank angle has changed at least 90 degrees". Getting them needs a lateral-directional simulation. The editor should not grow a second flight dynamics model of its own — it already exports one, and two would be free to disagree. The way to these is to run **JSBSim** on the exported aircraft, as `JsbsimCurveCheck` and `DuctedFanFlightCheck` already do for the lift, drag and thrust. §3.3.2.2.1 and §3.3.2.3 additionally read their limits off figures 4 and 5. |
+| §3.2.1.3 flight-path stability | Needs `Vomin` and the approach thrust setting; the model states neither. Category C only. |
 | §3.3.9 asymmetric thrust, §3.3.9.5 two engines inoperative | Single-engine models. |
 | §3.4.2 flight at high angle of attack, stalls | AVL is inviscid and cannot see a stall. See AGENTS.md. |
 | §3.7 atmospheric disturbances | Needs a turbulence model the editor does not have. |

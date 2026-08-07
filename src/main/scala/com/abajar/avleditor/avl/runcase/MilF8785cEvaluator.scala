@@ -496,7 +496,9 @@ object MilF8785cEvaluator {
       rollModeRow(rollMode, category, size, shapesReported),
       spiralRow(findSpiralCandidate(realModes(calculation)), category, size, shapesReported),
       coupledRollSpiralRow(coupledRollSpiral, category, size),
-      rollPerformanceRow(calculation, category, rollMode, size)
+      rollPerformanceRow(calculation, category, rollMode, size),
+      speedStabilityRow(calculation, size, shapesReported),
+      sideslipRow(calculation, shapesReported)
     )
   }
 
@@ -884,6 +886,137 @@ object MilF8785cEvaluator {
         ModalNormRow("Short-period quickness", is, Some(wn), None, None, None, wants,
           levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied)
     }
+  }
+
+  /**
+   * MIL-F-8785C 3.2.1.1 (p. 11): longitudinal stability **with respect to speed**.
+   *
+   * Worth reading before assuming: it is not `Cma < 0` and it is not the static margin. Verbatim, "for
+   * Levels 1 and 2 there shall be **no tendency for airspeed to diverge aperiodically** when the airplane is
+   * disturbed from trim". The quantitative part is a Level 3 relaxation: "in no event shall its time to
+   * double amplitude be less than 6 seconds".
+   *
+   * So an aircraft either has an aperiodic speed divergence or it does not, and the eigenvalues already say
+   * which — it is the runaway whose mode shape is speed-dominated. The rest of that section is stated in
+   * pitch control **force and position gradients**, which a radio-controlled model has none of.
+   */
+  private val SpeedDivergenceLevel3Seconds = 6.0
+
+  private def speedStabilityRow(calculation: AvlCalculation, size: FroudeScale,
+                                shapesReported: Boolean): ModalNormRow = {
+    val is = "whether the aircraft holds its speed: let it go and the speed neither runs away nor decays"
+    val wants = "no aperiodic speed divergence at all"
+    val level3 = size.time(SpeedDivergenceLevel3Seconds)
+    val applied = if (size.scales) Some(f"at this size, Level 3 allows doubling no faster than $level3%.1f s")
+                  else None
+    val speedRunaways = divergences(calculation).filter(d => !d.oscillates && d.axis == RunawayAxis.Speed)
+    if (speedRunaways.isEmpty) {
+      val why =
+        if (shapesReported) "Meets it: no aperiodic speed divergence — the aircraft settles to a speed."
+        else "Meets it: nothing runs away aperiodically in speed. (AVL reported no mode shapes, so this " +
+          "rests on there being no aperiodic divergence at all rather than on identifying one as speed.)"
+      ModalNormRow("Speed stability", is, None, None, None, None, wants, why, Some(true), Some(1), applied)
+    } else {
+      val worst = speedRunaways.minBy(_.doublingTime)
+      val level = if (worst.doublingTime >= level3) Some(3) else None
+      val miss = f"the speed doubles away from trim every ${worst.doublingTime}%.2f s. Levels 1 and 2 allow " +
+        f"none of this at all, and Level 3 allows no faster than $level3%.1f s. The trim, or a centre of " +
+        "gravity far from where it was analysed."
+      ModalNormRow("Speed stability", is, None, None, None, None, wants,
+        levelVerdict(level, "", miss), Some(false), level, applied)
+    }
+  }
+
+  /**
+   * MIL-F-8785C 3.3.6 (pp. 32-33): what the aircraft does in a steady sideslip.
+   *
+   * Most of that section cannot be applied to a model and is not pretended otherwise. 3.3.6.1 and 3.3.6.2
+   * are written in **yaw-control-pedal deflection and force**, and their quantitative content is that the
+   * response be "essentially linear" — which AVL, being a linear solver, cannot fail; asserting it would be
+   * asserting nothing. What survives is the **sign convention** those sections encode, and one requirement
+   * that is genuinely quantitative and needs no forces at all:
+   *
+   * 3.3.6.3.2, the **positive effective dihedral limit** — the dihedral effect "shall never be so great that
+   * more than **75 percent of roll control power** available to the pilot ... are required for sideslip
+   * angles which might be experienced in service employment". 3.3.7.1 puts a number on that angle for the
+   * approach: "at least **10 degrees of sideslip**", with roll control not exceeding "75 percent of control
+   * power available".
+   *
+   * Both are ratios, so nothing here scales with the aircraft's size.
+   */
+  private val DihedralRollControlFraction = 0.75
+  private val DihedralSideslipDegrees = 10.0
+
+  private def sideslipRow(calculation: AvlCalculation, shapesReported: Boolean): ModalNormRow = {
+    val is = "holding a sideslip: which way it wants to roll, and how much aileron that costs"
+    val wants = f"the dihedral effect to cost no more than ${(DihedralRollControlFraction * 100).toInt}%d%% " +
+      f"of the aileron at ${DihedralSideslipDegrees}%.0f degrees of sideslip"
+
+    def cannot(why: String) =
+      ModalNormRow("Steady sideslip", is, None, None, None, None, wants, "Not judged: " + why, None, None)
+
+    val stab = calculation.getStabilityDerivatives
+    if (stab == null) return cannot("AVL returned no derivatives for this run.")
+    val cnb = stab.getCnb.toDouble
+    val cyb = stab.getCYb.toDouble
+    val clb = stab.getClb.toDouble
+
+    // The sign conventions 3.3.6.1 to 3.3.6.3 encode, in AVL's own signs: the nose weathercocks into the
+    // sideslip, the side force opposes it, and the aircraft rolls away from it.
+    val wrong = List(
+      if (cnb <= 0.0) Some(f"the nose does not weathercock (Cnb $cnb%.4f, wanted positive)") else None,
+      if (cyb >= 0.0) Some(f"the side force does not oppose the sideslip (CYb $cyb%.4f, wanted negative)") else None,
+      if (clb >= 0.0) Some(f"there is no positive effective dihedral (Clb $clb%.4f, wanted negative)") else None
+    ).flatten
+
+    val power = rollControlPower(calculation)
+    val fraction = power.map(p => math.abs(clb) * math.toRadians(DihedralSideslipDegrees) / p)
+
+    (wrong, fraction) match {
+      case (Nil, None) =>
+        ModalNormRow("Steady sideslip", is, None, None, None, None, wants,
+          "Partly judged: the signs are right — the nose weathercocks, the side force opposes the sideslip " +
+            "and the dihedral effect is positive. What the aileron costs to hold one could not be worked " +
+            "out: " + rollControlPowerProblem(calculation), None, None)
+      case (Nil, Some(f)) =>
+        val level = if (f <= DihedralRollControlFraction) Some(1) else None
+        val meets = f"the signs are right and holding ${DihedralSideslipDegrees}%.0f degrees of sideslip " +
+          f"costs ${f * 100}%.0f%% of the aileron."
+        val miss = f"holding ${DihedralSideslipDegrees}%.0f degrees of sideslip would take ${f * 100}%.0f%% " +
+          f"of the aileron, against the ${(DihedralRollControlFraction * 100).toInt}%d%% allowed — too much " +
+          "dihedral for the ailerons it has. Less dihedral, or more aileron."
+        ModalNormRow("Steady sideslip", is, None, None, None, None, wants,
+          levelVerdict(level, meets, miss), Some(level == Some(1)), level)
+      case (problems, _) =>
+        ModalNormRow("Steady sideslip", is, None, None, None, None, wants,
+          "Worse than Level 3: " + problems.mkString("; ") + ". A sideslip cannot be held steadily.",
+          Some(false), None)
+    }
+  }
+
+  /** The rolling moment coefficient the ailerons can produce at their stop, or None with a reason. */
+  private def rollControlPower(calculation: AvlCalculation): Option[Double] = {
+    val stab = calculation.getStabilityDerivatives
+    val aileron = calculation.getAileronPosition
+    val gains = calculation.getControlGains
+    val stops = calculation.getControlMaxDeflections
+    if (stab == null) return None
+    val cld = stab.getCld
+    if (cld == null || gains == null || stops == null) return None
+    if (aileron < 0 || aileron >= cld.length || aileron >= gains.length || aileron >= stops.length) return None
+    val gain = gains(aileron).toDouble
+    val stop = stops(aileron).toDouble
+    if (gain == 0.0 || stop.isNaN || stop <= 0.0) return None
+    val power = math.abs(cld(aileron).toDouble * (stop / gain))
+    if (power <= 0.0) None else Some(power)
+  }
+
+  private def rollControlPowerProblem(calculation: AvlCalculation): String = {
+    val aileron = calculation.getAileronPosition
+    val stab = calculation.getStabilityDerivatives
+    if (stab == null || stab.getCld == null) "the control derivatives did not reach the calculation."
+    else if (aileron < 0 || aileron >= stab.getCld.length) "no aileron was identified among the controls."
+    else "the aileron states no gain, no travel, or produces no rolling moment."
   }
 
   /** The first time a monotonically rising quantity reaches a target, or None if it never does. */

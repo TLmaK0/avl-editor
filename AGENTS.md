@@ -531,6 +531,16 @@ needs no weight, no air and no wing area: in level flight the lift equals the we
 `ShortPeriodQuicknessCheck` pins it, including that CAP scales as a frequency **squared** with the
 aircraft's size.
 
+**Two static rows, and both were nearly written from a wrong reading.** 3.2.1.1 is *not* `Cma < 0` and not
+the static margin, whatever its title suggests: section 3.2.1 is longitudinal stability **with respect to
+speed**, and it says there shall be **no aperiodic airspeed divergence** for Levels 1 and 2, with Level 3
+relaxed to a doubling time of 6 s. The eigenvalues already answer it — it is the runaway whose mode shape is
+speed-dominated. And 3.3.6's steady-sideslip requirements turn out to be written in pedal forces and in a
+linearity that **AVL, being a linear solver, cannot fail**; asserting it would be asserting nothing. What
+survives is the sign convention (`Cnb` positive, `CYb` negative, `Clb` negative) plus 3.3.6.3.2, the one
+requirement in that family that is quantitative and needs no forces: the dihedral effect must not cost more
+than **75 % of the aileron** at the 10 degrees of sideslip 3.3.7.1 asks for (`StaticStabilityCheck`).
+
 **And a seventh row that is not a motion at all: roll response** (3.3.4, TABLE IXa) — how long the aircraft
 takes to bank 60 degrees with the stick hard over, which is the first thing a model flyer would notice and
 the editor never computed. It is derived, not assumed: the ailerons' rolling moment balancing the roll
