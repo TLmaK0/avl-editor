@@ -492,6 +492,16 @@ thrown away with the rest of the real roots — and the table was drawn only whe
 is exactly when an aircraft with nothing but real roots has least to say for itself. The coupled roll-spiral
 (3.3.1.4) is the sixth.
 
+**And a seventh row that is not a motion at all: roll response** (3.3.4, TABLE IXa) — how long the aircraft
+takes to bank 60 degrees with the stick hard over, which is the first thing a model flyer would notice and
+the editor never computed. It is derived, not assumed: the ailerons' rolling moment balancing the roll
+damping gives the final roll rate, the roll mode's time constant says how long it takes to arrive, and
+`phi(t) = p (t - tau (1 - e^-t/tau))` gives the angle. `Cldelta` is converted through the control's **gain**,
+because AVL states it per control variable and not per degree — the same factor whose absence made every
+exported JSBSim model's controls three times too weak. And when the aileron, its gain, its travel, the roll
+mode or the roll damping is missing, it **names the one that is missing** instead of filling it in: a roll
+rate computed from an invented deflection would look exactly like a measured one (`RollPerformanceCheck`).
+
 **A Level, not a pass.** The standard is written in three of them and only Level 1 is "clearly adequate";
 an aircraft that misses it is usually flyable rather than broken. A row now says which Level it reached
 **and what kept it from Level 1** — a bare Level would be the old FAIL with a number on it, telling the
@@ -499,8 +509,10 @@ reader where they are and not which way to move.
 
 **The Flight Phase Category is the one thing the aircraft cannot tell us.** It is the mission, not the
 machine: the same airframe flown gently is Category B and thrown around is Category A, which wants 0.35 of
-short-period damping rather than 0.30 and 0.19 of dutch-roll damping rather than 0.08. So it is a choice,
-defaulting to B. Everything else is read off the model.
+short-period damping rather than 0.30, 0.19 of dutch-roll damping rather than 0.08, and 60 degrees of bank
+in 1.3 s rather than 1.7. So it is a **field on the model** — `AVL.flightPhase`, "How it is flown" — saved
+with the file and defaulting to gentle, which is what a file written before the field existed is judged as
+and always was. Everything else is read off the model.
 
 ### The criteria follow the aircraft's size
 

@@ -143,7 +143,7 @@ class AvlResultsWindow(display: Display) {
     // Category is the one thing here that cannot be derived from the model: it is the mission, not the
     // machine.
     val size = MilF8785cEvaluator.sizeOf(calculation)
-    val category = FlightPhaseCategory.Default
+    val category = FlightPhaseCategory.fromModelLabel(calculation.getFlightPhase)
     wideLine(f"Judged as Flight Phase Category ${category.label}%s — ${category.describes}%s." +
       (if (size.scales)
         f" This aircraft spans ${size.spanMetres}%.2f m, below the ${size.ReferenceSpanMetres}%.0f m of the " +

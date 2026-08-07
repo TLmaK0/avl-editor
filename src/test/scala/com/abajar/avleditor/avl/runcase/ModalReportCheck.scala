@@ -220,7 +220,7 @@ object ModalReportCheck {
     check("the spiral is found and judged", spiralRow.level == Some(2))
     check("and a Level below 1 still says what kept it from Level 1",
       spiralRow.verdict.contains("Level 2") && spiralRow.verdict.contains("wanted"))
-    check("a table is drawn even though nothing oscillates", realRows.size == 6)
+    check("a table is drawn even though nothing oscillates", realRows.size == 7)
     // The spiral diverges, so it is also a runaway — and the two reports must agree about which it is.
     check("a divergent spiral is reported as a runaway as well",
       MilF8785cEvaluator.divergences(lateralReal).exists(_.axis == RunawayAxis.Spiral))
@@ -267,6 +267,20 @@ object ModalReportCheck {
       f"Category B -> ${shortLevel(FlightPhaseCategory.B)}%s, Category A -> ${shortLevel(FlightPhaseCategory.A)}%s")
     check("gentle flying accepts it", shortLevel(FlightPhaseCategory.B) == Some(1))
     check("and rapid maneuvering does not", shortLevel(FlightPhaseCategory.A) == Some(2))
+    // The user picks it on the model and it is saved with the file; a file written before the field existed
+    // has no opinion, and is judged as it always was.
+    check("the model's own words choose it",
+      FlightPhaseCategory.fromModelLabel(com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_AEROBATIC) ==
+        FlightPhaseCategory.A &&
+      FlightPhaseCategory.fromModelLabel(com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_TERMINAL) ==
+        FlightPhaseCategory.C &&
+      FlightPhaseCategory.fromModelLabel(com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_GENTLE) ==
+        FlightPhaseCategory.B)
+    check("and a file that never heard of it is judged as it always was",
+      FlightPhaseCategory.fromModelLabel(null) == FlightPhaseCategory.B)
+    check("a new model starts out flown gently",
+      FlightPhaseCategory.fromModelLabel(new com.abajar.avleditor.avl.AVL().getFlightPhase) ==
+        FlightPhaseCategory.B)
 
     println(if (ok) "MODAL_REPORT_OK" else "MODAL_REPORT_FAIL")
     if (!ok) sys.exit(1)

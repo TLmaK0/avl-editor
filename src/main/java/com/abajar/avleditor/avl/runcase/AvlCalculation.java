@@ -52,6 +52,36 @@ public class AvlCalculation {
         return controlGains;
     }
 
+    /**
+     * How far each control can move, in degrees — the surface's own stop, not a trimmed position.
+     *
+     * Roll performance is measured with the stick hard over, so it needs this: a derivative says how much
+     * rolling moment per degree and nothing at all about how many degrees there are.
+     */
+    private float[] controlMaxDeflections = new float[]{Float.NaN, Float.NaN, Float.NaN};
+
+    public void setControlMaxDeflections(float[] controlMaxDeflections) {
+        this.controlMaxDeflections = controlMaxDeflections;
+    }
+
+    public float[] getControlMaxDeflections() {
+        return controlMaxDeflections;
+    }
+
+    /**
+     * How the model says it is meant to be flown, carried through from {@code AVL.getFlightPhase()} so that
+     * the results window grades against the Flight Phase the user chose rather than assuming one.
+     */
+    private String flightPhase;
+
+    public void setFlightPhase(String flightPhase) {
+        this.flightPhase = flightPhase;
+    }
+
+    public String getFlightPhase() {
+        return flightPhase;
+    }
+
     public void setTrimControlValues(float[] trimControlValues) {
         this.trimControlValues = trimControlValues;
     }

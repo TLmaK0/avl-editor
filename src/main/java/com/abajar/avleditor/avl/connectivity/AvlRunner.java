@@ -266,6 +266,8 @@ public class AvlRunner {
         runCase.setControlNames(controlNames);
         float[] controlGains = extractControlGains(controlNames);
         runCase.setControlGains(controlGains);
+        runCase.setControlMaxDeflections(extractControlMaxDeflections(controlNames));
+        runCase.setFlightPhase(avl.getFlightPhase());
         float[] trimControlValues = readTrimControlValues(stabilityFile, controlNames);
         runCase.setTrimControlValues(trimControlValues);
         runCase.setTrimControlDeflections(calculateTrimControlDeflections(trimControlValues, controlGains));
@@ -280,6 +282,7 @@ public class AvlRunner {
         // Written beside Bref, from the same run: the flying-qualities criteria scale with how big the
         // aircraft physically is, and Bref alone does not say whether it is 1.5 of something or 60.
         config.setMetresPerLengthUnit(avl.units().metresPerLengthUnit());
+        config.setSecondsPerTimeUnit(avl.units().secondsPerTimeUnit());
 
         config.setAlpha(readFloat("Alpha =", scanner));
 
@@ -552,6 +555,40 @@ public class AvlRunner {
             }
         }
         return gains;
+    }
+
+    /**
+     * How far each control can actually move, in degrees.
+     *
+     * Roll performance (MIL-F-8785C 3.3.4, TABLE IXa) is how long the aircraft takes to bank with the stick
+     * hard over, so it needs the deflection the surface stops at — a derivative alone cannot say how much
+     * roll is available, only how much per degree.
+     */
+    private float[] extractControlMaxDeflections(String[] controlNames) {
+        float[] deflections = new float[controlNames.length];
+        Arrays.fill(deflections, Float.NaN);
+        if (controlNames.length == 0 || avl.getGeometry() == null) {
+            return deflections;
+        }
+
+        Map<String, Float> byName = new HashMap<String, Float>();
+        for (com.abajar.avleditor.avl.geometry.Surface surface : avl.getGeometry().getSurfaces()) {
+            for (com.abajar.avleditor.avl.geometry.Section section : surface.getSections()) {
+                for (com.abajar.avleditor.avl.geometry.Control control : section.getControls()) {
+                    String name = control.getName();
+                    if (!byName.containsKey(name)) {
+                        byName.put(name, control.getMaxDeflection());
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < controlNames.length; i++) {
+            if (byName.containsKey(controlNames[i])) {
+                deflections[i] = byName.get(controlNames[i]);
+            }
+        }
+        return deflections;
     }
 
     private float[] readTrimControlValues(File stabilityFile, String[] controlNames) {

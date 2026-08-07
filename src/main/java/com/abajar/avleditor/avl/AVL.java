@@ -81,6 +81,40 @@ public class AVL implements Serializable{
     )
     private float velocity = DEFAULT_VELOCITY;
 
+    /**
+     * How the aircraft is meant to be flown, which is what the flying-qualities criteria are graded against
+     * (MIL-F-8785C 1.3.2). See {@code docs/mil-f-8785c.md}.
+     *
+     * <b>It is the one thing about that judgement the aircraft cannot tell us.</b> Everything else the
+     * editor reads off the model — the span sets the frequencies and the times, the derivatives set the
+     * rest — but this is the mission and not the machine: the same airframe flown gently is Category B and
+     * thrown around is Category A, and Category A wants 0.35 of short-period damping rather than 0.30 and
+     * 0.19 of dutch-roll damping rather than 0.08.
+     *
+     * "Gentle" is the default because it is what most models spend most of their time doing, and because it
+     * is the one an old file that has never heard of this field loads as.
+     */
+    @AvlEditorField(text="How it is flown",
+        help="Which MIL-F-8785C Flight Phase Category the flying qualities are judged against.\n"
+            + "Gentle (B): climb, cruise, loiter, descent — gradual maneuvers.\n"
+            + "Aerobatic (A): rapid maneuvering and precise tracking. Asks noticeably more of the aircraft.\n"
+            + "Takeoff and landing (C): the terminal phases.",
+        options={"Gentle (cruise)", "Aerobatic", "Takeoff and landing"}
+    )
+    private String flightPhase = FLIGHT_PHASE_GENTLE;
+
+    public static final String FLIGHT_PHASE_GENTLE = "Gentle (cruise)";
+    public static final String FLIGHT_PHASE_AEROBATIC = "Aerobatic";
+    public static final String FLIGHT_PHASE_TERMINAL = "Takeoff and landing";
+
+    public String getFlightPhase() {
+        return flightPhase == null ? FLIGHT_PHASE_GENTLE : flightPhase;
+    }
+
+    public void setFlightPhase(String flightPhase) {
+        this.flightPhase = flightPhase;
+    }
+
     // Transient: not saved to file, only available during session
     private transient AvlCalculation lastCalculation;
 

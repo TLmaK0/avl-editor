@@ -66,6 +66,16 @@ object FlightPhaseCategory {
   case object C extends FlightPhaseCategory("C", "takeoff, approach and landing")
 
   val Default: FlightPhaseCategory = B
+
+  /**
+   * The model's own words for it, from `AVL.flightPhase`. Anything unrecognised — including a file written
+   * before the field existed — is the default, which is what such a file was being judged as anyway.
+   */
+  def fromModelLabel(label: String): FlightPhaseCategory = label match {
+    case com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_AEROBATIC => A
+    case com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_TERMINAL  => C
+    case _                                                   => Default
+  }
 }
 
 /**
@@ -237,6 +247,20 @@ object MilF8785cEvaluator {
 
   /** MIL-F-8785C 3.3.1.4 (PDF p. 23): coupled roll-spiral, minimum `zeta*wn` in rad/s. */
   private val CoupledRollSpiralLimits = List((1, 0.5), (2, 0.3), (3, 0.15))
+
+  /**
+   * MIL-F-8785C 3.3.4, TABLE IXa (PDF p. 27): roll performance for Class I and II airplanes, as seconds to
+   * reach a bank angle with the roll control hard over. The Class I row is taken — "small, light airplanes".
+   *
+   * Class I is measured over 60 degrees in Categories A and B and over 30 in Category C, so the angle is
+   * part of the requirement and travels with it.
+   */
+  private def rollPerformanceLimits(category: FlightPhaseCategory): (Double, List[(Int, Double)]) =
+    category match {
+      case FlightPhaseCategory.A => (60.0, List((1, 1.3), (2, 1.7), (3, 2.6)))
+      case FlightPhaseCategory.B => (60.0, List((1, 1.7), (2, 2.5), (3, 3.4)))
+      case FlightPhaseCategory.C => (30.0, List((1, 1.3), (2, 1.8), (3, 2.6)))
+    }
 
   // ---------------------------------------------------------------------------------------------------
   // What runs away
@@ -422,13 +446,15 @@ object MilF8785cEvaluator {
     val dutchPool = lateralOscillatory.filterNot(mode => coupledRollSpiral.exists(c => c eq mode))
     val dutchRoll = findDutchRollCandidate(dutchPool)
 
+    val rollMode = findRollModeCandidate(realModes(calculation))
     List(
       shortPeriodRow(shortPeriod, category, shapesReported),
       dutchRollRow(dutchRoll, category, size, shapesReported),
       phugoidRow(phugoid, category, size, shapesReported),
-      rollModeRow(findRollModeCandidate(realModes(calculation)), category, size, shapesReported),
+      rollModeRow(rollMode, category, size, shapesReported),
       spiralRow(findSpiralCandidate(realModes(calculation)), category, size, shapesReported),
-      coupledRollSpiralRow(coupledRollSpiral, category, size)
+      coupledRollSpiralRow(coupledRollSpiral, category, size),
+      rollPerformanceRow(calculation, category, rollMode, size)
     )
   }
 
@@ -620,6 +646,102 @@ object MilF8785cEvaluator {
           "Not present, which is what is wanted: the roll and the spiral settle separately.",
           Some(true), Some(1), applied)
     }
+  }
+
+  /**
+   * How long the aircraft takes to bank, with the roll control hard over — MIL-F-8785C 3.3.4, TABLE IXa.
+   *
+   * The whole of it comes from figures the model already states, so nothing is assumed. At a steady roll the
+   * ailerons' rolling moment balances the roll damping, `Cldelta*delta + Clp*(p b / 2V) = 0`, which gives the
+   * final roll rate; the roll mode's own time constant says how long it takes to arrive; and the bank angle
+   * follows from `phi(t) = p (t - tau (1 - e^-t/tau))`, a first-order roll response integrated once.
+   *
+   * Two things it will **not** do. `Cldelta` is per unit of AVL's control variable, not per degree, so it is
+   * converted through the control's gain — the same factor the JSBSim export was missing for years and which
+   * makes a surface look three times weaker than it is. And if the aircraft has no aileron, no gain, no roll
+   * mode or no measured roll damping, it says which one is missing rather than filling it in: a roll rate
+   * invented from a default deflection would look exactly like a measured one.
+   */
+  private def rollPerformanceRow(calculation: AvlCalculation, category: FlightPhaseCategory,
+                                 rollMode: Option[AvlEigenvalue], size: FroudeScale): ModalNormRow = {
+    val is = "how long it takes to bank with the stick hard over — the aircraft's roll authority"
+    val (angleDeg, limits) = rollPerformanceLimits(category)
+    val wants = f"$angleDeg%.0f degrees of bank within ${limits.head._2}%.1f s"
+    val applied = if (size.scales) Some(f"at this size: within ${size.time(limits.head._2)}%.2f s") else None
+
+    def cannot(why: String) =
+      ModalNormRow("Roll response", is, None, None, None, None, wants, "Not judged: " + why, None, None, applied)
+
+    val config = calculation.getConfiguration
+    val stab = calculation.getStabilityDerivatives
+    if (config == null || stab == null) return cannot("AVL returned no configuration for this run.")
+    val aileron = calculation.getAileronPosition
+    val gains = calculation.getControlGains
+    val stops = calculation.getControlMaxDeflections
+    val cld = stab.getCld
+
+    // `initControls` is what creates these arrays, and a calculation that never reached AVL has not had it
+    // called. Reading past a null here is how this row would take the whole results window down with it.
+    if (cld == null || gains == null || stops == null)
+      return cannot("the control derivatives did not reach the calculation.")
+    if (aileron < 0 || aileron >= cld.length) return cannot("no aileron was identified among the controls.")
+    if (aileron >= gains.length || aileron >= stops.length)
+      return cannot("the aileron's gain and travel did not reach the calculation.")
+
+    val gain = gains(aileron).toDouble
+    val stop = stops(aileron).toDouble
+    val clDelta = cld(aileron).toDouble
+    val clp = stab.getClp.toDouble
+    val span = config.getSpanMetres.toDouble
+    val speed = config.getVelocityMetresPerSecond.toDouble
+
+    if (gain == 0.0) return cannot("the aileron's gain is zero, so AVL never deflects it and it does nothing.")
+    if (stop.isNaN || stop <= 0.0) return cannot("the aileron states no maximum deflection.")
+    if (clp >= 0.0) return cannot(f"AVL reports roll damping Clp of $clp%.4f, which is not a damping at all.")
+    if (span <= 0.0 || speed <= 0.0) return cannot("the reference span or the speed is missing.")
+    if (clDelta == 0.0) return cannot("AVL reports the aileron producing no rolling moment.")
+
+    // Cl at full deflection: the control variable that reaches `stop` degrees is stop/gain.
+    val clAtStop = math.abs(clDelta * (stop / gain))
+    // Clp is per (p b / 2V), so the steady roll rate is in radians per second once b and V are in metres.
+    val rollRate = clAtStop / math.abs(clp) * (2.0 * speed / span)
+    val tau = rollMode.map(mode => -1.0 / mode.getSigma.toDouble)
+
+    tau match {
+      case None => cannot("AVL found no roll mode, so how quickly the roll builds up is not known.")
+      case Some(timeConstant) =>
+        val target = math.toRadians(angleDeg)
+        // phi(t) = p (t - tau (1 - e^-t/tau)) rises monotonically, so bisection cannot miss.
+        def bankAfter(t: Double): Double = rollRate * (t - timeConstant * (1.0 - math.exp(-t / timeConstant)))
+        val reached = timeToReach(target, bankAfter)
+        reached match {
+          case None => cannot("the roll rate is too low to reach that bank angle at all.")
+          case Some(t) =>
+            val level = levelMet(limits.map { case (n, maxT) => (n, t <= size.time(maxT)) })
+            val meets = f"$angleDeg%.0f degrees in $t%.2f s, rolling at " +
+              f"${math.toDegrees(rollRate)}%.0f deg/s with $stop%.0f degrees of aileron."
+            val miss = f"it takes $t%.2f s to bank $angleDeg%.0f degrees, against the " +
+              f"${size.time(limits.head._2)}%.2f s wanted — the roll is slow. More aileron travel, more " +
+              "aileron span, or less roll damping."
+            ModalNormRow("Roll response", is, None, None, None, None, wants,
+              levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied)
+        }
+    }
+  }
+
+  /** The first time a monotonically rising quantity reaches a target, or None if it never does. */
+  private def timeToReach(target: Double, of: Double => Double): Option[Double] = {
+    var high = 0.1
+    while (of(high) < target && high < 600.0) high *= 2.0
+    if (of(high) < target) return None
+    var low = 0.0
+    var i = 0
+    while (i < 200) {
+      val mid = 0.5 * (low + high)
+      if (of(mid) < target) low = mid else high = mid
+      i += 1
+    }
+    Some(0.5 * (low + high))
   }
 
   // ---------------------------------------------------------------------------------------------------

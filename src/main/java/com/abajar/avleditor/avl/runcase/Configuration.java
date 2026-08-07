@@ -62,6 +62,28 @@ public class Configuration {
         return Bref * metresPerLengthUnit;
     }
 
+    /** Written beside {@link #metresPerLengthUnit}, and for the same reason. */
+    private float secondsPerTimeUnit = 1f;
+
+    public void setSecondsPerTimeUnit(float secondsPerTimeUnit) {
+        this.secondsPerTimeUnit = secondsPerTimeUnit;
+    }
+
+    public float getSecondsPerTimeUnit() {
+        return secondsPerTimeUnit;
+    }
+
+    /**
+     * The speed in metres per second, whatever the model states its lengths and times in.
+     *
+     * Roll performance is a rate, so both units enter it: {@code 2V/b} is a frequency, and it is only in
+     * radians per second if V and b are in the same length unit and V's time unit is the second.
+     */
+    public float getVelocityMetresPerSecond() {
+        return secondsPerTimeUnit == 0f ? Velocity * metresPerLengthUnit
+                                        : Velocity * metresPerLengthUnit / secondsPerTimeUnit;
+    }
+
 //Cmtot
 //Cma
 //Cmq

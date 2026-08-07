@@ -12,7 +12,8 @@ assumption, said out loud as one, or a bug. The 10-second threshold that used to
 lateral divergence was "a slow spiral" was neither: it read as if the standard had said it, and the
 standard says 20 seconds.
 
-The page numbers below are **PDF pages**, which run two ahead of the printed page numbers.
+The page numbers below are the document's own printed page numbers, and the PDF's pages carry the same
+numbering, so a page reference works in either.
 
 ---
 
@@ -177,11 +178,38 @@ Categories B and C provided:
 
 **Not implemented.**
 
-### §3.3.4 Roll control effectiveness — TABLES IXa/IXb, PDF p. 28-29
+### §3.3.4 Roll control effectiveness — TABLE IXa, PDF p. 27
 
-Time to bank a given angle. Not yet transcribed. Computable from what AVL returns: the steady roll rate
-follows from `Clδa` and `Clp`, and the roll-mode time constant gives the time to reach a bank angle.
-This is probably the single most useful criterion for a model, and it is missing.
+> TABLE IXa. Roll performance for Class I and II airplanes — time to achieve the following bank angle
+> change (seconds)
+
+| Class | Level | Category A | Category B | Category C |
+|-------|-------|------------|------------|------------|
+| **I** | **1** | **1.3 (60°)** | **1.7 (60°)** | **1.3 (30°)** |
+| I | 2 | 1.7 (60°) | 2.5 (60°) | 1.8 (30°) |
+| I | 3 | 2.6 (60°) | 3.4 (60°) | 2.6 (30°) |
+| II-L | 1 | 1.4 (45°) | 1.9 (45°) | 1.8 (30°) |
+| II-L | 2 | 1.9 (45°) | 2.8 (45°) | 2.5 (30°) |
+| II-L | 3 | 2.8 (45°) | 3.8 (45°) | 3.6 (30°) |
+| II-C | 1 | 1.4 (45°) | 1.9 (45°) | 1.0 (25°) |
+| II-C | 2 | 1.9 (45°) | 2.8 (45°) | 1.5 (25°) |
+| II-C | 3 | 2.8 (45°) | 3.8 (45°) | 2.0 (25°) |
+
+The bank angle is part of the requirement and travels with it: Class I is measured over 60° in Categories
+A and B and over 30° in Category C. Class IV has its own table (IXb, PDF p. 28) with four speed ranges.
+
+**Implemented** for Class I, and derived rather than assumed. At a steady roll the ailerons' rolling
+moment balances the roll damping, `Clδ·δ + Clp·(p b / 2V) = 0`, which gives the final roll rate; the roll
+mode's time constant (Table VII, above) says how long it takes to arrive; and the bank angle follows from
+integrating a first-order roll response once, `φ(t) = p (t − τ (1 − e^−t/τ))`.
+
+Two things about it:
+
+- `Clδ` is per unit of **AVL's control variable**, not per degree, so it is converted through the control's
+  gain — the same factor whose absence made every exported JSBSim model's controls three times too weak.
+- If the aircraft has no aileron, no gain, no stated aileron travel, no roll mode or no measured roll
+  damping, it **says which one is missing** rather than filling it in. A roll rate computed from an
+  invented deflection would look exactly like a measured one.
 
 ### §3.3.6 Lateral-directional characteristics in steady sideslips — PDF p. 32-33
 
