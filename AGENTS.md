@@ -707,6 +707,14 @@ must hold whatever comes back — a Level and its pass flag agreeing, no `NaN` r
 reads, no Level claimed by a row that says it could not judge, the runaway list and the table telling the
 same story — rather than the wording of any one case. It found the half-closed hole above on its first run.
 
+**`RowOutcome` is sealed too, and that was the other half of the lesson.** What a row concluded used to be
+readable only by sniffing the verdict's opening words — `startsWith("Not judged")` — which is the same
+failure as the `if/else` chain it came from: a wording nobody thought about reads as some other outcome, in
+silence. `Reached(level)`, `WorseThanLevelThree`, `NotFound`, `NotJudged`, `OnTheBoundary`. The results
+window matches on it exhaustively, so a new kind of outcome is a compile error there rather than something
+that falls through to the plain text, and `VerdictSweepCheck` asserts the outcome agrees with the Level and
+the pass flag across all 1764 cases.
+
 `RunawayAxis` is a **sealed set**, not a chain of `if/else` ending in a bare `else`. An `else` answers every
 case with confidence, including the ones nobody thought about — which is how a mode with no dominant axis
 came to be announced as "yaw and roll". It has a `Mixed` case now, which says so.

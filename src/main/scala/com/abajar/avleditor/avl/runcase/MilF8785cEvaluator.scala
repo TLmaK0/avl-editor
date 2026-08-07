@@ -44,8 +44,32 @@ case class ModalNormRow(
   verdict: String,
   pass: Option[Boolean],
   level: Option[Int] = None,
-  applied: Option[String] = None
+  applied: Option[String] = None,
+  outcome: RowOutcome = RowOutcome.NotJudged
 )
+
+/**
+ * What a row concluded, as a set the compiler knows the whole of.
+ *
+ * It used to be readable only by sniffing the verdict's opening words — `startsWith("Not judged")` — which
+ * is the same failure as the `if/else` chain it came from: a wording nobody thought about reads as some
+ * other outcome, silently. Adding a case here makes every `match` on it a compile error until it is
+ * handled, which is the point.
+ */
+sealed trait RowOutcome
+
+object RowOutcome {
+  /** Judged, and this is the MIL-F-8785C Level it reached. `1` is the one to aim at. */
+  final case class Reached(level: Int) extends RowOutcome
+  /** Judged, and worse than anything the standard describes. */
+  case object WorseThanLevelThree extends RowOutcome
+  /** The aircraft simply has no such motion. About the aeroplane. */
+  case object NotFound extends RowOutcome
+  /** Something needed to judge it never arrived. About the run, and it names what is missing. */
+  case object NotJudged extends RowOutcome
+  /** Too close to a boundary **we** digitised to commit either way. No Level is claimed. */
+  case object OnTheBoundary extends RowOutcome
+}
 
 /**
  * Which Flight Phase the aircraft is being judged in (MIL-F-8785C 1.3.2, PDF p. 5-6).
@@ -452,7 +476,8 @@ object MilF8785cEvaluator {
       if (!shapesReported)
         "Not judged: AVL reported no mode shapes for this run, so there is nothing to tell one motion from " +
           "another. The eigenvalues below are still its answer."
-      else "Not found: " + absent, None)
+      else "Not found: " + absent, None,
+      outcome = if (!shapesReported) RowOutcome.NotJudged else RowOutcome.NotFound)
 
   /** The first Level whose limits the measurement meets, worst-first order being 1, 2, 3. */
   private def levelMet(levels: List[(Int, Boolean)]): Option[Int] =
@@ -477,6 +502,10 @@ object MilF8785cEvaluator {
     else Some(f"it does not settle at all — it **grows**, every swing bigger than the last " +
       f"(damping $zeta%.2f, which is negative). This is $motion%s running away, and it is listed above " +
       "with the time its motion doubles in. Damping is not the thing to change here.")
+
+  /** The outcome a judged row concluded, from the Level it reached. */
+  private def outcomeOf(level: Option[Int]): RowOutcome =
+    level.map(RowOutcome.Reached).getOrElse(RowOutcome.WorseThanLevelThree)
 
   private def levelVerdict(level: Option[Int], meets: String, misses: String): String = level match {
     case Some(1) => "Meets it: " + meets
@@ -543,7 +572,7 @@ object MilF8785cEvaluator {
               "longer tail arm or a centre of gravity further forward."
           else f"too heavily damped at $zeta%.2f — the aircraft answers the elevator sluggishly.")
         ModalNormRow("Short-period", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
-          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level)
+          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level, outcome = outcomeOf(level))
       case None => unidentified("Short-period", is, wants,
         "none of the oscillating motions AVL found is a pitch one. On a strongly damped model the short " +
           "period can split into two motions that do not swing at all, which is not a fault.", shapesReported)
@@ -630,7 +659,8 @@ object MilF8785cEvaluator {
               f"${wantedZetaWn(1, minZetaWn1)}%.2f wanted) — the wag dies away, but it takes a long time about it.")
         ModalNormRow("Dutch-roll", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
           wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level,
-          if (notes.isEmpty) None else Some("at this condition: " + notes.mkString(", ")))
+          if (notes.isEmpty) None else Some("at this condition: " + notes.mkString(", ")),
+          outcomeOf(level))
       case None => unidentified("Dutch-roll", is, wants,
         "none of the oscillating motions AVL found is a yaw-and-roll one. With a large fin the wag can be " +
           "damped out of existence, which is not a fault either.", shapesReported)
@@ -659,7 +689,7 @@ object MilF8785cEvaluator {
           f"too lightly damped at $zeta%.2f — the aircraft keeps porpoising and the pilot has to fly it " +
             "out. It is a slow motion and easy to correct, so this is the least pressing of the three.")
         ModalNormRow("Phugoid", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
-          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level, applied)
+          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level, applied, outcomeOf(level))
       case None => unidentified("Phugoid", is, wants,
         "none of the remaining oscillating motions is a slow speed-and-height one. It is the easiest of the " +
           "three to lose in the numbers, and the least consequential to fly without.", shapesReported)
@@ -686,7 +716,7 @@ object MilF8785cEvaluator {
             "aircraft feels slow and mushy in roll. More aileron, or less roll damping — a shorter span or " +
             "less dihedral."
         ModalNormRow("Roll mode", is, None, None, None, None, wants,
-          levelVerdict(level, f"the roll settles in $tau%.2f s.", miss), Some(level == Some(1)), level, applied)
+          levelVerdict(level, f"the roll settles in $tau%.2f s.", miss), Some(level == Some(1)), level, applied, outcomeOf(level))
       case None => unidentified("Roll mode", is, wants,
         "none of the real roots AVL found is a rolling one. Without ailerons, or with a mode shape that does " +
           "not single out roll rate, there is nothing here to measure.", shapesReported)
@@ -711,7 +741,7 @@ object MilF8785cEvaluator {
         ModalNormRow("Spiral", is, None, None, None, None, wants,
           if (halving.isPosInfinity) "Meets it: the spiral neither tightens nor rights itself."
           else f"Meets it: the bank rights itself, halving every $halving%.1f s. A stable spiral meets every Level.",
-          Some(true), Some(1), applied)
+          Some(true), Some(1), applied, RowOutcome.Reached(1))
       case Some(mode) =>
         val doubling = math.log(2.0) / mode.getSigma.toDouble
         val level = levelMet(limits.map { case (n, minT2) => (n, doubling >= size.time(minT2)) })
@@ -720,7 +750,7 @@ object MilF8785cEvaluator {
             "tightens faster than a pilot would want to keep correcting. More dihedral, or a smaller fin."
         ModalNormRow("Spiral", is, None, None, None, None, wants,
           levelVerdict(level, f"it diverges, but slowly — the bank doubles every $doubling%.1f s.", miss),
-          Some(level == Some(1)), level, applied)
+          Some(level == Some(1)), level, applied, outcomeOf(level))
       case None => unidentified("Spiral", is, wants,
         "none of the real roots AVL found is a slow banking one. A model with plenty of dihedral can have " +
           "no distinct spiral at all.", shapesReported)
@@ -750,19 +780,20 @@ object MilF8785cEvaluator {
           ModalNormRow("Coupled roll-spiral", is, Some(wn), Some(zeta), periodOf(wn, zeta),
             swingsToHalfOf(zeta), wants,
             f"Not allowed: the standard forbids a coupled roll-spiral outright for rapid maneuvering, and " +
-              f"this aircraft has one (damping x wn $product%.2f).", Some(false), None, applied)
+              f"this aircraft has one (damping x wn $product%.2f).", Some(false), None, applied,
+            RowOutcome.WorseThanLevelThree)
         else {
           val level = levelMet(CoupledRollSpiralLimits.map { case (n, m) => (n, product >= size.frequency(m)) })
           ModalNormRow("Coupled roll-spiral", is, Some(wn), Some(zeta), periodOf(wn, zeta),
             swingsToHalfOf(zeta), wants,
             levelVerdict(level, f"damping x wn $product%.2f.",
               f"damping x wn is only $product%.2f — the wallow takes far too long to settle."),
-            Some(level == Some(1)), level, applied)
+            Some(level == Some(1)), level, applied, outcomeOf(level))
         }
       case None =>
         ModalNormRow("Coupled roll-spiral", is, None, None, None, None, wants,
           "Not present, which is what is wanted: the roll and the spiral settle separately.",
-          Some(true), Some(1), applied)
+          Some(true), Some(1), applied, RowOutcome.Reached(1))
     }
   }
 
@@ -788,7 +819,7 @@ object MilF8785cEvaluator {
     val applied = if (size.scales) Some(f"at this size: within ${size.time(limits.head._2)}%.2f s") else None
 
     def cannot(why: String) =
-      ModalNormRow("Roll response", is, None, None, None, None, wants, "Not judged: " + why, None, None, applied)
+      ModalNormRow("Roll response", is, None, None, None, None, wants, "Not judged: " + why, None, None, applied, RowOutcome.NotJudged)
 
     val config = calculation.getConfiguration
     val stab = calculation.getStabilityDerivatives
@@ -842,7 +873,7 @@ object MilF8785cEvaluator {
               f"${size.time(limits.head._2)}%.2f s wanted — the roll is slow. More aileron travel, more " +
               "aileron span, or less roll damping."
             ModalNormRow("Roll response", is, None, None, None, None, wants,
-              levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied)
+              levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied, outcomeOf(level))
         }
     }
   }
@@ -904,7 +935,7 @@ object MilF8785cEvaluator {
             f"too sharp: CAP $cap%.2f against the ${scaled(maxCap)}%.1f allowed. The aircraft is twitchy in " +
               "pitch for the g it produces, which is tiring to fly precisely."
         ModalNormRow("Short-period quickness", is, Some(wn), None, None, None, wants,
-          levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied)
+          levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied, outcomeOf(level))
     }
   }
 
@@ -935,7 +966,8 @@ object MilF8785cEvaluator {
         if (shapesReported) "Meets it: no aperiodic speed divergence — the aircraft settles to a speed."
         else "Meets it: nothing runs away aperiodically in speed. (AVL reported no mode shapes, so this " +
           "rests on there being no aperiodic divergence at all rather than on identifying one as speed.)"
-      ModalNormRow("Speed stability", is, None, None, None, None, wants, why, Some(true), Some(1), applied)
+      ModalNormRow("Speed stability", is, None, None, None, None, wants, why, Some(true), Some(1), applied,
+        RowOutcome.Reached(1))
     } else {
       val worst = speedRunaways.minBy(_.doublingTime)
       val level = if (worst.doublingTime >= level3) Some(3) else None
@@ -943,7 +975,7 @@ object MilF8785cEvaluator {
         f"none of this at all, and Level 3 allows no faster than $level3%.1f s. The trim, or a centre of " +
         "gravity far from where it was analysed."
       ModalNormRow("Speed stability", is, None, None, None, None, wants,
-        levelVerdict(level, "", miss), Some(false), level, applied)
+        levelVerdict(level, "", miss), Some(false), level, applied, outcomeOf(level))
     }
   }
 
@@ -973,7 +1005,7 @@ object MilF8785cEvaluator {
       f"of the aileron at ${DihedralSideslipDegrees}%.0f degrees of sideslip"
 
     def cannot(why: String) =
-      ModalNormRow("Steady sideslip", is, None, None, None, None, wants, "Not judged: " + why, None, None)
+      ModalNormRow("Steady sideslip", is, None, None, None, None, wants, "Not judged: " + why, None, None, None, RowOutcome.NotJudged)
 
     val stab = calculation.getStabilityDerivatives
     if (stab == null) return cannot("AVL returned no derivatives for this run.")
@@ -997,7 +1029,7 @@ object MilF8785cEvaluator {
         ModalNormRow("Steady sideslip", is, None, None, None, None, wants,
           "Partly judged: the signs are right — the nose weathercocks, the side force opposes the sideslip " +
             "and the dihedral effect is positive. What the aileron costs to hold one could not be worked " +
-            "out: " + rollControlPowerProblem(calculation), None, None)
+            "out: " + rollControlPowerProblem(calculation), None, None, None, RowOutcome.NotJudged)
       case (Nil, Some(f)) =>
         val level = if (f <= DihedralRollControlFraction) Some(1) else None
         val meets = f"the signs are right and holding ${DihedralSideslipDegrees}%.0f degrees of sideslip " +
@@ -1006,11 +1038,11 @@ object MilF8785cEvaluator {
           f"of the aileron, against the ${(DihedralRollControlFraction * 100).toInt}%d%% allowed — too much " +
           "dihedral for the ailerons it has. Less dihedral, or more aileron."
         ModalNormRow("Steady sideslip", is, None, None, None, None, wants,
-          levelVerdict(level, meets, miss), Some(level == Some(1)), level)
+          levelVerdict(level, meets, miss), Some(level == Some(1)), level, outcome = outcomeOf(level))
       case (problems, _) =>
         ModalNormRow("Steady sideslip", is, None, None, None, None, wants,
           "Worse than Level 3: " + problems.mkString("; ") + ". A sideslip cannot be held steadily.",
-          Some(false), None)
+          Some(false), None, None, RowOutcome.WorseThanLevelThree)
     }
   }
 
@@ -1059,9 +1091,9 @@ object MilF8785cEvaluator {
 
     def refused(why: String) = List(
       ModalNormRow("Roll rate oscillation", oscillationIs, None, None, None, None, oscillationWants,
-        "Not judged: " + why, None, None),
+        "Not judged: " + why, None, None, None, RowOutcome.NotJudged),
       ModalNormRow("Sideslip in a roll", sideslipIs, None, None, None, None, sideslipWants,
-        "Not judged: " + why, None, None))
+        "Not judged: " + why, None, None, None, RowOutcome.NotJudged))
 
     val aileron = calculation.getAileronPosition
     val stops = calculation.getControlMaxDeflections
@@ -1089,7 +1121,7 @@ object MilF8785cEvaluator {
                 f"the roll rate sags to ${oscillationKept * 100}%.0f%% of its peak, against the " +
                   f"${(oscillationLimits.head._2 * 100).toInt}%d%% wanted — the roll stalls and picks up " +
                   "again. More fin, or less adverse yaw from the ailerons."),
-              Some(oscillationLevel == Some(1)), oscillationLevel)
+              Some(oscillationLevel == Some(1)), oscillationLevel, outcome = outcomeOf(oscillationLevel))
 
             val sideslipLevel = levelMet(sideslipRules.map { case (n, adverse, proverse) =>
               (n, measured.sideslipDegrees <= (if (measured.proverse) proverse else adverse)) })
@@ -1105,7 +1137,7 @@ object MilF8785cEvaluator {
                 f"${measured.sideslipDegrees}%.1f degrees of $kind%s sideslip, against the $allowed%.0f " +
                   f"allowed — the nose goes the wrong way as the aircraft rolls. " +
                   (if (measured.proverse) "Less fin, or more adverse yaw." else "More fin, or differential ailerons.")),
-              Some(sideslipLevel == Some(1)), sideslipLevel)
+              Some(sideslipLevel == Some(1)), sideslipLevel, outcome = outcomeOf(sideslipLevel))
 
             List(oscillationRow, sideslipRow)
         }
@@ -1131,7 +1163,7 @@ object MilF8785cEvaluator {
 
     def cannot(why: String) =
       ModalNormRow("Roll rate oscillation (small input)", is, None, None, None, None, wants,
-        "Not judged: " + why, None, None)
+        "Not judged: " + why, None, None, None, RowOutcome.NotJudged)
 
     val aileron = calculation.getAileronPosition
     val stops = calculation.getControlMaxDeflections
@@ -1171,13 +1203,13 @@ object MilF8785cEvaluator {
                     f"On the boundary: $measuredAt%s, within the accuracy figure 4 was read to " +
                       f"(+-${RollOscillationFigure.ReadingUncertainty}%.2f and " +
                       f"+-${RollOscillationFigure.PhaseUncertaintyDegrees}%.0f degrees). No Level is claimed.",
-                    None, None)
+                    None, None, None, RowOutcome.OnTheBoundary)
                 else
                   ModalNormRow("Roll rate oscillation (small input)", is, None, None, None, None, wants,
                     levelVerdict(met, measuredAt + ".",
                       measuredAt + " — outside figure 4's boundary. The roll and the dutch roll are " +
                         "fighting each other; more fin, or less adverse yaw from the ailerons."),
-                    Some(met == Some(1)), met)
+                    Some(met == Some(1)), met, outcome = outcomeOf(met))
             }
         }
     }
@@ -1197,7 +1229,7 @@ object MilF8785cEvaluator {
 
     def cannot(why: String) =
       ModalNormRow("Bank angle oscillation", is, None, None, None, None, wants,
-        "Not judged: " + why, None, None)
+        "Not judged: " + why, None, None, None, RowOutcome.NotJudged)
 
     val aileron = calculation.getAileronPosition
     val stops = calculation.getControlMaxDeflections
@@ -1231,13 +1263,13 @@ object MilF8785cEvaluator {
                 if (unclear && met.isEmpty)
                   ModalNormRow("Bank angle oscillation", is, None, None, None, None, wants,
                     f"On the boundary: $at%s, within the accuracy figure 5 was read to. No Level is claimed.",
-                    None, None)
+                    None, None, None, RowOutcome.OnTheBoundary)
                 else
                   ModalNormRow("Bank angle oscillation", is, None, None, None, None, wants,
                     levelVerdict(met, at + ".",
                       at + " — outside figure 5's boundary. The bank overshoots and washes back instead of " +
                         "settling; more fin, or less adverse yaw from the ailerons."),
-                    Some(met == Some(1)), met)
+                    Some(met == Some(1)), met, outcome = outcomeOf(met))
             }
         }
     }

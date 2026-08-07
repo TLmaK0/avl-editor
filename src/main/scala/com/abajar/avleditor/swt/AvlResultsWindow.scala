@@ -20,6 +20,7 @@ import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.avl.runcase.MilF8785cEvaluator
 import com.abajar.avleditor.avl.runcase.ModalNormRow
 import com.abajar.avleditor.avl.runcase.FlightPhaseCategory
+import com.abajar.avleditor.avl.runcase.RowOutcome
 import scala.collection.JavaConverters._
 
 class AvlResultsWindow(display: Display) {
@@ -328,10 +329,14 @@ class AvlResultsWindow(display: Display) {
     // The Level, not a pass: the standard is written in three of them, and an aircraft that misses Level 1 is
     // usually flyable rather than broken. The verdict says which one it reached; the colour still marks
     // Level 1 apart, because that is the one to aim at.
-    verdict.setText(row.level match {
-      case Some(n) => f"LEVEL $n%d — " + row.verdict
-      case None if row.pass.isDefined => "WORSE THAN LEVEL 3 — " + row.verdict
-      case None => row.verdict
+    // Matched on the sealed set, so a new kind of outcome is a compile error here rather than something
+    // that quietly falls through to the plain text.
+    verdict.setText(row.outcome match {
+      case RowOutcome.Reached(n)           => f"LEVEL $n%d — " + row.verdict
+      case RowOutcome.WorseThanLevelThree  => "WORSE THAN LEVEL 3 — " + row.verdict
+      case RowOutcome.OnTheBoundary        => "ON THE BOUNDARY — " + row.verdict
+      case RowOutcome.NotFound             => row.verdict
+      case RowOutcome.NotJudged            => row.verdict
     })
     verdict.setBackground(bgColor)
     verdict.setForeground(row.pass match {

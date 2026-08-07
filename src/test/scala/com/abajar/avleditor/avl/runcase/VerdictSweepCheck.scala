@@ -104,10 +104,32 @@ object VerdictSweepCheck {
             !row.verdict.contains("null"))
         check(s"'${row.modeName}' has no NaN in what was applied ($where)",
           row.applied.forall(a => !a.contains("NaN") && !a.contains("Infinity")))
-        // A row that claims a Level must have measured something to claim it about.
-        check(s"'${row.modeName}' does not claim a Level while saying it could not judge ($where)",
-          !(row.level.isDefined && (row.verdict.startsWith("Not judged") ||
-            row.verdict.startsWith("Not found"))))
+        // The outcome is a sealed set, so this reads it rather than sniffing the verdict's opening words —
+        // which is what it did until the set existed, and is the same failure as the if/else it came from.
+        row.outcome match {
+          case RowOutcome.Reached(n) =>
+            check(s"'${row.modeName}' reaching Level $n agrees with its Level field ($where)",
+              row.level == Some(n) && n >= 1 && n <= 3)
+            check(s"'${row.modeName}' reaching a Level does not say it could not judge ($where)",
+              !row.verdict.startsWith("Not judged") && !row.verdict.startsWith("Not found"))
+          case RowOutcome.WorseThanLevelThree =>
+            check(s"'${row.modeName}' below Level 3 claims no Level ($where)", row.level.isEmpty)
+            check(s"'${row.modeName}' below Level 3 is not a pass ($where)", row.pass != Some(true))
+          case RowOutcome.NotFound =>
+            check(s"'${row.modeName}' not found claims no Level ($where)",
+              row.level.isEmpty && row.pass.isEmpty)
+            check(s"'${row.modeName}' not found says so ($where)", row.verdict.startsWith("Not found"))
+          case RowOutcome.NotJudged =>
+            check(s"'${row.modeName}' unjudged claims no Level ($where)",
+              row.level.isEmpty && row.pass.isEmpty)
+            check(s"'${row.modeName}' unjudged names what is missing ($where)",
+              row.verdict.startsWith("Not judged") || row.verdict.startsWith("Partly judged"))
+          case RowOutcome.OnTheBoundary =>
+            check(s"'${row.modeName}' on the boundary claims no Level ($where)",
+              row.level.isEmpty && row.pass.isEmpty)
+            check(s"'${row.modeName}' on the boundary says which figure ($where)",
+              row.verdict.contains("figure"))
+        }
       }
 
       // The runaway report and the table must tell the same story about the same aircraft.
