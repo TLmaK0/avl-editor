@@ -18,7 +18,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Pinned, not `ubuntu-latest`. A binary links against the C library of the machine that built
+          # it and refuses to start on anything older: built on 24.04 it needs GLIBC_2.38, and on Ubuntu
+          # 22.04 — a current LTS — it dies at the loader before printing a word. That failure is silent
+          # in the worst way, because an XFOIL that never starts returns an empty polar, which reads
+          # exactly like an aerofoil that never stalls. XfoilManager now smoke-tests the binary and says
+          # so; this is the other half, and it builds against the oldest library we mean to support.
+          - os: ubuntu-22.04
             platform: linux
             asset: xfoil-linux
           - os: macos-latest

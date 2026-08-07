@@ -82,7 +82,19 @@ class XfoilRunner(xfoilPath: String) {
     sb.append("PACC\n")                               // start polar accumulation
     sb.append(polarFile.toString).append("\n")        // save file
     sb.append("\n")                                   // no dump file
-    sb.append(f"ASEQ $alphaStart%.3f $alphaEnd%.3f $alphaStep%.3f\n")
+    // A sweep that spans zero is run outwards from zero in two halves, with the boundary layer
+    // reinitialised between them. XFOIL carries the previous point's solution into the next one, which is
+    // what lets it converge at all near the stall — and equally what makes one failed point poison every
+    // point after it. Marching from -8 straight through to +20 puts the hardest attitudes at the far end
+    // of a chain of them; marching outwards from where the aerofoil is easiest puts each stall at the end
+    // of its own short chain. The polar accumulates across both, so the file is the same one either way.
+    if (alphaStart < 0.0 && alphaEnd > 0.0) {
+      sb.append(f"ASEQ 0.000 $alphaEnd%.3f ${math.abs(alphaStep)}%.3f\n")
+      sb.append("INIT\n")
+      sb.append(f"ASEQ 0.000 $alphaStart%.3f ${-math.abs(alphaStep)}%.3f\n")
+    } else {
+      sb.append(f"ASEQ $alphaStart%.3f $alphaEnd%.3f $alphaStep%.3f\n")
+    }
     sb.append("PACC\n")                               // flush + stop accumulation
     sb.append("\n")
     sb.append("QUIT\n")

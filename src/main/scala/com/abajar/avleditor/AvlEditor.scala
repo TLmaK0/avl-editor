@@ -284,6 +284,11 @@ object AvlEditor{
     logger.log(Level.INFO, "Application starting...")
     logger.log(Level.INFO, "Checking AVL availability...")
     AvlManager.ensureAvlAvailable(configuration)
+    // XFOIL is no longer wired to nothing: it is what says where an aerofoil stops lifting, and the stall
+    // speed — and MIL-F-8785C 3.2.1.3 behind it — rests on it. It is fetched the same way AVL is, and a
+    // failure here is not fatal: the analysis simply reports that it has no stall speed and why.
+    logger.log(Level.INFO, "Checking XFOIL availability...")
+    XfoilManager.ensureXfoilAvailable(configuration)
     logger.log(Level.INFO, "Application initialized successfully")
 
     def apply():Unit = {
@@ -1011,6 +1016,7 @@ object AvlEditor{
       logger.log(Level.INFO, s"Analysing at ${avl.describeAnalysisPoint}")
       try {
         val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
+        measureStall(avl, calc)
         // A second stage: some inputs come from AVL's own output, so they can only be checked
         // once it has run. They are not substituted with typical values either.
         if (!reportModelProblems("simulated", SimulationRequirements.validateCalculation(calc))) return
@@ -1021,6 +1027,50 @@ object AvlEditor{
         action(name, calc)
       } catch {
         case ex: Throwable => logger.log(Level.SEVERE, s"Export failed: ${ex.getMessage}", ex)
+      }
+    }
+
+    /**
+     * The stall, measured after AVL has answered and written onto the calculation.
+     *
+     * It is a **stage of its own** and never a refusal. AVL is inviscid, so nothing it reports depends on
+     * this; what depends on it is the stall speed, and MIL-F-8785C 3.2.1.3 behind that. An XFOIL that is
+     * missing, that will not run on this machine, or that cannot converge a section therefore costs the
+     * user one row of the report and not the run — and the row says which of those it was, by name, in
+     * place of a stall speed nobody measured.
+     */
+    private def measureStall(avl: com.abajar.avleditor.avl.AVL,
+                             calculation: com.abajar.avleditor.avl.runcase.AvlCalculation): Unit = {
+      val config = calculation.getConfiguration
+      if (config == null) return
+      def refuse(why: String): Unit = {
+        config.setStallProblem(why)
+        logger.log(Level.WARNING, s"No stall speed for this run: $why")
+      }
+      try {
+        XfoilManager.usable(configuration) match {
+          case Left(why) => refuse(why)
+          case Right(xfoilPath) =>
+            com.abajar.avleditor.xfoil.StallAnalysis.analyse(
+                avl, calculation, xfoilPath, crrcsim.getOriginPath()) match {
+              case Left(why) => refuse(why)
+              case Right(result) =>
+                config.setStall(result.stallSpeedMetresPerSecond.toFloat, result.clMax.toFloat,
+                  result.critical.station.describe)
+                logger.log(Level.INFO, f"Stall: CLmax ${result.clMax}%.3f at ${result.alphaDeg}%.2f deg, " +
+                  f"Vs ${result.stallSpeedMetresPerSecond}%.2f m/s")
+                logger.log(Level.INFO, f"  first to give up: ${result.critical.station.describe}%s, " +
+                  f"${if (result.critical.downward) "downwards" else "upwards"}%s, against a section limit " +
+                  f"of ${result.critical.sectionLimit}%.3f at Re ${result.reynoldsAtCriticalSection}%.0f " +
+                  f"(NACA TR 572's critical-section method; XFOIL for the section, AVL for the loading)")
+                logger.log(Level.INFO, f"  the spanwise loading was straight in attitude to within " +
+                  f"${result.worstResidual}%.4f of local cl, which is what makes one line per station a " +
+                  "measurement rather than an assumption")
+                result.notes.foreach(note => logger.log(Level.INFO, "  " + note))
+            }
+        }
+      } catch {
+        case ex: Throwable => refuse(s"the stall analysis failed: ${ex.getMessage}")
       }
     }
 
@@ -1151,6 +1201,7 @@ object AvlEditor{
             val runner = new AvlRunner(avlPath, avl, originPath, azimuthAngle - 90, elevationAngle)
             logger.log(Level.INFO, "AvlRunner finished, getting calculation...")
             val calculation = runner.getCalculation()
+            measureStall(avl, calculation)
             val geometryPlotPath = runner.getGeometryPlotPath()
             val trefftzPlotPath = runner.getTrefftzPlotPath()
             logger.log(Level.INFO, s"Got calculation: $calculation")

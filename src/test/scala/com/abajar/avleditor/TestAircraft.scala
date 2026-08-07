@@ -84,6 +84,34 @@ object TestAircraft {
     crrcsim
   }
 
+  /**
+   * The same aeroplane with a **strongly tapered** wing — 4:1, the same span and the same area, so the
+   * only thing that has changed is where the lift sits across the span.
+   *
+   * It exists for one check and it is the check's whole point. NACA Report No. 572 says a tapered wing
+   * reaches its sections' limit at the tip while a rectangular one does so near the middle, and that this
+   * costs it maximum lift. Two aeroplanes alike in every other respect are the only way to say that is the
+   * taper and not something else.
+   */
+  def tapered(): CRRCSim = {
+    val crrcsim = conventional()
+    val wing = crrcsim.getAvl.getGeometry.getSurfaces.get(0)
+    // Same mean chord, so the same area: cr = 2c*t/(1+t) with t = 4 gives 1.6c at the root, 0.4c at the tip.
+    val root = 1.6f * Chord
+    val tip = 0.4f * Chord
+    val sections = wing.getSections
+    for (i <- 0 until sections.size) {
+      val section = sections.get(i)
+      val fraction = section.getYle / (Span / 2f)
+      section.setChord(root + (tip - root) * fraction)
+      // Leading edge swept so the quarter-chord line stays straight, which is what keeps this a taper
+      // change and not also a sweep change.
+      section.setXle(0.25f * (root - section.getChord))
+    }
+    crrcsim.calculate()
+    crrcsim
+  }
+
   /** The same aeroplane with a 70 mm ducted fan in place of the propeller. */
   def ductedFan(): CRRCSim = {
     val crrcsim = conventional()

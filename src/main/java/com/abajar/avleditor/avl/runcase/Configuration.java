@@ -63,6 +63,15 @@ public class Configuration {
     }
 
     /**
+     * The reference area in m², whatever the model states its lengths in — an area, so the factor is
+     * squared. It is the area every coefficient AVL prints is referred to, and therefore the only area a
+     * lift coefficient may be turned back into a force with.
+     */
+    public float getReferenceAreaSquareMetres() {
+        return Sref * metresPerLengthUnit * metresPerLengthUnit;
+    }
+
+    /**
      * What the aircraft was flown with, in SI: kg, kg·m² and kg/m³.
      *
      * These are written beside the reference geometry, from the same run, because the lateral model that
@@ -142,6 +151,53 @@ public class Configuration {
 
     public float getApparentMassY() {
         return apparentMassY;
+    }
+
+    /**
+     * Where the aircraft stops lifting, in SI, and how that was arrived at.
+     *
+     * AVL is inviscid and has no opinion about it, so this does not come from the AVL run: it is measured
+     * afterwards, by comparing AVL's spanwise loading against what each section's aerofoil can do
+     * (XFOIL). See {@code xfoil.StallAnalysis} and {@code xfoil.WingMaximumLift}.
+     *
+     * Zero means it was not measured, and {@link #stallProblem} then says why in words — because the
+     * two are not the same statement and the one that matters to the reader is the second. Nothing is
+     * substituted: a stall speed the editor invented would decide a flying-qualities Level.
+     */
+    private float stallSpeedMetresPerSecond;
+    private float maximumLiftCoefficient;
+    private String stallDescription;
+    private String stallProblem;
+
+    public void setStall(float stallSpeedMetresPerSecond, float maximumLiftCoefficient, String description) {
+        this.stallSpeedMetresPerSecond = stallSpeedMetresPerSecond;
+        this.maximumLiftCoefficient = maximumLiftCoefficient;
+        this.stallDescription = description;
+        this.stallProblem = null;
+    }
+
+    public void setStallProblem(String stallProblem) {
+        this.stallSpeedMetresPerSecond = 0f;
+        this.maximumLiftCoefficient = 0f;
+        this.stallDescription = null;
+        this.stallProblem = stallProblem;
+    }
+
+    public float getStallSpeedMetresPerSecond() {
+        return stallSpeedMetresPerSecond;
+    }
+
+    public float getMaximumLiftCoefficient() {
+        return maximumLiftCoefficient;
+    }
+
+    public String getStallDescription() {
+        return stallDescription;
+    }
+
+    /** Why there is no stall speed, in words. Null when there is one. */
+    public String getStallProblem() {
+        return stallProblem;
     }
 
     /** Written beside {@link #metresPerLengthUnit}, and for the same reason. */

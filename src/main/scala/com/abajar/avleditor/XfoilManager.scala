@@ -66,11 +66,87 @@ object XfoilManager {
 
     configuredPath match {
       case Some(path) if new File(path).exists() && new File(path).canExecute() =>
-        logger.log(Level.INFO, s"XFOIL already configured at: $path")
-        true
+        // Configured is not the same as working, and the difference is silent — see `usable`.
+        runs(path) match {
+          case Right(_) =>
+            logger.log(Level.INFO, s"XFOIL already configured at: $path")
+            true
+          case Left(why) =>
+            logger.log(Level.WARNING, why + " No stall speed will be measured until it does.")
+            false
+        }
       case _ =>
         logger.log(Level.INFO, "XFOIL not found or not configured, attempting to download...")
         downloadAndConfigureXfoil(configuration)
+    }
+  }
+
+  /**
+   * The path to an XFOIL that **actually runs on this machine**, or the reason there is not one.
+   *
+   * A file that exists and has its executable bit set is not an XFOIL that works, and the difference is
+   * not academic: the published Linux binary is built by CI on whatever `ubuntu-latest` currently is, so
+   * it can need a newer C library than the machine running the editor has. It then fails at the loader —
+   * `version GLIBC_2.38 not found` — before printing a word of its own, and every polar comes back empty.
+   * Read through the analysis that is exactly what a stall it could not converge looks like, so the user
+   * would be told their aerofoil never stalls rather than that their XFOIL never started.
+   *
+   * So it is asked to do the smallest real piece of work there is — build a NACA 0012 and report the
+   * buffer aerofoil it made of it — and the answer is remembered per path, because it cannot change while
+   * the editor is running and it costs a process.
+   */
+  def usable(configuration: Properties): Either[String, String] = {
+    val configured = Option(configuration.getProperty("xfoil.path")).map(_.trim).filter(_.nonEmpty)
+    configured match {
+      case None =>
+        Left("XFOIL is not configured. It is what says where an aerofoil stops lifting — AVL is inviscid " +
+          "and cannot see a stall at all. Set it under 'Set XFOIL executable', or let the editor download " +
+          "it on the next start.")
+      case Some(path) =>
+        val file = new File(path)
+        if (!file.exists) Left(s"XFOIL is configured at '$path', and there is nothing there.")
+        else if (!file.canExecute) Left(s"XFOIL at '$path' is not executable.")
+        else runs(path).right.map(_ => path)
+    }
+  }
+
+  private val verified = scala.collection.mutable.Map[String, Either[String, Unit]]()
+
+  private def runs(path: String): Either[String, Unit] = verified.synchronized {
+    verified.getOrElseUpdate(path, smokeTest(path))
+  }
+
+  private def smokeTest(path: String): Either[String, Unit] = {
+    try {
+      val builder = new ProcessBuilder(path)
+      builder.redirectErrorStream(true)
+      val process = builder.start()
+      val writer = new java.io.OutputStreamWriter(process.getOutputStream)
+      try {
+        writer.write("PLOP\nG\n\nNACA 0012\nQUIT\n")
+        writer.flush()
+      } catch { case _: Exception => /* it died before reading; the output says why */ }
+      finally { try { writer.close() } catch { case _: Exception => } }
+
+      val output = new StringBuilder
+      val reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream))
+      try {
+        var line = reader.readLine()
+        while (line != null) { output.append(line).append('\n'); line = reader.readLine() }
+      } finally { try { reader.close() } catch { case _: Exception => } }
+
+      if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+        process.destroyForcibly()
+        return Left(s"XFOIL at '$path' did not answer within 30 seconds of being asked to load a NACA 0012.")
+      }
+      val said = output.toString
+      // "Buffer airfoil set using 245 points" is XFOIL having built the section. Nothing short of that
+      // proves it ran: a banner can come from anything, and a loader failure prints no banner at all.
+      if (said.contains("Buffer airfoil set") && said.contains("Max thickness")) Right(())
+      else Left(s"XFOIL at '$path' did not load a NACA 0012. It said: " +
+        said.split("\n").filter(_.trim.nonEmpty).takeRight(3).mkString(" / ").take(300))
+    } catch {
+      case ex: Exception => Left(s"XFOIL at '$path' could not be started: ${ex.getMessage}")
     }
   }
 
