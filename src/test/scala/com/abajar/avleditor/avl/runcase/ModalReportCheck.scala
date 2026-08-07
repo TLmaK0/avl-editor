@@ -249,8 +249,11 @@ object ModalReportCheck {
     // ln(2)/0.05 = 13.86 s, against TABLE VIII's 20 s for Level 1 and 8 s for Level 2.
     val spiralRow = realRows.find(_.modeName == "Spiral").get
     check("the spiral is found and judged", spiralRow.level == Some(2))
+    // The Level lives in the field, not in the sentence: whoever displays this puts it in front, and the
+    // window said "LEVEL 2 — Level 2 — flyable..." until somebody opened it and looked.
     check("and a Level below 1 still says what kept it from Level 1",
-      spiralRow.verdict.contains("Level 2") && spiralRow.verdict.contains("wanted"))
+      spiralRow.level == Some(2) && spiralRow.verdict.contains("wanted") &&
+        !spiralRow.verdict.contains("Level 2"))
     check("a table is drawn even though nothing oscillates", realRows.size == 14)
     // The spiral diverges, so it is also a runaway — and the two reports must agree about which it is.
     check("a divergent spiral is reported as a runaway as well",

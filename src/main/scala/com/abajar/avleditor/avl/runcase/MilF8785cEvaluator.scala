@@ -464,7 +464,9 @@ object MilF8785cEvaluator {
    */
   private def levelVerdict(level: Option[Int], meets: String, misses: String): String = level match {
     case Some(1) => "Meets it: " + meets
-    case Some(n) => f"Level $n%d — flyable, but more work for the pilot. Short of Level 1: " + misses
+    // The Level itself is not repeated here: whoever displays this puts it in front, and saying it twice
+    // is what the window did until somebody looked at it.
+    case Some(_) => "flyable, but more work for the pilot. Short of Level 1: " + misses
     case None    => "Worse than Level 3: " + misses
   }
 

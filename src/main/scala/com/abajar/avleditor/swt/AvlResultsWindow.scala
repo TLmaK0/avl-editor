@@ -43,7 +43,7 @@ class AvlResultsWindow(display: Display) {
 
     shell = new Shell(display, SWT.DIALOG_TRIM | SWT.RESIZE | SWT.MAX)
     shell.setText("AVL Results")
-    shell.setSize(1000, 820)
+    shell.setSize(1280, 860)
 
     shell.setLayout(new GridLayout(1, false))
 
@@ -115,7 +115,7 @@ class AvlResultsWindow(display: Display) {
       headline.setForeground(failFgColor)
       val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
       grid.horizontalSpan = 5
-      grid.widthHint = 900
+      grid.widthHint = 1180
       headline.setLayoutData(grid)
     }
     def wideLine(text: String, indent: Int): Unit = {
@@ -123,7 +123,7 @@ class AvlResultsWindow(display: Display) {
       line.setText(text)
       val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
       grid.horizontalSpan = 5
-      grid.widthHint = 900
+      grid.widthHint = 1180
       grid.horizontalIndent = indent
       line.setLayoutData(grid)
     }
@@ -310,7 +310,7 @@ class AvlResultsWindow(display: Display) {
       label
     }
 
-    cell(row.modeName, 110, font = headerFont)
+    cell(row.modeName, 175, font = headerFont)
     cell(row.whatItIs, 260, wrap = true)
     // The period is what a stopwatch would measure, and it means something; radians per second does not.
     cell(row.period.map(p => f"every $p%.2f s").getOrElse("—"), 110, font = monoFont)
@@ -341,7 +341,7 @@ class AvlResultsWindow(display: Display) {
     })
     verdict.setFont(headerFont)
     val verdictGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
-    verdictGrid.widthHint = 380
+    verdictGrid.widthHint = 470
     verdict.setLayoutData(verdictGrid)
 
     // The figures the standard is written in, and the rule it asks for, on their own line under the row: worth
