@@ -285,6 +285,11 @@ public class AvlRunner {
         config.setSecondsPerTimeUnit(avl.units().secondsPerTimeUnit());
         config.setAnalysisInertias(avl.getAnalysisWeightKg(), avl.getAnalysisIxx(), avl.getAnalysisIzz(),
                 avl.getAnalysisIxz(), avl.getAirDensity());
+        // What AVL says the air adds, read from its own modal pass above.
+        if (this.apparentInertias != null) {
+            config.setApparentInertias(this.apparentInertias[0], this.apparentInertias[1],
+                    this.apparentInertias[2], this.apparentInertias[3]);
+        }
 
         config.setAlpha(readFloat("Alpha =", scanner));
 
@@ -642,6 +647,27 @@ public class AvlRunner {
         return !Float.isNaN(value) && !Float.isInfinite(value);
     }
 
+    /** What AVL said the air adds: [Ixx, Izz, Ixz, m_y]. Null until the modal pass has read it. */
+    private float[] apparentInertias;
+
+    private static final Pattern INERTIA_NUMBER_PATTERN =
+            Pattern.compile("[-+]?\\d*\\.\\d+(?:[EeDd][-+]?\\d+)?");
+
+    /** Every number on a line of AVL's inertia tensor, in the order it prints them. */
+    private static float[] numbersIn(String line) {
+        Matcher matcher = INERTIA_NUMBER_PATTERN.matcher(line);
+        List<Float> found = new ArrayList<Float>();
+        while (matcher.find()) {
+            try {
+                found.add(Float.parseFloat(matcher.group().replace('D', 'E').replace('d', 'E')));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        float[] result = new float[found.size()];
+        for (int i = 0; i < found.size(); i++) result[i] = found.get(i);
+        return result;
+    }
+
     private List<ModeStateAmplitudes> runEigenvalueAnalysis(String eigenFile, int elevatorPosition) throws IOException, InterruptedException {
         logger.log(Level.INFO, "Starting modal pass to generate eigenvalues...");
         List<ModeStateAmplitudes> modeStates = new ArrayList<ModeStateAmplitudes>();
@@ -679,8 +705,39 @@ public class AvlRunner {
 
             String line;
             ModeStateAmplitudes currentMode = null;
+            // AVL prints the airframe's inertia, then the "Apparent mass, inertia" the air adds, and solves
+            // the modes with the sum. On a model that second tensor is not small — 15.6 % of the roll
+            // inertia on the check aircraft — so it is read here rather than left out or estimated.
+            int apparentCountdown = -1;
+            float[] apparentMassRow = null;
+            float[] apparentInertiaRow1 = null;
+            float[] apparentInertiaRow2 = null;
             while ((line = modeOut.readLine()) != null) {
                 logger.log(Level.INFO, "[AVL-MODE] " + line);
+                if (line.contains("Apparent mass, inertia")) {
+                    apparentCountdown = 12;
+                    apparentMassRow = null;
+                    apparentInertiaRow1 = null;
+                    continue;
+                }
+                if (apparentCountdown > 0) {
+                    apparentCountdown--;
+                    float[] numbers = numbersIn(line);
+                    if (line.contains("myy") && numbers.length >= 1) {
+                        apparentMassRow = numbers;
+                    } else if (line.contains("Ixx") && numbers.length >= 3) {
+                        apparentInertiaRow1 = numbers;
+                    } else if (apparentInertiaRow1 != null && line.contains("Iyy") && numbers.length >= 1) {
+                        apparentInertiaRow2 = numbers;
+                    } else if (apparentInertiaRow1 != null && line.contains("Izz") && numbers.length >= 1) {
+                        // Row one is [Ixx, -Ixy, -Ixz], so the product of inertia comes back negated.
+                        this.apparentInertias = new float[]{
+                                apparentInertiaRow1[0], numbers[0], -apparentInertiaRow1[2],
+                                apparentMassRow == null ? 0f : apparentMassRow[0]};
+                        apparentCountdown = -1;
+                    }
+                    continue;
+                }
                 Matcher modeMatcher = MODE_HEADER_PATTERN.matcher(line);
                 if (modeMatcher.matches()) {
                     int modeNumber = Integer.parseInt(modeMatcher.group(1));

@@ -474,6 +474,35 @@ and must produce the same moment; `ControlEffectivenessCheck` asserts exactly th
 different gains. A gain of zero contributes nothing, because a surface AVL never deflects does nothing
 whatever the units.
 
+## The lateral model, and the three things AVL does that a textbook does not say
+
+MIL-F-8785C 3.3.2.2 and 3.3.2.4 measure features of a **time history** — the roll rate at the peaks of a
+step-aileron response, the sideslip excursion — so the response has to be built before anything can be
+judged on it. `LateralModel` assembles the four-state lateral system from AVL's derivatives and the
+inertias, and `LateralModelCheck` verifies it the only way that needs no second flight dynamics model:
+**the four roots of that matrix are the dutch roll pair, the roll mode and the spiral AVL already
+returned.** Comparing characteristic polynomials avoids writing an eigensolver and is exact.
+
+It disagreed on the first run, which is what it is for. Three causes, all wiring rather than formula, and
+none of them guessable:
+
+- **The inertias were about the origin, not the CG** — see below. Fixed there; it is not a lateral-model
+  bug, it was reaching the JSBSim export too.
+- **AVL adds the apparent mass of the air.** It prints an "Apparent mass, inertia" tensor beside the
+  airframe's and solves the modes with the sum. On the check aircraft the apparent roll inertia is
+  **15.6 %** of the airframe's, and leaving it out put the roll mode at −18.1 against AVL's −15.7. It is
+  read from what AVL prints rather than derived here, so the two cannot drift apart. On a full-size
+  aeroplane it is negligible; a 1.1 kg model with 1.2 m of span moves an appreciable amount of air.
+- **AVL states its derivatives in stability axes and solves its modes in body axes.** Its own output says
+  `Stability-axis derivatives...` and primes the moments `Cl'`, `Cn'`, while the eigenvector it prints is
+  `u,v,w,p,q,r,phi,theta,psi`. The derivative set is therefore rotated by the trim angle of attack on
+  **both** indices — the moment produced and the rate it is taken against. Three degrees sounds ignorable
+  and is not: `Clp` is five times `Clr`, so the term it lends to `Clr` is a third of `Clr` itself, and
+  `Clr` is one of the two nearly-cancelling products that decide whether the spiral converges. That term
+  alone moved the determinant from −50.4 to −28.7 against AVL's −29.4.
+
+With all three, every coefficient agrees with AVL to better than 2.5 %.
+
 ## An inertia is about a point, and that point is the centre of gravity
 
 `Config.calculateInertiasMasses` summed the moments of inertia about the **origin of the drawing** — wherever

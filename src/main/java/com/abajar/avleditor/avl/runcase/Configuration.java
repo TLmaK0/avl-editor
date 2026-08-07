@@ -104,6 +104,46 @@ public class Configuration {
         return airDensity;
     }
 
+    /**
+     * The <b>apparent</b> mass and inertia: the air the aircraft drags with it, which AVL computes and adds
+     * to the airframe's own before solving for the modes.
+     *
+     * It is not a correction to be sniffed at on a model. On the check aircraft AVL's apparent roll inertia
+     * is 0.0056 kg·m² against an airframe's 0.036 — <b>15.6 %</b> — and leaving it out put the roll mode at
+     * -18.1 against AVL's -15.7. On a full-size aeroplane it is negligible; a 1.1 kg model with 1.2 m of
+     * span moves an appreciable amount of air compared with what it weighs.
+     *
+     * These are read from what AVL prints rather than derived here: it is AVL's number, used the way AVL
+     * uses it, so the two cannot drift apart.
+     */
+    private float apparentIxx;
+    private float apparentIzz;
+    private float apparentIxz;
+    private float apparentMassY;
+
+    public void setApparentInertias(float ixx, float izz, float ixz, float massY) {
+        this.apparentIxx = ixx;
+        this.apparentIzz = izz;
+        this.apparentIxz = ixz;
+        this.apparentMassY = massY;
+    }
+
+    public float getApparentIxx() {
+        return apparentIxx;
+    }
+
+    public float getApparentIzz() {
+        return apparentIzz;
+    }
+
+    public float getApparentIxz() {
+        return apparentIxz;
+    }
+
+    public float getApparentMassY() {
+        return apparentMassY;
+    }
+
     /** Written beside {@link #metresPerLengthUnit}, and for the same reason. */
     private float secondsPerTimeUnit = 1f;
 
