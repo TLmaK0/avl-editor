@@ -111,11 +111,11 @@ class AvlResultsWindow(display: Display) {
         label.setLayoutData(grid)
       }
     } else {
-      addModalHeader(modalGroup, "Mode")
-      addModalHeader(modalGroup, "wn [rad/s]")
-      addModalHeader(modalGroup, "zeta")
-      addModalHeader(modalGroup, "Criterion")
-      addModalHeader(modalGroup, "Result")
+      addModalHeader(modalGroup, "Motion")
+      addModalHeader(modalGroup, "What it is")
+      addModalHeader(modalGroup, "How often")
+      addModalHeader(modalGroup, "Damping")
+      addModalHeader(modalGroup, "Verdict")
 
       val rows = MilF8785cEvaluator.evaluate(calculation)
       rows.foreach(row => addModalNormRow(modalGroup, row))
@@ -229,6 +229,14 @@ class AvlResultsWindow(display: Display) {
     header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
   }
 
+  /**
+   * One motion per row, in the order a reader wants it: what it is, how fast it swings, how quickly it dies
+   * down, and whether that is good enough — with the numbers the standard is written in kept alongside.
+   *
+   * It used to be `wn [rad/s]`, `zeta` and `MIL-F-8785C L1 Phase B: 0.30 <= zeta <= 2.00` repeated on every
+   * row, which names the standard three times, states the rule in symbols and leaves the reader to compare it
+   * with the number themselves.
+   */
   private def addModalNormRow(parent: Composite, row: ModalNormRow): Unit = {
     val bgColor = row.pass match {
       case Some(true)  => passBgColor
@@ -236,39 +244,56 @@ class AvlResultsWindow(display: Display) {
       case None        => naBgColor
     }
 
-    val mode = new Label(parent, SWT.NONE)
-    mode.setText(row.modeName)
-    mode.setFont(headerFont)
-    mode.setBackground(bgColor)
-
-    val wn = new Label(parent, SWT.NONE)
-    wn.setText(row.wn.map(v => f"$v%.4f").getOrElse("N/A"))
-    wn.setFont(monoFont)
-    wn.setBackground(bgColor)
-
-    val zeta = new Label(parent, SWT.NONE)
-    zeta.setText(row.zeta.map(v => f"$v%.4f").getOrElse("N/A"))
-    zeta.setFont(monoFont)
-    zeta.setBackground(bgColor)
-
-    val criterion = new Label(parent, SWT.WRAP)
-    criterion.setText(row.criterion)
-    criterion.setBackground(bgColor)
-    criterion.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
-
-    val result = new Label(parent, SWT.NONE)
-    result.setBackground(bgColor)
-    result.setFont(headerFont)
-    row.pass match {
-      case Some(true) =>
-        result.setText("PASS")
-        result.setForeground(display.getSystemColor(SWT.COLOR_DARK_GREEN))
-      case Some(false) =>
-        result.setText("FAIL")
-        result.setForeground(display.getSystemColor(SWT.COLOR_DARK_RED))
-      case None =>
-        result.setText("N/A")
+    def cell(text: String, width: Int, wrap: Boolean = false, font: Font = null): Label = {
+      val label = new Label(parent, if (wrap) SWT.WRAP else SWT.NONE)
+      label.setText(text)
+      label.setBackground(bgColor)
+      if (font != null) label.setFont(font)
+      val grid = new GridData(SWT.FILL, SWT.CENTER, wrap, false)
+      if (width > 0) grid.widthHint = width
+      label.setLayoutData(grid)
+      label
     }
+
+    cell(row.modeName, 110, font = headerFont)
+    cell(row.whatItIs, 260, wrap = true)
+    // The period is what a stopwatch would measure, and it means something; radians per second does not.
+    cell(row.period.map(p => f"every $p%.2f s").getOrElse("—"), 110, font = monoFont)
+    val damping = (row.zeta, row.swingsToHalf) match {
+      case (Some(z), Some(swings)) => f"$z%.2f  (half in ${swings}%.1f swings)"
+      case (Some(z), None) if z >= 1.0 => f"$z%.2f  (no swing at all)"
+      case (Some(z), None) => f"$z%.2f"
+      case _ => "—"
+    }
+    cell(damping, 190, font = monoFont)
+
+    val verdict = new Label(parent, SWT.WRAP)
+    verdict.setText(row.pass match {
+      case Some(true) => "PASS — " + row.verdict
+      case Some(false) => "FAIL — " + row.verdict
+      case None => row.verdict
+    })
+    verdict.setBackground(bgColor)
+    verdict.setFont(headerFont)
+    row.pass.foreach { passed =>
+      verdict.setForeground(display.getSystemColor(
+        if (passed) SWT.COLOR_DARK_GREEN else SWT.COLOR_DARK_RED))
+    }
+    val verdictGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
+    verdictGrid.widthHint = 380
+    verdict.setLayoutData(verdictGrid)
+
+    // The figures the standard is written in, and the rule it asks for, on their own line under the row: worth
+    // having to quote, not worth reading first.
+    val footnote = new Label(parent, SWT.WRAP)
+    footnote.setText(row.wn.map(w => f"wn ${w}%.3f rad/s · ").getOrElse("") +
+      "MIL-F-8785C Level 1 Phase B wants " + row.requirement)
+    footnote.setBackground(bgColor)
+    footnote.setForeground(display.getSystemColor(SWT.COLOR_DARK_GRAY))
+    val footGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
+    footGrid.horizontalSpan = 5
+    footGrid.horizontalIndent = 12
+    footnote.setLayoutData(footGrid)
   }
 
   def isOpen: Boolean = {

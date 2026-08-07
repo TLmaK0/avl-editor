@@ -63,7 +63,16 @@ object ModalReportCheck {
     // period from a dutch roll, and the evaluator says so rather than picking one.
     check("but it will not name a mode it cannot identify",
       MilF8785cEvaluator.evaluate(oscillatory).forall(row =>
-        row.pass.isEmpty && row.criterion.contains("not identifiable")))
+        row.pass.isEmpty && row.verdict.contains("Not judged")))
+    check("and says it is the run that cannot tell them apart, not the aircraft that lacks them",
+      MilF8785cEvaluator.evaluate(oscillatory).forall(_.verdict.contains("no mode shapes")))
+
+    println("and the row says what the motion is, not only what the standard calls it")
+    val unnamed = MilF8785cEvaluator.evaluate(oscillatory)
+    check("each one is described in words",
+      unnamed.forall(r => r.whatItIs.length > 20 && !r.whatItIs.contains("zeta")))
+    check("and the rule is stated without repeating the standard's name on every row",
+      unnamed.forall(r => !r.requirement.contains("MIL-F")))
 
     println("and with the mode shapes, it judges them")
     val shaped = run(Seq((-1.0f, 3.0f), (-0.1f, 0.4f)))
@@ -81,6 +90,30 @@ object ModalReportCheck {
     // wn = sqrt(1 + 9) = 3.162, zeta = 1 / 3.162 = 0.316, inside MIL-F-8785C's 0.30..2.00.
     check("the short period is identified and passes",
       judged.exists(r => r.modeName == "Short-period" && r.pass == Some(true)))
+    // A frequency in radians per second is not something anyone can picture; how often it swings is.
+    val shortPeriod = judged.find(_.modeName == "Short-period").get
+    println(f"    period ${shortPeriod.period.getOrElse(0.0)}%.2f s, " +
+      f"half in ${shortPeriod.swingsToHalf.getOrElse(0.0)}%.1f swings: ${shortPeriod.verdict}")
+    // wn 3.162, zeta 0.316 -> damped 3.0 rad/s -> 2.09 s a swing.
+    check("it says how often it swings", shortPeriod.period.exists(p => math.abs(p - 2.09) < 0.02))
+    check("and how many swings it takes to die down to half",
+      shortPeriod.swingsToHalf.exists(s => math.abs(s - 0.33) < 0.02))
+    check("and the verdict is a sentence, not a symbol", shortPeriod.verdict.contains("damping"))
+    // With the shapes present but no phugoid among them, the reason is about the aircraft and not the run:
+    // saying "AVL reported no mode shapes" there would send the reader after something already in hand.
+    val phugoid = judged.find(_.modeName == "Phugoid").get
+    println("    " + phugoid.verdict)
+    check("a motion AVL did not find is reported as not found, not as not measured",
+      phugoid.pass.isEmpty && phugoid.verdict.startsWith("Not found") &&
+        !phugoid.verdict.contains("no mode shapes"))
+
+    val failing = MilF8785cEvaluator.evaluate(shaped).find(_.pass == Some(false))
+    failing.foreach { r =>
+      println("    " + r.modeName + ": " + r.verdict)
+      // Not "FAIL" and a symbol: which way it misses, by how much, and what moves it.
+      check("a failing row says which way it falls short, and by how much",
+        r.verdict.length > 60 && r.verdict.exists(_.isDigit) && r.verdict.contains("wanted"))
+    }
     check("and the dutch roll is judged too",
       judged.exists(r => r.modeName == "Dutch-roll" && r.pass.isDefined))
 
