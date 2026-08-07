@@ -23,6 +23,24 @@ This software is in a early beta fase, so be careful with the result.
 Please, help me to improve it.
 
 
+Flying qualities
+----------------
+
+After running AVL, the editor judges the aircraft's modes — short period, phugoid, dutch roll — against
+**MIL-F-8785C**, *Flying Qualities of Piloted Airplanes* (5 November 1980). The specification is in this
+repository, so every threshold the editor applies can be traced to the page it came from:
+
+- [`docs/MIL-F-8785C.pdf`](docs/MIL-F-8785C.pdf) — the specification itself, a US Department of Defense
+  document in the public domain, from [EverySpec](https://everyspec.com/MIL-SPECS/MIL-SPECS-MIL-F/MIL-F-8785C_5295/).
+- [`docs/mil-f-8785c.md`](docs/mil-f-8785c.md) — the criteria the editor uses, each with its section,
+  table and page; what the specification requires that the editor does not yet compute; and what does
+  not apply to a radio-controlled model at all.
+
+That last document also states the assumption the specification cannot state for itself: MIL-F-8785C is
+written for **piloted, full-scale** airplanes. The damping criteria carry over to a model unchanged, the
+frequency and time ones do not — they scale with the square root of the model's scale.
+
+
 Building from sources on Debian/Ubuntu
 --------------------------------------
 
