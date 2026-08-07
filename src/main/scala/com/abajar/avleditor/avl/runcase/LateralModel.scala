@@ -44,7 +44,19 @@ final case class LateralModel(a: Array[Array[Double]], bAileron: Array[Double]) 
    * of `1/|lambda|` leaves an error far below anything the criteria can notice, and `LateralResponseCheck`
    * pins that by halving the step and finding the same answer.
    */
-  def stepResponse(deflectionRad: Double, dt: Double, duration: Double): List[(Double, Double, Double, Double, Double)] = {
+  def stepResponse(deflectionRad: Double, dt: Double, duration: Double): List[(Double, Double, Double, Double, Double)] =
+    trajectory(deflectionRad, dt, duration).map { case (t, x, _) => (t, x(0), x(1), x(2), x(3)) }
+
+  /**
+   * The same response, with the **exact derivative** at every sample beside the state.
+   *
+   * That derivative is not estimated from the samples: it is `A x + B u`, which this class holds. It is what
+   * lets a peak be found properly — a turning point is where the derivative changes sign, and the crossing
+   * can be interpolated from two samples that straddle it. Taking the largest of a sampled array instead
+   * makes the answer depend on where the samples happened to land, which is a sampling artefact and not a
+   * property of the aircraft.
+   */
+  def trajectory(deflectionRad: Double, dt: Double, duration: Double): List[(Double, Array[Double], Array[Double])] = {
     if (bAileron == null) return Nil
     val u = bAileron.map(_ * deflectionRad)
     def derivative(x: Array[Double]): Array[Double] =
@@ -54,8 +66,8 @@ final case class LateralModel(a: Array[Array[Double]], bAileron: Array[Double]) 
 
     var x = Array(0.0, 0.0, 0.0, 0.0)
     var t = 0.0
-    val out = scala.collection.mutable.ListBuffer[(Double, Double, Double, Double, Double)]()
-    out += ((t, x(0), x(1), x(2), x(3)))
+    val out = scala.collection.mutable.ListBuffer[(Double, Array[Double], Array[Double])]()
+    out += ((t, x, derivative(x)))
     while (t < duration) {
       val k1 = derivative(x)
       val k2 = derivative(add(x, k1, dt / 2))
@@ -63,9 +75,47 @@ final case class LateralModel(a: Array[Array[Double]], bAileron: Array[Double]) 
       val k4 = derivative(add(x, k3, dt))
       x = (0 until 4).map(i => x(i) + dt / 6.0 * (k1(i) + 2 * k2(i) + 2 * k3(i) + k4(i))).toArray
       t += dt
-      out += ((t, x(0), x(1), x(2), x(3)))
+      out += ((t, x, derivative(x)))
     }
     out.toList
+  }
+
+  /**
+   * Where a state's derivative crosses zero, and its value there: the turning points, found from the slope
+   * rather than from the samples.
+   *
+   * The crossing is located by secant on the exact derivative and the value taken by cubic Hermite, which
+   * uses both endpoints' values **and** slopes — so the peak is right even when the samples straddle it
+   * widely. `direction` picks maxima (+1) or minima (-1); 0 takes both.
+   */
+  def turningPoints(trace: List[(Double, Array[Double], Array[Double])], state: Int,
+                    direction: Int): List[(Double, Double)] = {
+    val points = trace.toArray
+    val found = scala.collection.mutable.ListBuffer[(Double, Double)]()
+    var i = 0
+    while (i < points.length - 1) {
+      val (t0, x0, d0) = points(i)
+      val (t1, x1, d1) = points(i + 1)
+      val s0 = d0(state)
+      val s1 = d1(state)
+      if (s0 != 0.0 && s1 != 0.0 && ((s0 > 0) != (s1 > 0))) {
+        val falling = s0 > 0            // slope going positive to negative is a maximum
+        if (direction == 0 || (direction > 0) == falling) {
+          val h = t1 - t0
+          val f = s0 / (s0 - s1)        // secant on the exact slope
+          val tp = t0 + f * h
+          // Cubic Hermite through (t0, x0, s0) and (t1, x1, s1), evaluated at the crossing.
+          val h00 = 2 * f * f * f - 3 * f * f + 1
+          val h10 = f * f * f - 2 * f * f + f
+          val h01 = -2 * f * f * f + 3 * f * f
+          val h11 = f * f * f - f * f
+          val value = h00 * x0(state) + h10 * h * s0 + h01 * x1(state) + h11 * h * s1
+          found += ((tp, value))
+        }
+      }
+      i += 1
+    }
+    found.toList
   }
 
   /** Coefficients of `lambda^4 + c3 lambda^3 + c2 lambda^2 + c1 lambda + c0`, from the matrix. */

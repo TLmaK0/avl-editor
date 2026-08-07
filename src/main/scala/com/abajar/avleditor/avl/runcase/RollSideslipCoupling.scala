@@ -70,8 +70,9 @@ object RollSideslipCoupling {
     // samples land decides it as much as the integration does.
     val dt = step
     val duration = math.max(4.0, dutchRollPeriod.getOrElse(1.0) * 4.0)
-    val trace = model.stepResponse(deflectionRad, dt, duration)
-    if (trace.isEmpty) return None
+    val full = model.trajectory(deflectionRad, dt, duration)
+    if (full.isEmpty) return None
+    val trace = full.map { case (t, x, _) => (t, x(0), x(1), x(2), x(3)) }
 
     // "The roll command shall be held fixed until the bank angle has changed **at least** 90 degrees"
     // (3.3.2.2). At least — so a model that reaches 90 degrees in a fifth of a second is still held, and
@@ -84,15 +85,11 @@ object RollSideslipCoupling {
     val flown = trace.takeWhile { case (t, _, _, _, _) => t <= hold }
     if (flown.size < 10) return None
 
-    // The peaks of the roll rate, in the sense 6.2.6 means: local maxima of its magnitude.
-    val rolls = flown.map { case (_, _, p, _, _) => p }.toArray
-    val peakValues = scala.collection.mutable.ListBuffer[Double]()
-    var i = 1
-    while (i < rolls.length - 1 && peakValues.size < 3) {
-      val magnitude = math.abs(rolls(i))
-      if (magnitude >= math.abs(rolls(i - 1)) && magnitude > math.abs(rolls(i + 1))) peakValues += rolls(i)
-      i += 1
-    }
+    // The peaks of the roll rate, in the sense 6.2.6 means. Found where the roll acceleration crosses
+    // zero — which the model gives exactly — and not by scanning for the largest sample: where a sample
+    // happens to fall is not a property of the aircraft.
+    val held = full.takeWhile { case (t, _, _) => t <= hold }
+    val peakValues = model.turningPoints(held, 1, 0).take(3).map(_._2)
 
     // 6.2.6 (p. 78): below 0.2 of damping the ratio uses three peaks, above it two.
     val ratio =
@@ -135,14 +132,10 @@ object RollSideslipCoupling {
     // read at its first minimum exactly as the standard says.
     // An Array, not the List: indexing a List by position is linear, and this runs over thirty thousand
     // samples looking for a turning point.
-    val betaSigned = trace.map { case (t, beta, _, _, _) => (t, beta * rollDirection) }.toArray
-    var peakTime: Option[Double] = None
-    var j = 1
-    while (j < betaSigned.length - 1 && peakTime.isEmpty) {
-      if (betaSigned(j)._2 >= betaSigned(j - 1)._2 && betaSigned(j)._2 > betaSigned(j + 1)._2 &&
-          betaSigned(j)._2 > 0.0) peakTime = Some(betaSigned(j)._1)
-      j += 1
-    }
+    // Likewise the first sideslip peak, which is all 6.2.6's phase angle is built from: the instant the
+    // sideslip rate crosses zero, taken in the direction the aircraft is actually rolling.
+    val wanted = if (rollDirection >= 0) 1 else -1
+    val peakTime = model.turningPoints(full, 0, wanted).map(_._1).headOption
 
     Some(RollSideslipCoupling(ratio, excursion, peakValues.size, !adverse, truncated, window, peakTime))
   }

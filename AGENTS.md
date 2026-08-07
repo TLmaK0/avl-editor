@@ -503,6 +503,15 @@ none of them guessable:
 
 With all three, every coefficient agrees with AVL to better than 2.5 %.
 
+**A peak is where the slope crosses zero, not the biggest sample.** The measured quantities are all
+turning points of the response, and they were first found by scanning a finely sampled array for a local
+maximum. That is wrong, not merely wasteful: near a peak the curve is almost flat, so comparing three
+consecutive samples fires in the wrong place. The model holds `A` and `B`, so the derivative is exact at
+any instant — the crossing is located by secant on it and the value taken by cubic Hermite, which uses
+both endpoints' values *and* slopes. On the check aircraft that moved `p_osc/p_av` from 0.0077 to
+**0.0459**, a factor of six, and the answer now holds identically when the step is halved, which it did
+not before. `LateralModel.turningPoints`.
+
 On that model **3.3.2.2 and 3.3.2.4 are then measured, not derived**: a step aileron input is integrated,
 the peaks of the roll-rate trace give `p_osc/p_av` by 6.2.6's own formula, and the largest sideslip in the
 stated window gives `delta_beta`. Two things about the window, both of which changed the answer:
