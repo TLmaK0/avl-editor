@@ -18,6 +18,7 @@ import com.abajar.avleditor.avl.runcase.AlphaSweepPoint;
 import com.abajar.avleditor.avl.runcase.AvlCalculation;
 import com.abajar.avleditor.avl.runcase.AvlEigenvalue;
 import com.abajar.avleditor.avl.runcase.StabilityDerivatives;
+import com.abajar.avleditor.avl.runcase.StripForce;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -385,6 +386,12 @@ public class AvlRunner {
      * — because JSBSim adds the elevator's effect itself through Cmde x elevator, so measuring with the
      * elevator trimmed would carry that trim inside Cm and count the elevator twice.
      *
+     * Each attitude also writes the <b>spanwise loading</b> ({@code fs}), because the same solve that
+     * produces the totals already contains it and a second AVL session to fetch it would cost far more
+     * than the file does. It is what the stall is found from: AVL is inviscid and has no opinion about
+     * where a wing stops lifting, but it does say which strip is working hardest, and XFOIL says how hard
+     * that strip's aerofoil can work. See {@code WingMaximumLift}.
+     *
      * It ends the way the plot pass ends, and for the same reason: a blank line out of OPER and {@code quit},
      * never {@code q}, which OPER does not know.
      */
@@ -399,6 +406,8 @@ public class AvlRunner {
             commands.add("x");
             commands.add("st");
             commands.add(sweepFileName(stemPath, i));
+            commands.add("fs");
+            commands.add(stripFileName(stemPath, i));
         }
         commands.add("");
         commands.add("quit");
@@ -407,6 +416,10 @@ public class AvlRunner {
 
     static String sweepFileName(String stemPath, int index) {
         return stemPath + "_a" + index + ".st";
+    }
+
+    static String stripFileName(String stemPath, int index) {
+        return stemPath + "_a" + index + ".fs";
     }
 
     /**
@@ -452,9 +465,17 @@ public class AvlRunner {
                     "AVL did not answer at %.1f deg of attitude; that point is left out of the curve.",
                     SWEEP_ANGLES_DEG[i]));
             } else {
+                File stripFile = new File(stripFileName(avlFileBase, i));
+                if (stripFile.exists()) point.setStrips(parseStripForces(stripFile));
                 points.add(point);
             }
         }
+        int withStrips = 0;
+        for (AlphaSweepPoint point : points) if (!point.getStrips().isEmpty()) withStrips++;
+        logger.log(Level.INFO, "Spanwise loading: " + withStrips + " of " + points.size()
+            + " attitudes carry strip forces"
+            + (points.isEmpty() || points.get(0).getStrips().isEmpty()
+               ? "" : ", " + points.get(0).getStrips().size() + " strips each"));
         logger.log(Level.INFO, "Alpha sweep: " + points.size() + " of " + SWEEP_ANGLES_DEG.length
             + " attitudes measured");
         for (AlphaSweepPoint point : points) logger.log(Level.INFO, "  " + point);
@@ -498,6 +519,76 @@ public class AvlRunner {
         return new AlphaSweepPoint(angleDeg, cl, cd, cm,
             cla == null ? Float.NaN : cla, cma == null ? Float.NaN : cma,
             cnb == null ? Float.NaN : cnb, clb == null ? Float.NaN : clb);
+    }
+
+    /** {@code Surface # 3     Fin (YDUP)} — the number, then the name, then AVL's mirror marker. */
+    private static final Pattern STRIP_SURFACE_PATTERN =
+        Pattern.compile("^\\s*Surface\\s*#\\s*\\d+\\s+(.*?)\\s*$");
+
+    /** The header line above the strip table, which is what says the numbers that follow are strips. */
+    private static final String STRIP_TABLE_HEADER = "j";
+
+    /**
+     * The spanwise loading out of one {@code fs} file.
+     *
+     * The file is a sequence of surface blocks, each ending in a table of one row per strip:
+     *
+     * <pre>
+     *   Surface # 1     Wing
+     *   ...
+     *  Strip Forces referred to Strip Area, Chord
+     *     j   Xle   Yle   Zle   Chord   Area   c_cl   ai   cl_norm   cl   cd   cdv   cm_c/4   cm_LE   C.P.x/c
+     *     1  0.0000 0.0008 0.0000 0.1998 0.0006 0.1587 0.1099 0.8024 0.8004 -0.0166 0.0000 -0.0908 -0.2894 0.363
+     * </pre>
+     *
+     * Read by <b>column position within the table</b> rather than by label, because the rows carry no
+     * labels at all — but the table is entered only through its header line, so a stray row of numbers
+     * elsewhere in the file cannot be mistaken for a strip. A mirrored surface arrives as its own block
+     * named {@code ... (YDUP)}, and both halves are kept: they are separate strips of the real aircraft,
+     * and the analysis that uses them asks which single strip is closest to stalling.
+     */
+    private List<StripForce> parseStripForces(File file) throws IOException {
+        List<StripForce> strips = new ArrayList<StripForce>();
+        String surfaceName = null;
+        boolean mirrored = false;
+        boolean inTable = false;
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                Matcher surface = STRIP_SURFACE_PATTERN.matcher(line);
+                if (surface.matches()) {
+                    String name = surface.group(1).trim();
+                    mirrored = name.endsWith("(YDUP)");
+                    if (mirrored) name = name.substring(0, name.length() - "(YDUP)".length()).trim();
+                    surfaceName = name;
+                    inTable = false;
+                    continue;
+                }
+                if (trimmed.startsWith(STRIP_TABLE_HEADER) && trimmed.contains("Yle") && trimmed.contains("Chord")) {
+                    inTable = true;
+                    continue;
+                }
+                if (!inTable) continue;
+
+                String[] columns = trimmed.split("\\s+");
+                // j Xle Yle Zle Chord Area c_cl ai cl_norm cl ... — ten columns are needed to reach cl.
+                if (columns.length < 10) { inTable = false; continue; }
+                try {
+                    strips.add(new StripForce(
+                        surfaceName == null ? "" : surfaceName, mirrored,
+                        Integer.parseInt(columns[0]),
+                        Float.parseFloat(columns[2]),   // Yle
+                        Float.parseFloat(columns[4]),   // Chord
+                        Float.parseFloat(columns[5]),   // Area
+                        Float.parseFloat(columns[9]))); // cl, referred to the strip's own area and chord
+                } catch (NumberFormatException ex) {
+                    inTable = false;
+                }
+            }
+        }
+        return strips;
     }
 
     private static Float labelled(String content, String label) {

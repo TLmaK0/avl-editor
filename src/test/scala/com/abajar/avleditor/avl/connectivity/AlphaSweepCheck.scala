@@ -33,6 +33,14 @@ object AlphaSweepCheck {
       commands.count(_ == "x") == angles.length && commands.count(_ == "st") == angles.length)
     check("each file has its own name",
       commands.filter(_.endsWith(".st")).distinct.size == angles.length)
+    // The spanwise loading rides along in the same session: the solve that produces the totals already
+    // contains it, and a second run of AVL to fetch it would cost far more than the file does. It is what
+    // the stall is found from — see SpanwiseLoadingCheck.
+    check("the spanwise loading is asked for at every attitude too",
+      commands.count(_ == "fs") == angles.length &&
+        commands.filter(_.endsWith(".fs")).distinct.size == angles.length)
+    check("still in one session, and one only",
+      commands.count(_ == "oper") == 1 && commands.count(_ == "quit") == 1)
     check("it ends by leaving OPER and quitting",
       commands.takeRight(2) == List("", "quit") && !commands.contains("q"))
 

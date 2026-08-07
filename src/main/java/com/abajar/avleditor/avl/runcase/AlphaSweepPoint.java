@@ -69,6 +69,22 @@ public class AlphaSweepPoint implements Serializable {
 
     public float getClb() { return clb; }
 
+    /**
+     * How the lift is spread across the span at this attitude, one entry per spanwise strip
+     * (AVL's OPER {@code fs}). Empty when the strip forces were not asked for or did not arrive.
+     *
+     * It rides on the attitude rather than on the calculation because the pair is the measurement:
+     * a spanwise loading means nothing without the attitude it was measured at, and the whole of the
+     * critical-section analysis is the slope of each strip's {@code cl} against that attitude.
+     */
+    private List<StripForce> strips = new ArrayList<StripForce>();
+
+    public List<StripForce> getStrips() { return strips; }
+
+    public void setStrips(List<StripForce> strips) {
+        this.strips = strips == null ? new ArrayList<StripForce>() : strips;
+    }
+
     @Override
     public String toString() {
         return String.format(java.util.Locale.ENGLISH,
