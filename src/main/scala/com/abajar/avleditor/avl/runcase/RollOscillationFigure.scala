@@ -43,33 +43,62 @@ object RollOscillationFigure {
    * runs from 0 to -360 degrees, so the breakpoints are increasingly negative.
    */
   final case class Boundary(name: String, flat: Double, flatUntil: Double, plateauFrom: Double,
-                            plateau: Double, fallFrom: Double, endValue: Double) {
+                            plateau: Double, fallFrom: Double, endValue: Double,
+                            levelAgainFrom: Double = -360.0) {
 
-    /** The limit at a given phase angle, interpolated along the polyline. */
+    /**
+     * The limit at a given phase angle, interpolated along the polyline.
+     *
+     * Figure 4 falls all the way to the right-hand edge; figure 5 stops falling short of it and runs flat
+     * again, which is what `levelAgainFrom` carries. Left at -360 it is figure 4's four-cornered shape.
+     */
     def at(psiBeta: Double): Double = {
       val psi = math.max(-360.0, math.min(0.0, psiBeta))
       if (psi >= flatUntil) flat
       else if (psi >= plateauFrom) interpolate(psi, flatUntil, flat, plateauFrom, plateau)
       else if (psi >= fallFrom) plateau
-      else interpolate(psi, fallFrom, plateau, -360.0, endValue)
+      else if (psi >= levelAgainFrom) interpolate(psi, fallFrom, plateau, levelAgainFrom, endValue)
+      else endValue
     }
 
     private def interpolate(x: Double, x0: Double, y0: Double, x1: Double, y1: Double): Double =
       if (math.abs(x1 - x0) < 1e-9) y0 else y0 + (y1 - y0) * (x - x0) / (x1 - x0)
   }
 
-  /** Figure 4's three drawn boundaries. See `docs/mil-f-8785c.md` for the reading and its uncertainty. */
-  val Upper = Boundary("Category B Level 2", 0.20, -110.0, -200.0, 1.00, -290.0, 0.20)
-  val Middle = Boundary("Category B Level 1 and Categories A&C Level 2", 0.10, -120.0, -200.0, 0.60, -270.0, 0.10)
-  val Lower = Boundary("Categories A&C Level 1", 0.05, -130.0, -180.0, 0.25, -270.0, 0.05)
+  /**
+   * The three boundaries drawn on each figure. See `docs/mil-f-8785c.md` for the reading and its
+   * uncertainty.
+   *
+   * The **values are the same on both figures** — 0.2/1.0/0.2, 0.1/0.6/0.1, 0.05/0.25/0.05, each curve
+   * returning to the level it left. Only the phase angles at which they turn differ, which is what the two
+   * figures are for: the same limits on the roll rate and on the bank angle, at their own phasings.
+   */
+  object Figure4 {
+    val Upper = Boundary("Category B Level 2", 0.20, -110.0, -200.0, 1.00, -290.0, 0.20)
+    val Middle = Boundary("Category B Level 1 and Categories A&C Level 2", 0.10, -120.0, -200.0, 0.60, -270.0, 0.10)
+    val Lower = Boundary("Categories A&C Level 1", 0.05, -130.0, -180.0, 0.25, -270.0, 0.05)
+  }
+
+  object Figure5 {
+    val Upper = Boundary("Category B Level 2", 0.20, -15.0, -85.0, 1.00, -175.0, 0.20, -245.0)
+    val Middle = Boundary("Category B Level 1 and Categories A&C Level 2", 0.10, -25.0, -105.0, 0.60, -175.0, 0.10, -255.0)
+    val Lower = Boundary("Categories A&C Level 1", 0.05, -35.0, -105.0, 0.25, -195.0, 0.05, -265.0)
+  }
 
   /** The boundary a given Flight Phase and Level is judged against, or None where the figure states none. */
   def boundaryFor(category: FlightPhaseCategory, level: Int): Option[Boundary] =
+    boundaryFor(category, level, Figure4.Upper, Figure4.Middle, Figure4.Lower)
+
+  def bankBoundaryFor(category: FlightPhaseCategory, level: Int): Option[Boundary] =
+    boundaryFor(category, level, Figure5.Upper, Figure5.Middle, Figure5.Lower)
+
+  private def boundaryFor(category: FlightPhaseCategory, level: Int,
+                          upper: Boundary, middle: Boundary, lower: Boundary): Option[Boundary] =
     (category, level) match {
-      case (FlightPhaseCategory.B, 1) => Some(Middle)
-      case (FlightPhaseCategory.B, 2) => Some(Upper)
-      case (_, 1)                     => Some(Lower)
-      case (_, 2)                     => Some(Middle)
+      case (FlightPhaseCategory.B, 1) => Some(middle)
+      case (FlightPhaseCategory.B, 2) => Some(upper)
+      case (_, 1)                     => Some(lower)
+      case (_, 2)                     => Some(middle)
       case _                          => None
     }
 

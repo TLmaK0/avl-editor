@@ -325,6 +325,21 @@ requirements at once**, Category B Level 1 and Categories A&C Level 2. That is t
 | middle | Cat. B Level 1, **and** Cat. A&C Level 2 | 0.10 to −120° | −200° | **0.60** | −270° | 0.10 |
 | lower | Cat. A&C Level 1 | 0.05 to −130° | −180° | **0.25** | −270° | 0.05 |
 
+### §3.3.2.3 Bank angle oscillations — FIGURE 5, p. 25
+
+The same reading, on `φosc/φav`. Its shape has **five** segments rather than four: it stops falling short
+of the right-hand edge and runs level again.
+
+| Boundary | Applies to | Left flat | Rise ends | Plateau | Fall begins | Level again from | Right flat |
+|----------|-----------|-----------|-----------|---------|-------------|------------------|------------|
+| upper | Cat. B Level 2 | 0.20 to −15° | −85° | **1.00** | −175° | −245° | 0.20 |
+| middle | Cat. B Level 1, **and** Cat. A&C Level 2 | 0.10 to −25° | −105° | **0.60** | −175° | −255° | 0.10 |
+| lower | Cat. A&C Level 1 | 0.05 to −35° | −105° | **0.25** | −195° | −265° | 0.05 |
+
+**The two figures share their values.** 0.20/1.00/0.20, 0.10/0.60/0.10 and 0.05/0.25/0.05 on both, each
+curve returning to the level it left. Only the phase angles at which they turn differ, which is what the
+pair is for: the same limits on the roll rate and on the bank angle, at their own phasings.
+
 **Uncertainty, stated because it is ours and not the document's**: the vertical values land on the
 plotted grid and are read exactly; the horizontal ones do not, and are good to about **±10°**.
 

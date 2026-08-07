@@ -23,7 +23,8 @@ package com.abajar.avleditor.avl.runcase
  */
 final case class RollSideslipCoupling(oscillationRatio: Double, sideslipDegrees: Double,
                                       peaks: Int, proverse: Boolean, windowCutAtNinetyDegrees: Boolean,
-                                      windowSeconds: Double, firstSideslipPeakTime: Option[Double])
+                                      windowSeconds: Double, firstSideslipPeakTime: Option[Double],
+                                      bankOscillationRatio: Double, bankPeaks: Int)
 
 object RollSideslipCoupling {
 
@@ -137,6 +138,19 @@ object RollSideslipCoupling {
     val wanted = if (rollDirection >= 0) 1 else -1
     val peakTime = model.turningPoints(full, 0, wanted).map(_._1).headOption
 
-    Some(RollSideslipCoupling(ratio, excursion, peakValues.size, !adverse, truncated, window, peakTime))
+    // 3.3.2.3 measures the same thing on the **bank angle** rather than the roll rate, and 6.2.6 defines it
+    // with the same two formulas on phi's first three peaks. Same trace, same turning points, other state.
+    val bankPeaks = model.turningPoints(held, 3, 0).take(3).map(_._2)
+    val bankRatio =
+      if (bankPeaks.size >= 3 && dampingRatio <= 0.2) {
+        val d = bankPeaks(0) + bankPeaks(2) + 2 * bankPeaks(1)
+        if (math.abs(d) < 1e-12) 0.0 else math.abs((bankPeaks(0) + bankPeaks(2) - 2 * bankPeaks(1)) / d)
+      } else if (bankPeaks.size >= 2) {
+        val d = bankPeaks(0) + bankPeaks(1)
+        if (math.abs(d) < 1e-12) 0.0 else math.abs((bankPeaks(0) - bankPeaks(1)) / d)
+      } else 0.0
+
+    Some(RollSideslipCoupling(ratio, excursion, peakValues.size, !adverse, truncated, window, peakTime,
+      bankRatio, bankPeaks.size))
   }
 }

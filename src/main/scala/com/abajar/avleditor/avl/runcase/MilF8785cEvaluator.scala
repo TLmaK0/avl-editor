@@ -500,7 +500,8 @@ object MilF8785cEvaluator {
       speedStabilityRow(calculation, size, shapesReported),
       sideslipRow(calculation, shapesReported)
     ) ++ rollSideslipRows(calculation, category, dutchRoll, size) ++
-      List(smallInputOscillationRow(calculation, category, dutchRoll))
+      List(smallInputOscillationRow(calculation, category, dutchRoll),
+           bankOscillationRow(calculation, category, dutchRoll))
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -1158,6 +1159,66 @@ object MilF8785cEvaluator {
                     levelVerdict(met, measuredAt + ".",
                       measuredAt + " — outside figure 4's boundary. The roll and the dutch roll are " +
                         "fighting each other; more fin, or less adverse yaw from the ailerons."),
+                    Some(met == Some(1)), met)
+            }
+        }
+    }
+  }
+
+  /**
+   * MIL-F-8785C 3.3.2.3 (p. 24) against FIGURE 5 (p. 25): the **bank angle** oscillation, `phi_osc/phi_av`.
+   *
+   * The same manoeuvre and the same phase angle as 3.3.2.2.1, read on the bank angle instead of the roll
+   * rate, against figure 5's boundaries — whose values turn out to be the same three as figure 4's, each
+   * curve returning to the level it left, with only the phase angles at which they turn differing.
+   */
+  private def bankOscillationRow(calculation: AvlCalculation, category: FlightPhaseCategory,
+                                 dutchRoll: Option[AvlEigenvalue]): ModalNormRow = {
+    val is = "the bank angle overshooting and coming back instead of settling where the stick put it"
+    val wants = "the bank-angle oscillation inside figure 5's boundary for the phase the sideslip lags at"
+
+    def cannot(why: String) =
+      ModalNormRow("Bank angle oscillation", is, None, None, None, None, wants,
+        "Not judged: " + why, None, None)
+
+    val aileron = calculation.getAileronPosition
+    val stops = calculation.getControlMaxDeflections
+    if (stops == null || aileron < 0 || aileron >= stops.length || stops(aileron).isNaN ||
+        stops(aileron) <= 0f)
+      return cannot("the aileron's travel did not reach the calculation.")
+    val mode = dutchRoll.getOrElse(return cannot("AVL found no dutch roll, so there is no phase to read " +
+      "figure 5 at."))
+    val period = periodOf(mode.getNaturalFrequency.toDouble, mode.getDampingRatio.toDouble)
+      .getOrElse(return cannot("the dutch roll does not oscillate, so it has no period."))
+
+    LateralModel.of(calculation) match {
+      case Left(why) => cannot(why)
+      case Right(model) =>
+        RollSideslipCoupling.of(model, math.toRadians(stops(aileron).toDouble), Some(period),
+            mode.getDampingRatio.toDouble, 2.0) match {
+          case None => cannot("no usable response came back.")
+          case Some(measured) =>
+            if (measured.bankPeaks < 2)
+              return cannot("the bank angle never turned over, so it has no oscillation to measure.")
+            measured.firstSideslipPeakTime.flatMap(t => RollOscillationFigure.phaseAngle(t, period)) match {
+              case None => cannot("the sideslip never turned over, so 6.2.6's phase angle has no first peak.")
+              case Some(psi) =>
+                val levels = List(1, 2).flatMap(n =>
+                  RollOscillationFigure.bankBoundaryFor(category, n).map(b => (n, b)))
+                val verdicts = levels.map { case (n, b) =>
+                  (n, RollOscillationFigure.within(b, psi, measured.bankOscillationRatio)) }
+                val met = verdicts.find(_._2 == RollOscillationFigure.Inside).map(_._1)
+                val unclear = verdicts.exists(_._2 == RollOscillationFigure.Unclear)
+                val at = f"phi_osc/phi_av ${measured.bankOscillationRatio}%.3f at a phase of $psi%.0f degrees"
+                if (unclear && met.isEmpty)
+                  ModalNormRow("Bank angle oscillation", is, None, None, None, None, wants,
+                    f"On the boundary: $at%s, within the accuracy figure 5 was read to. No Level is claimed.",
+                    None, None)
+                else
+                  ModalNormRow("Bank angle oscillation", is, None, None, None, None, wants,
+                    levelVerdict(met, at + ".",
+                      at + " — outside figure 5's boundary. The bank overshoots and washes back instead of " +
+                        "settling; more fin, or less adverse yaw from the ailerons."),
                     Some(met == Some(1)), met)
             }
         }
