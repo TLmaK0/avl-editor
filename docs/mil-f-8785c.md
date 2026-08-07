@@ -300,7 +300,7 @@ Stated here rather than silently skipped.
 | Section | Why not |
 |---------|---------|
 | §3.2.2.2, §3.2.3.x forces, §3.3.4.3, **§3.3.5 in full** — all control-force requirements | A radio-controlled model has no stick feel system. There is no force to specify. §3.3.5.1, §3.3.5.1.1 and §3.3.5.2 (pp. 31-32) are stated entirely in pounds of yaw-control-pedal force. |
-| §3.3.2.2 roll rate oscillations, §3.3.2.3 bank angle oscillations, §3.3.2.4 sideslip excursions (p. 24) | These are **time-domain step responses**, not closed forms in the derivatives: "following a yaw-control-free step roll control command", held "until the bank angle has changed at least 90 degrees". Getting them needs a lateral-directional simulation. The editor should not grow a second flight dynamics model of its own — it already exports one, and two would be free to disagree. The way to these is to run **JSBSim** on the exported aircraft, as `JsbsimCurveCheck` and `DuctedFanFlightCheck` already do for the lift, drag and thrust. §3.3.2.2.1 and §3.3.2.3 additionally read their limits off figures 4 and 5. |
+| §3.3.2.2 roll rate oscillations, §3.3.2.3 bank angle oscillations, §3.3.2.4 sideslip excursions (p. 24, definitions on p. 78) | Not blocked by physics — blocked by machinery the editor does not have. See below. |
 | §3.2.1.3 flight-path stability | Needs `Vomin` and the approach thrust setting; the model states neither. Category C only. |
 | §3.3.9 asymmetric thrust, §3.3.9.5 two engines inoperative | Single-engine models. |
 | §3.4.2 flight at high angle of attack, stalls | AVL is inviscid and cannot see a stall. See AGENTS.md. |
@@ -308,6 +308,44 @@ Stated here rather than silently skipped.
 | Carrier-based, catapult takeoff, dives, wave-off | Not applicable. |
 
 ---
+
+## §3.3.2.2 and §3.3.2.4: a formula exists, just not for what is asked
+
+Worth setting out, because the obvious summary — "these need a simulation, there is no formula" — is wrong,
+and it was written here before the definitions were read.
+
+The lateral-directional system is **linear**, so the roll rate after a step aileron input has a closed form:
+a sum of exponentials plus a damped sinusoid, straight out of the `p/δa` transfer function. There is a
+formula for the curve.
+
+What there is no formula for is **the point on the curve the standard asks about**. §6.2.6 (p. 78) defines
+the quantity on the **peaks of the trace**:
+
+```
+zeta_d <= 0.2:   posc/pav = (p1 + p3 - 2 p2) / (p1 + p3 + 2 p2)
+zeta_d >  0.2:   posc/pav = (p1 - p2) / (p1 + p2)
+```
+
+"where p1, p2 and p3 are roll rates at the first, second and third peaks". A peak is `dp/dt = 0`, which
+mixes exponentials with sines: transcendental, with no algebraic solution. So the route is **evaluate the
+closed form and find its peaks numerically** — root-finding, not time-marching integration.
+
+Likewise `Δβ` is "the maximum change in sideslip occurring within 2 seconds or one half-period of the Dutch
+roll, whichever is greater", and `k` is "the ratio of command roll performance to the applicable roll
+performance requirement of 3.3.4" — which reuses the roll response already implemented.
+
+**What is actually missing** is the transfer function: the editor never forms a state-space or transfer
+function model of the aircraft. It takes AVL's eigenvalues as given. Building `p/δa` and `β/δa` from the
+derivatives and the inertias is the real cost, and it is algebra.
+
+The limits then come from **figures 4 and 5** (p. 25), piecewise-linear boundaries of `posc/pav` and
+`φosc/φav` against `ψβ`. Unlike figures 1-3 those carry no printed constant — they are polylines and would
+have to be digitised at their breakpoints.
+
+One argument against doing it inside the editor survives, weaker than it was first put: the verdict would
+come from a second dynamic model of the aircraft, while the one the user flies is the JSBSim export. Two
+models are free to disagree. Running JSBSim on the exported aircraft — as `JsbsimCurveCheck` and
+`DuctedFanFlightCheck` already do — keeps one source of truth.
 
 ## The assumption the specification cannot state for us
 
