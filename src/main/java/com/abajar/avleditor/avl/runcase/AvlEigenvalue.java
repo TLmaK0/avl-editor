@@ -124,6 +124,35 @@ public class AvlEigenvalue {
         return sumFinite(phiAmplitude, psiAmplitude);
     }
 
+    /**
+     * The bank angle alone, and the lateral velocity alone.
+     *
+     * MIL-F-8785C's dutch-roll augmentation (3.3.1.1, TABLE VI footnote) is written in terms of
+     * {@code |phi/beta|}, and beta is not a component AVL prints: it prints the lateral velocity, which
+     * {@code EigenvectorUnitsCheck} established is <b>dimensional</b>, so {@code beta = v / V}.
+     */
+    public float getPhiAmplitude() {
+        return isFinite(phiAmplitude) ? phiAmplitude : 0f;
+    }
+
+    public float getVAmplitude() {
+        return isFinite(vAmplitude) ? vAmplitude : 0f;
+    }
+
+    /**
+     * {@code |phi/beta|} for this mode, given the speed the run was flown at in the <b>same units AVL was
+     * given</b> — the model's own, since {@code v} comes back in them too and the ratio is dimensionless.
+     *
+     * Returns NaN when the mode carries no sideslip to speak of, rather than dividing by nearly zero: a
+     * motion with no sideslip in it has no phi-over-beta, and a huge number would be read as one.
+     */
+    public float phiOverBeta(float speed) {
+        float v = Math.abs(getVAmplitude());
+        if (speed <= 0f || v <= 1.0e-9f) return Float.NaN;
+        float beta = v / speed;
+        return Math.abs(getPhiAmplitude()) / beta;
+    }
+
     public float getRollRateRatio() {
         float lateral = getLateralParticipation();
         return lateral == 0 ? 0 : getRollRateParticipation() / lateral;

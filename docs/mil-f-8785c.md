@@ -152,9 +152,18 @@ maximum required for Class III.
 | 2 | Δζd·ωnd = 0.009 (ωnd² \|φ/β\|d − 20) |
 | 3 | Δζd·ωnd = 0.005 (ωnd² \|φ/β\|d − 20) |
 
-with ωnd in rad/s. This matters more for a model than for the airplane the standard was written for: a
-model's ωnd is high, so `ωnd² |φ/β|` clears 20 easily and the requirement tightens. `|φ/β|d` comes from
-the dutch-roll mode shape, which AVL reports and the editor already parses.
+with ωnd in rad/s.
+
+`|φ/β|d` is not something AVL reports. It reports the mode's **lateral velocity**, and
+`EigenvectorUnitsCheck` established by running AVL at two speeds that those velocity components are
+**dimensional** — so `β = v / V`, and `|φ/β| = |φ| V / |v|`. Guessing between that and an already-divided
+`v` would have been a factor of V, twenty on a 20 m/s model, on a quantity compared against a fixed 20.
+
+**It cannot be assumed on or off.** An earlier draft of this file said a model's ωnd is high so the product
+"clears 20 easily"; the measurement says otherwise. On the check aircraft `ωnd²|φ/β|` is **15.4 at 15 m/s
+and 28.8 at 45 m/s** — the same airframe straddles the trigger depending on how fast it is flown, because
+`|φ/β|` itself falls with speed rather than being a constant of the aircraft. So it has to be computed at
+the condition being analysed.
 
 **Implemented** (Category B, Level 1) and correct — apart from the augmentation above.
 

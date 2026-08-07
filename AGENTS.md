@@ -492,6 +492,32 @@ thrown away with the rest of the real roots — and the table was drawn only whe
 is exactly when an aircraft with nothing but real roots has least to say for itself. The coupled roll-spiral
 (3.3.1.4) is the sixth.
 
+### What units AVL's mode shapes are in, which nobody had established
+
+AVL prints each mode's amplitudes of `u, v, w, p, q, r, phi, theta, psi`, and those have **different physical
+dimensions**. TABLE VI's footnote is written in terms of `|phi/beta|`, and `beta` is not something AVL
+prints: it prints the lateral velocity. If `v` is a velocity then `beta = v/V`; if AVL already divided by
+`V` then `v` **is** `beta`. The two readings differ by a factor of V — twenty on a 20 m/s model — on a
+quantity the standard compares against a fixed 20.
+
+So it was **asked rather than assumed**. `EigenvectorUnitsCheck` flies the same aircraft at 15 and 45 m/s
+and reads the answer off how things scale. Three findings, all of them things the editor had been taking on
+trust:
+
+- **The eigenvalues are in 1/s.** The dutch-roll frequency went 6.885 -> 19.582, a ratio of 2.84 against a
+  speed ratio of 3.00. The whole modal report reads `sigma` as 1/s and had never checked.
+- **The velocity components are dimensional**, so `beta = v/V`. `v/(phi+psi)` scaled by 3.20, not by 1.
+- **`|phi/beta|` is not a constant of the airframe.** It fell from 0.325 to 0.075 over that speed range, so
+  `wn^2 |phi/beta|` came out **15.4 at 15 m/s and 28.8 at 45 m/s** — the same aircraft on both sides of the
+  footnote's trigger. An earlier draft of `docs/mil-f-8785c.md` claimed a model "clears 20 easily"; the
+  measurement says it straddles it, which is why the augmentation is computed at the condition analysed
+  rather than assumed on or off.
+
+The footnote itself is now applied. Its coefficients and its 20 are verbatim from p. 22; `beta = v/V` is
+measured; and the **size scaling of it is ours** — the 20 is a frequency squared and the increment is a
+frequency, so the trigger becomes `20 r^2` and the excess is divided by `r`, which at full size is the
+footnote exactly as written.
+
 **The short period is judged twice, because the standard asks two things of it.** TABLE IV is the damping,
 and it was all the editor ever checked; 3.2.2.1.1 is the **frequency**, and an aircraft can be beautifully
 damped and still answer the elevator far too slowly or far too sharply for the g its wing makes. The

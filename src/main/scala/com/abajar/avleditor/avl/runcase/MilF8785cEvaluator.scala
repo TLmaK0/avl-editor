@@ -470,7 +470,7 @@ object MilF8785cEvaluator {
     List(
       shortPeriodRow(shortPeriod, category, shapesReported),
       shortPeriodFrequencyRow(calculation, shortPeriod, category, size, shapesReported),
-      dutchRollRow(dutchRoll, category, size, shapesReported),
+      dutchRollRow(dutchRoll, category, size, Option(calculation.getConfiguration).map(_.getVelocity.toDouble).getOrElse(0.0), shapesReported),
       phugoidRow(phugoid, category, size, shapesReported),
       rollModeRow(rollMode, category, size, shapesReported),
       spiralRow(findSpiralCandidate(realModes(calculation)), category, size, shapesReported),
@@ -507,33 +507,87 @@ object MilF8785cEvaluator {
     }
   }
 
+  /**
+   * TABLE VI's footnote (p. 22), which the editor used to ignore. Verbatim from the standard:
+   *
+   * <pre>
+   * When wn_d^2 |phi/beta|_d is greater than 20 (rad/sec)^2, the minimum zeta_d wn_d shall be
+   * increased above the zeta_d wn_d minimums listed above by:
+   *   Level 1 - .014 (wn_d^2 |phi/beta|_d - 20)
+   *   Level 2 - .009 (wn_d^2 |phi/beta|_d - 20)
+   *   Level 3 - .005 (wn_d^2 |phi/beta|_d - 20)   with wn_d in rad/sec.
+   * </pre>
+   *
+   * Two things are **not** in the standard and are marked as such.
+   *
+   * `beta` is not a component AVL prints — it prints the mode's lateral velocity. `EigenvectorUnitsCheck`
+   * ran AVL at two speeds and established that those velocity components are **dimensional**, so
+   * `beta = v / V` and `|phi/beta| = |phi| V / |v|`. That was measured rather than assumed because the
+   * alternative reading, an already-divided `v`, differs by a factor of V — twenty on a 20 m/s model, on a
+   * quantity compared against a fixed 20.
+   *
+   * And the **size scaling is ours**, the same Froude derivation as everywhere else here: the 20 is a
+   * frequency squared and the increment comes out as a frequency, so with `r` the frequency scaling the
+   * trigger is `20 r^2` and the excess is divided by `r`. At full size `r` is 1 and this is the footnote
+   * exactly as written.
+   *
+   * It cannot be assumed on or off: on the check aircraft the product is 15 at 15 m/s and 29 at 45 m/s,
+   * straddling the trigger on the same airframe, because `|phi/beta|` falls with speed rather than being a
+   * constant of the aircraft.
+   */
+  private def dutchRollAugmentation(mode: AvlEigenvalue, speed: Double, size: FroudeScale,
+                                    coefficient: Double): (Double, Double) = {
+    val phiOverBeta = mode.phiOverBeta(speed.toFloat).toDouble
+    if (phiOverBeta.isNaN || speed <= 0.0) return (0.0, Double.NaN)
+    val wn = mode.getNaturalFrequency.toDouble
+    val product = wn * wn * phiOverBeta
+    val r = size.frequency(1.0)
+    val trigger = 20.0 * r * r
+    if (product <= trigger) (0.0, product) else (coefficient * (product - trigger) / r, product)
+  }
+
+  /** The footnote's coefficient for each Level. */
+  private val DutchRollAugmentationCoefficients = Map(1 -> 0.014, 2 -> 0.009, 3 -> 0.005)
+
   private def dutchRollRow(candidate: Option[AvlEigenvalue], category: FlightPhaseCategory,
-                           size: FroudeScale, shapesReported: Boolean): ModalNormRow = {
+                           size: FroudeScale, speed: Double, shapesReported: Boolean): ModalNormRow = {
     val is = "the tail wagging: the nose swings side to side while the wings rock with it"
     val limits = dutchRollLimits(category)
     val (_, minZeta1, minZetaWn1, minWn1) = limits.head
     val wants = f"damping at least $minZeta1%.2f, and quick enough with it " +
       f"(wn at least $minWn1%.2f rad/s, damping x wn at least $minZetaWn1%.2f)"
-    val applied =
-      if (size.scales) Some(f"at this size: wn at least ${size.frequency(minWn1)}%.2f rad/s, " +
-        f"damping x wn at least ${size.frequency(minZetaWn1)}%.2f")
-      else None
     candidate match {
       case Some(mode) =>
         val zeta = mode.getDampingRatio.toDouble
         val wn = mode.getNaturalFrequency.toDouble
+        // The footnote's coefficient differs per Level, so the augmentation is worked out per Level too.
+        def wantedZetaWn(level: Int, base: Double): Double =
+          size.frequency(base) + dutchRollAugmentation(mode, speed, size,
+            DutchRollAugmentationCoefficients(level))._1
         val level = levelMet(limits.map { case (n, mz, mzw, mw) =>
-          (n, zeta >= mz && wn >= size.frequency(mw) && (zeta * wn) >= size.frequency(mzw))
+          (n, zeta >= mz && wn >= size.frequency(mw) && (zeta * wn) >= wantedZetaWn(n, mzw))
         })
+        val (increment, product) = dutchRollAugmentation(mode, speed, size,
+          DutchRollAugmentationCoefficients(1))
+        val trigger = 20.0 * size.frequency(1.0) * size.frequency(1.0)
+        val notes =
+          (if (size.scales) List(f"wn at least ${size.frequency(minWn1)}%.2f rad/s") else Nil) ++
+          (if (increment > 0.0)
+            List(f"damping x wn at least ${wantedZetaWn(1, minZetaWn1)}%.2f, raised from " +
+              f"${size.frequency(minZetaWn1)}%.2f by TABLE VI's footnote — wn^2|phi/beta| is $product%.0f " +
+              f"against the $trigger%.0f it starts at")
+           else if (size.scales) List(f"damping x wn at least ${size.frequency(minZetaWn1)}%.2f")
+           else Nil)
         val miss =
           if (zeta < minZeta1)
             f"too lightly damped at $zeta%.2f — the tail keeps wagging. A bigger fin, or further back, is " +
               "what settles it."
           else
             f"damped enough at $zeta%.2f but too slow to settle (${zeta * wn}%.2f against the " +
-              f"${size.frequency(minZetaWn1)}%.2f wanted) — the wag dies away, but it takes a long time about it."
+              f"${wantedZetaWn(1, minZetaWn1)}%.2f wanted) — the wag dies away, but it takes a long time about it."
         ModalNormRow("Dutch-roll", is, Some(wn), Some(zeta), periodOf(wn, zeta), swingsToHalfOf(zeta),
-          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level, applied)
+          wants, levelVerdict(level, f"damping $zeta%.2f.", miss), Some(level == Some(1)), level,
+          if (notes.isEmpty) None else Some("at this condition: " + notes.mkString(", ")))
       case None => unidentified("Dutch-roll", is, wants,
         "none of the oscillating motions AVL found is a yaw-and-roll one. With a large fin the wag can be " +
           "damped out of existence, which is not a fault either.", shapesReported)

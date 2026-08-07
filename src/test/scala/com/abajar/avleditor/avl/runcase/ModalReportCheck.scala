@@ -198,6 +198,37 @@ object ModalReportCheck {
     check("and the dutch roll is judged too",
       judged.exists(r => r.modeName == "Dutch-roll" && r.pass.isDefined))
 
+    println("TABLE VI's footnote, which used to be ignored")
+    // wn 2.0, zeta 0.15 -> zeta*wn = 0.30, comfortably over the tabulated 0.15 for Category B Level 1.
+    // But at 20 m/s with v = 1.0 and phi = 0.5, beta = 0.05 and |phi/beta| = 10, so wn^2|phi/beta| = 40 —
+    // twice the 20 the footnote triggers at. The excess of 20 raises the minimum by 0.014 x 20 = 0.28, to
+    // 0.43, and 0.30 no longer reaches it. The aircraft drops a Level because of the footnote alone.
+    val augmented = run(Seq((-0.3f, 1.97737f)))
+    augmented.getConfiguration.setVelocity(20f)
+    val wag = augmented.getEigenvalues.get(0)
+    wag.setModeStateAmplitude("v", 1.0f)
+    wag.setModeStateAmplitude("phi", 0.5f)
+    wag.setModeStateAmplitude("r", 0.3f)
+    check("beta comes from the lateral velocity and the speed, as the experiment established",
+      math.abs(wag.phiOverBeta(20f) - 10.0f) < 0.01f)
+    val augmentedRow = MilF8785cEvaluator.evaluate(augmented).find(_.modeName == "Dutch-roll").get
+    println("    " + augmentedRow.verdict)
+    println("    " + augmentedRow.applied.getOrElse("(no augmentation)"))
+    check("the requirement is raised above the tabulated one",
+      augmentedRow.applied.exists(a => a.contains("0.43") && a.contains("footnote")))
+    check("and it says what triggered it", augmentedRow.applied.exists(_.contains("40")))
+    check("the aircraft drops to Level 2 because of it", augmentedRow.level == Some(2))
+    // Below the trigger the footnote must not touch anything: same aircraft, a tenth of the bank angle.
+    val untouched = run(Seq((-0.3f, 1.97737f)))
+    untouched.getConfiguration.setVelocity(20f)
+    untouched.getEigenvalues.get(0).setModeStateAmplitude("v", 1.0f)
+    untouched.getEigenvalues.get(0).setModeStateAmplitude("phi", 0.05f)
+    untouched.getEigenvalues.get(0).setModeStateAmplitude("r", 0.3f)
+    val untouchedRow = MilF8785cEvaluator.evaluate(untouched).find(_.modeName == "Dutch-roll").get
+    println("    below the trigger: " + untouchedRow.verdict)
+    check("under the trigger nothing is raised and the same aircraft meets Level 1",
+      untouchedRow.level == Some(1) && untouchedRow.applied.isEmpty)
+
     println("the roll mode and the spiral, which are real roots and used to be thrown away")
     // Neither oscillates, so neither was ever reached: the table was drawn from the oscillatory modes alone
     // and an aircraft with nothing but real roots got no table at all.
