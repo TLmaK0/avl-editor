@@ -23,7 +23,7 @@ package com.abajar.avleditor.avl.runcase
  */
 final case class RollSideslipCoupling(oscillationRatio: Double, sideslipDegrees: Double,
                                       peaks: Int, proverse: Boolean, windowCutAtNinetyDegrees: Boolean,
-                                      windowSeconds: Double)
+                                      windowSeconds: Double, firstSideslipPeakTime: Option[Double])
 
 object RollSideslipCoupling {
 
@@ -57,12 +57,20 @@ object RollSideslipCoupling {
    * window comes from the dutch roll this same run found.
    */
   def of(model: LateralModel, deflectionRad: Double, dutchRollPeriod: Option[Double],
-         dampingRatio: Double, secondsWindow: Double): Option[RollSideslipCoupling] = {
+         dampingRatio: Double, secondsWindow: Double,
+         step: Double = 0.002): Option[RollSideslipCoupling] = {
     if (model.bAileron == null || deflectionRad == 0.0) return None
-    // A step small enough that the roll mode — the fastest root, and the one the model was verified on —
-    // is resolved many times over.
-    val dt = 0.001
-    val trace = model.stepResponse(deflectionRad, dt, 30.0)
+    // Long enough to see what is asked for, and no longer. The hold runs to three dutch-roll periods or
+    // ninety degrees of bank, and the sideslip window is shorter still, so a few seconds covers it — there
+    // is nothing to learn from integrating half a minute of a response that has long since settled.
+    //
+    // The step is small against the fastest root, which is the roll mode this model was verified on.
+    // How small it needs to be is **not** asserted here: `LateralModelCheck` halves it and requires the
+    // measured figures to stay put, because the quantity being read is the peak of a curve and where the
+    // samples land decides it as much as the integration does.
+    val dt = step
+    val duration = math.max(4.0, dutchRollPeriod.getOrElse(1.0) * 4.0)
+    val trace = model.stepResponse(deflectionRad, dt, duration)
     if (trace.isEmpty) return None
 
     // "The roll command shall be held fixed until the bank angle has changed **at least** 90 degrees"
@@ -122,6 +130,20 @@ object RollSideslipCoupling {
     val adverse = worstAdverse >= worstProverse
     val excursion = math.toDegrees(math.max(worstAdverse, worstProverse))
 
-    Some(RollSideslipCoupling(ratio, excursion, peakValues.size, !adverse, truncated, window))
+    // When the sideslip first turns over: what 6.2.6 calls t_n_beta, and the only thing figure 4's phase
+    // angle is built from. Taken in the direction the aircraft is actually rolling, so a left command is
+    // read at its first minimum exactly as the standard says.
+    // An Array, not the List: indexing a List by position is linear, and this runs over thirty thousand
+    // samples looking for a turning point.
+    val betaSigned = trace.map { case (t, beta, _, _, _) => (t, beta * rollDirection) }.toArray
+    var peakTime: Option[Double] = None
+    var j = 1
+    while (j < betaSigned.length - 1 && peakTime.isEmpty) {
+      if (betaSigned(j)._2 >= betaSigned(j - 1)._2 && betaSigned(j)._2 > betaSigned(j + 1)._2 &&
+          betaSigned(j)._2 > 0.0) peakTime = Some(betaSigned(j)._1)
+      j += 1
+    }
+
+    Some(RollSideslipCoupling(ratio, excursion, peakValues.size, !adverse, truncated, window, peakTime))
   }
 }

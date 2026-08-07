@@ -309,6 +309,29 @@ Stated here rather than silently skipped.
 
 ---
 
+### §3.3.2.2.1 Roll rate oscillations for small inputs — FIGURE 4, p. 25
+
+Unlike figures 1-3, this one carries **no printed constant**: it is a genuine graph, four polylines of
+`posc/pav` against `ψβ`, and its vertices had to be read off the page. They are recorded here as **our
+reading**, not as a quotation.
+
+Each boundary has the same shape — flat, rise, plateau, fall — and the middle one **serves two
+requirements at once**, Category B Level 1 and Categories A&C Level 2. That is the same coincidence the
+§3.3.2.2 table shows, where both are 25 %.
+
+| Boundary | Applies to | Left flat | Rise ends | Plateau | Fall begins | At −360° |
+|----------|-----------|-----------|-----------|---------|-------------|----------|
+| upper | Cat. B Level 2 | 0.20 to −110° | −200° | **1.00** | −290° | 0.20 |
+| middle | Cat. B Level 1, **and** Cat. A&C Level 2 | 0.10 to −120° | −200° | **0.60** | −270° | 0.10 |
+| lower | Cat. A&C Level 1 | 0.05 to −130° | −180° | **0.25** | −270° | 0.05 |
+
+**Uncertainty, stated because it is ours and not the document's**: the vertical values land on the
+plotted grid and are read exactly; the horizontal ones do not, and are good to about **±10°**.
+
+That is what the **band of indecision** is for. A digitised vertex does not widen the pass band — widening
+it would let through aircraft the standard fails. Within the reading uncertainty of a boundary the verdict
+says so and asserts no Level.
+
 ## §3.3.2.2 and §3.3.2.4: a formula exists, just not for what is asked
 
 Worth setting out, because the obvious summary — "these need a simulation, there is no formula" — is wrong,

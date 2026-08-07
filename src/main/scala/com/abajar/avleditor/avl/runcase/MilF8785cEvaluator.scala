@@ -499,7 +499,8 @@ object MilF8785cEvaluator {
       rollPerformanceRow(calculation, category, rollMode, size),
       speedStabilityRow(calculation, size, shapesReported),
       sideslipRow(calculation, shapesReported)
-    ) ++ rollSideslipRows(calculation, category, dutchRoll, size)
+    ) ++ rollSideslipRows(calculation, category, dutchRoll, size) ++
+      List(smallInputOscillationRow(calculation, category, dutchRoll))
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -1088,6 +1089,77 @@ object MilF8785cEvaluator {
               Some(sideslipLevel == Some(1)), sideslipLevel)
 
             List(oscillationRow, sideslipRow)
+        }
+    }
+  }
+
+  /**
+   * MIL-F-8785C 3.3.2.2.1 (p. 24) against FIGURE 4 (p. 25): the roll-rate oscillation for **small** inputs.
+   *
+   * Small is defined, not assumed: the requirement "applies for step roll-control commands up to the
+   * magnitude which causes a 60-degree bank angle change in 1.7 Td seconds". The system is linear, so the
+   * deflection that does that is found by scaling — fly it once at the stop, read the bank at 1.7 Td, and
+   * scale the command by the ratio to sixty degrees.
+   *
+   * The limit comes from figure 4, whose vertices are **our reading of a drawing** rather than a quotation:
+   * see `RollOscillationFigure` and `docs/mil-f-8785c.md`. Close to a boundary the verdict says the reading
+   * cannot decide it, instead of asserting a Level the figure does not support.
+   */
+  private def smallInputOscillationRow(calculation: AvlCalculation, category: FlightPhaseCategory,
+                                       dutchRoll: Option[AvlEigenvalue]): ModalNormRow = {
+    val is = "the same wobble, but for the small stick inputs ordinary flying is made of"
+    val wants = "the roll-rate oscillation inside figure 4's boundary for the phase the sideslip lags at"
+
+    def cannot(why: String) =
+      ModalNormRow("Roll rate oscillation (small input)", is, None, None, None, None, wants,
+        "Not judged: " + why, None, None)
+
+    val aileron = calculation.getAileronPosition
+    val stops = calculation.getControlMaxDeflections
+    if (stops == null || aileron < 0 || aileron >= stops.length || stops(aileron).isNaN ||
+        stops(aileron) <= 0f)
+      return cannot("the aileron's travel did not reach the calculation.")
+    val mode = dutchRoll.getOrElse(return cannot("AVL found no dutch roll, so there is no phase to read " +
+      "figure 4 at and no period to size the input by."))
+    val period = periodOf(mode.getNaturalFrequency.toDouble, mode.getDampingRatio.toDouble)
+      .getOrElse(return cannot("the dutch roll does not oscillate, so it has no period."))
+
+    LateralModel.of(calculation) match {
+      case Left(why) => cannot(why)
+      case Right(model) =>
+        val full = math.toRadians(stops(aileron).toDouble)
+        // Linear, so the bank scales with the command: fly it once and scale to sixty degrees at 1.7 Td.
+        val at = 1.7 * period
+        val trial = model.stepResponse(full, 0.002, at + 0.01)
+        val bankThen = trial.reverse.find(_._1 <= at).map(_._5).getOrElse(0.0)
+        if (math.abs(bankThen) < 1e-6) return cannot("the aircraft does not roll, so no input size follows.")
+        val small = full * math.toRadians(60.0) / math.abs(bankThen)
+        RollSideslipCoupling.of(model, small, Some(period), mode.getDampingRatio.toDouble, 2.0) match {
+          case None => cannot("no usable response came back at that input size.")
+          case Some(measured) =>
+            measured.firstSideslipPeakTime.flatMap(t => RollOscillationFigure.phaseAngle(t, period)) match {
+              case None => cannot("the sideslip never turned over, so 6.2.6's phase angle has no first peak.")
+              case Some(psi) =>
+                val levels = List(1, 2).flatMap(n =>
+                  RollOscillationFigure.boundaryFor(category, n).map(b => (n, b)))
+                val verdicts = levels.map { case (n, b) =>
+                  (n, RollOscillationFigure.within(b, psi, measured.oscillationRatio)) }
+                val met = verdicts.find(_._2 == RollOscillationFigure.Inside).map(_._1)
+                val unclear = verdicts.exists(_._2 == RollOscillationFigure.Unclear)
+                val measuredAt = f"p_osc/p_av ${measured.oscillationRatio}%.3f at a phase of $psi%.0f degrees"
+                if (unclear && met.isEmpty)
+                  ModalNormRow("Roll rate oscillation (small input)", is, None, None, None, None, wants,
+                    f"On the boundary: $measuredAt%s, within the accuracy figure 4 was read to " +
+                      f"(+-${RollOscillationFigure.ReadingUncertainty}%.2f and " +
+                      f"+-${RollOscillationFigure.PhaseUncertaintyDegrees}%.0f degrees). No Level is claimed.",
+                    None, None)
+                else
+                  ModalNormRow("Roll rate oscillation (small input)", is, None, None, None, None, wants,
+                    levelVerdict(met, measuredAt + ".",
+                      measuredAt + " — outside figure 4's boundary. The roll and the dutch roll are " +
+                        "fighting each other; more fin, or less adverse yaw from the ailerons."),
+                    Some(met == Some(1)), met)
+            }
         }
     }
   }

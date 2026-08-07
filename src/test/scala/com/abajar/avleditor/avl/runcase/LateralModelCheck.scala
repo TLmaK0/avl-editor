@@ -176,12 +176,25 @@ object LateralModelCheck {
         // Halving the step must not move the answer: the integration has to be far finer than anything the
         // criteria can notice, and the fastest root is the roll mode this model was just verified on.
         val coarse = RollSideslipCoupling.of(lateral, math.toRadians(25.0), Some(0.98), 0.16, 0.70)
+        val halved = RollSideslipCoupling.of(lateral, math.toRadians(25.0), Some(0.98), 0.16, 0.70, 0.001)
         val fine = lateral.stepResponse(math.toRadians(25.0), 0.0005, 5.0)
         coarse.foreach { m =>
           println(f"    p_osc/p_av ${m.oscillationRatio}%.4f over ${m.peaks}%d peaks, " +
             f"sideslip ${m.sideslipDegrees}%.2f deg ${if (m.proverse) "proverse" else "adverse"}%s")
         }
         check("a response comes out at all", coarse.isDefined)
+        // Halving the step must not move what is measured. This is the claim about the integration being
+        // fine enough, made as an assertion rather than as a sentence in a comment.
+        (coarse, halved) match {
+          case (Some(a), Some(b)) =>
+            println(f"    halving the step: p_osc/p_av ${a.oscillationRatio}%.4f -> ${b.oscillationRatio}%.4f, " +
+              f"sideslip ${a.sideslipDegrees}%.2f -> ${b.sideslipDegrees}%.2f deg")
+            check("p_osc/p_av holds when the step is halved",
+              math.abs(a.oscillationRatio - b.oscillationRatio) < 0.01)
+            check("and so does the sideslip, to a tenth of a degree",
+              math.abs(a.sideslipDegrees - b.sideslipDegrees) < 0.1)
+          case _ => check("both steps produce a response", false)
+        }
         check("and it starts from trim", fine.head._2 == 0.0 && fine.head._3 == 0.0)
         check("the aircraft actually rolls", math.abs(fine.last._5) > 0.1)
         // The roll rate must settle towards the steady value the roll response row computes independently.
