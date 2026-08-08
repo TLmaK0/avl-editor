@@ -267,9 +267,16 @@ object StallAnalysis {
           val bucket = math.round(math.log(re) / math.log(1.0 + ReynoldsBucket))
           Right(polars.getOrElseUpdate((label, bucket), {
             logger.log(Level.INFO, f"XFOIL: $label%s at Re ${re}%.0f")
+            // A minute, not five. A section that is going to converge does so in a few seconds — measured
+            // at 2.8 to 5.9 s for the aerofoils on the check aircraft, over the whole sweep. What takes
+            // longer is a section whose boundary layer has broken down, and XFOIL then prints thousands of
+            // "MRCHDU: Convergence failed" lines and grinds at full CPU for as long as it is allowed. It
+            // has nothing to say at the end of that, so the only thing a generous timeout buys is a longer
+            // wait for the same "no known limit". The sweep itself is left alone: 0.5 deg to +20 costs
+            // seconds where it works, and coarsening it to 1 deg moved a real clmax by 1.4 %.
             val polar = runner.computePolar(airfoil, re, 0.0,
               SectionStall.AlphaStartDeg, SectionStall.AlphaEndDeg, SectionStall.AlphaStepDeg,
-              iterations = 200, timeoutSeconds = 300)
+              iterations = 200, timeoutSeconds = 60)
             SectionStall.fromPolar(polar, re) match {
               case Right(data) => SectionKnown(data)
               case Left(why) => SectionUnknown(s"$label at Re ${re.toLong}, $why")

@@ -1017,7 +1017,9 @@ object AvlEditor{
       logger.log(Level.INFO, s"Analysing at ${avl.describeAnalysisPoint}")
       try {
         val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
-        measureStall(avl, calc)
+        // No stall measured here on purpose: nothing an export writes reads it — it feeds one row of the
+        // results window — and it is an XFOIL process per aerofoil. Running it on every export and every
+        // launch would be minutes spent on a number the file does not contain.
         // A second stage: some inputs come from AVL's own output, so they can only be checked
         // once it has run. They are not substituted with typical values either.
         if (!reportModelProblems("simulated", SimulationRequirements.validateCalculation(calc))) return
@@ -1202,7 +1204,6 @@ object AvlEditor{
             val runner = new AvlRunner(avlPath, avl, originPath, azimuthAngle - 90, elevationAngle)
             logger.log(Level.INFO, "AvlRunner finished, getting calculation...")
             val calculation = runner.getCalculation()
-            measureStall(avl, calculation)
             val geometryPlotPath = runner.getGeometryPlotPath()
             val trefftzPlotPath = runner.getTrefftzPlotPath()
             logger.log(Level.INFO, s"Got calculation: $calculation")
@@ -1219,6 +1220,16 @@ object AvlEditor{
                 plotWindow.open(geometryPlotPath, trefftzPlotPath)
                 avlResultsWindow.open(calculation)
               }
+            })
+
+            // **After** the window, not before it. The stall is a stage of its own — nothing AVL reports
+            // depends on it — and it is the slowest thing in the analysis path, an external XFOIL process
+            // per aerofoil. Measured first, it held the results back for minutes with nothing on screen to
+            // say why, which from outside is indistinguishable from a hang. It is measured now while the
+            // reader has the rest, and the one row that needs it is filled in when it lands.
+            measureStall(avl, calculation)
+            window.display.asyncExec(new Runnable {
+              def run(): Unit = avlResultsWindow.refresh(calculation)
             })
           } catch {
             case ex: Throwable =>

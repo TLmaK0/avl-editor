@@ -42,9 +42,10 @@ class AvlResultsWindow(display: Display) {
       shell.dispose()
     }
 
+    showing = calculation
     shell = new Shell(display, SWT.DIALOG_TRIM | SWT.RESIZE | SWT.MAX)
     shell.setText("AVL Results")
-    shell.setSize(1280, 860)
+    shell.setSize(1860, 900)
 
     shell.setLayout(new GridLayout(1, false))
 
@@ -368,5 +369,22 @@ class AvlResultsWindow(display: Display) {
 
   def isOpen: Boolean = {
     shell != null && !shell.isDisposed && shell.isVisible
+  }
+
+  /** The calculation currently on screen, so a late arrival cannot redraw a window about another run. */
+  private var showing: AvlCalculation = _
+
+  /**
+   * Redraw, because something the report shows arrived after the report did.
+   *
+   * The stall is measured after the window opens — it is an external XFOIL process per aerofoil and the
+   * slowest thing in the analysis path, and holding the whole report back for it looked like a hang. So the
+   * flight-path stability row is drawn without it and filled in here.
+   *
+   * It does nothing if the window has been closed, or if the user has run AVL again in the meantime: a
+   * result that arrives late belongs to the run it came from and to no other.
+   */
+  def refresh(calculation: AvlCalculation): Unit = {
+    if (isOpen && (showing eq calculation)) open(calculation)
   }
 }
