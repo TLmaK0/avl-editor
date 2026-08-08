@@ -416,6 +416,16 @@ contains it. XFOIL gives each section's `clmax` at that section's own Reynolds n
 attitude where the first strip reaches its own section's limit, and `CLmax` is read off AVL's measured `CL(α)`
 there. `xfoil.WingMaximumLift` is the arithmetic, `xfoil.StallAnalysis` the plumbing.
 
+**The stall is read from the wing, and which surface that is, is measured.** It was read from the first
+station *anywhere* on the aircraft, which is not what TR 572's method is about: a canard or a tailplane
+reaching its section limit first is not the aeroplane giving up, and on a close-coupled canard it is the
+design intent — the canard is there to give up first and hold the wing below its own limit. On the sample,
+whose canard sits at `dAinc 25`, that produced a `CLmax` of **0.311** and a stall speed out of it that then
+set the approach speed 3.2.1.3 was judged at. `WingMaximumLift.onsetBySurface` now answers per surface and
+`liftShareBySurface` picks the one carrying the lift — by `sum of cl x area` out of the total, never by a
+name or by which surface is biggest. Surfaces that give up earlier are named with their attitude, because
+past that attitude AVL is still solving them as though they were lifting.
+
 This **replaces `AeroDerivation.CLMAX_3D_FACTOR`**, a flat 0.9 whose own comment said the accurate route was
 this one. The factor is not nonsense — on the check aircraft's rectangular wing the answer is 0.901 of the
 section limit — but on the same aeroplane with a 4:1 tapered wing of the same span and area it is 0.953, and
@@ -611,6 +621,15 @@ any instant — the crossing is located by secant on it and the value taken by c
 both endpoints' values *and* slopes. On the check aircraft that moved `p_osc/p_av` from 0.0077 to
 **0.0459**, a factor of six, and the answer now holds identically when the step is halved, which it did
 not before. `LateralModel.turningPoints`.
+
+**Neither is measured on an aircraft that is running away.** Both are features of a *time history*, and a
+time history of a divergent system measures how long it was integrated, not the aeroplane: the sample
+reported "25.2 degrees of proverse sideslip" and "the roll rate holds 100 % of its peak" on an aircraft
+whose yaw doubles every 0.12 s — an exponential read off at an arbitrary moment, and a sag that never
+happened because nothing was oscillating. A lateral motion that **doubles at least once inside the window**
+therefore refuses both rows and says so, which needs no invented threshold and is the same language the
+runaway list is already written in. A slow spiral — which most models have and fly through — doubles in
+tens of seconds and does not trigger it.
 
 On that model **3.3.2.2 and 3.3.2.4 are then measured, not derived**: a step aileron input is integrated,
 the peaks of the roll-rate trace give `p_osc/p_av` by 6.2.6's own formula, and the largest sideslip in the
