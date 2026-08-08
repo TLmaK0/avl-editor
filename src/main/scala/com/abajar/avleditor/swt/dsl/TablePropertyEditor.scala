@@ -25,6 +25,41 @@ trait TableField {
   def editable: Boolean = true
 }
 
+/**
+ * Which kind of row one `@AvlEditorField` becomes.
+ *
+ * It lives here, and not inside the window that draws the table, so that it can be exercised without a
+ * display. It had been inside the window, and the consequence was not theoretical: `AVL.flightPhase` is a
+ * `String` carrying a constant list of choices, it was handed to [[TableFieldOptions]] — which reads its
+ * field as an **index** with `Field.getInt` — and that throws on a String. The throw came out of the SWT
+ * event loop while the table was painting a cell, so **selecting the AVL node killed the editor**, and
+ * nothing caught it because no check can open a window. `PropertyRowsCheck` now builds every row of every
+ * editable class and reads it, which is exactly what painting does.
+ */
+object TableFieldFactory {
+
+  /**
+   * @param dynamic the choices a field's `optionsFrom` method returned, when it has one.
+   */
+  def forAnnotatedField(data: Any, field: Field, text: String, help: String,
+                        options: Array[String], dynamic: Option[Array[String]]): TableField = {
+    if (dynamic.nonEmpty) {
+      // A list the user can edit cannot be an index into anything: the same index means a different
+      // thing after an edit, so the field keeps the chosen name.
+      new TableFieldNamedOptions(data, field, text, help, dynamic.get)
+    } else if (options.nonEmpty) {
+      // What a constant list of choices means depends on what the field holds, and the two are not
+      // interchangeable: an `int` is an **index** into the list (`Control.type`), a `String` is the
+      // **chosen name itself** (`AVL.flightPhase`). The field's own type decides, so a choice field
+      // added later cannot get it wrong by being declared the other way.
+      if (field.getType == classOf[String]) new TableFieldNamedOptions(data, field, text, help, options)
+      else new TableFieldOptions(data, field, text, help, options)
+    } else {
+      new TableFieldWritable(data, field, text, help)
+    }
+  }
+}
+
 /** Placeholder row for a virtual table that is asked to render data it has no backing
   * object for — e.g. a repaint that lands while the selection is being rebuilt. Keeps the
   * SWT SetData callback from throwing, which would tear down the event loop. */

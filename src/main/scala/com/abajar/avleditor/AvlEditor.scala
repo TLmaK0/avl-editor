@@ -55,6 +55,7 @@ import swt.dsl.TableFieldReadOnly
 import swt.dsl.TableFieldFile
 import swt.dsl.TableFieldOptions
 import swt.dsl.TableFieldNamedOptions
+import swt.dsl.TableFieldFactory
 import swt.dsl.TableFieldEmpty
 import com.abajar.avleditor.jsbsim.SimulationRequirements
 import com.abajar.avleditor.view.annotations
@@ -1283,35 +1284,12 @@ object AvlEditor{
         field <- com.abajar.avleditor.view.PropertyRows.annotatedFields(objClass)
       } yield {
         val annotation = field.getAnnotation(classOf[AvlEditorField])
-        val options = annotation.options()
-        val named =
+        val dynamic =
           if (annotation.optionsFrom().nonEmpty)
             com.abajar.avleditor.view.PropertyRows.dynamicOptions(data, annotation.optionsFrom())
           else None
-        if (named.nonEmpty) {
-          new TableFieldNamedOptions(
-            data,
-            field,
-            annotation.text(),
-            annotation.help(),
-            named.get
-          )
-        } else if (options.nonEmpty) {
-          new TableFieldOptions(
-            data,
-            field,
-            annotation.text(),
-            annotation.help(),
-            options
-          )
-        } else {
-          new TableFieldWritable(
-            data,
-            field,
-            annotation.text(),
-            annotation.help()
-          )
-        }
+        TableFieldFactory.forAnnotatedField(
+          data, field, annotation.text(), annotation.help(), annotation.options(), dynamic)
       }
       val fileFields = for{
         field <- objClass.getDeclaredFields
