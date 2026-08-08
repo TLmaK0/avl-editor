@@ -82,38 +82,19 @@ public class AVL implements Serializable{
     private float velocity = DEFAULT_VELOCITY;
 
     /**
-     * How the aircraft is meant to be flown, which is what the flying-qualities criteria are graded against
-     * (MIL-F-8785C 1.3.2). See {@code docs/mil-f-8785c.md}.
+     * <b>There is no Flight Phase field, and there was one.</b>
      *
-     * <b>It is the one thing about that judgement the aircraft cannot tell us.</b> Everything else the
-     * editor reads off the model — the span sets the frequencies and the times, the derivatives set the
-     * rest — but this is the mission and not the machine: the same airframe flown gently is Category B and
-     * thrown around is Category A, and Category A wants 0.35 of short-period damping rather than 0.30 and
-     * 0.19 of dutch-roll damping rather than 0.08.
+     * MIL-F-8785C grades against a Flight Phase Category (1.3.2) — the same airframe flown gently is
+     * Category B and thrown around is A — so this held the user's answer, defaulting to "Gentle (cruise)".
+     * It was the wrong shape for the question. Judging a category is arithmetic over numbers the run
+     * already produced: no second AVL pass, no second XFOIL. Asking for one bought nothing and cost the
+     * user a setting to understand, and it silently answered 3.2.1.3 — stated for the landing approach and
+     * for nothing else — with "does not apply" to everyone who never found the field.
      *
-     * "Gentle" is the default because it is what most models spend most of their time doing, and because it
-     * is the one an old file that has never heard of this field loads as.
+     * All three are judged and shown side by side instead. See {@code MilF8785cEvaluator
+     * .evaluateEveryCategory}. A model saved with the old key still loads: the YAML reader is set to skip
+     * properties that no longer exist ({@code CRRCSimRepository}).
      */
-    @AvlEditorField(text="How it is flown",
-        help="Which MIL-F-8785C Flight Phase Category the flying qualities are judged against.\n"
-            + "Gentle (B): climb, cruise, loiter, descent — gradual maneuvers.\n"
-            + "Aerobatic (A): rapid maneuvering and precise tracking. Asks noticeably more of the aircraft.\n"
-            + "Takeoff and landing (C): the terminal phases.",
-        options={"Gentle (cruise)", "Aerobatic", "Takeoff and landing"}
-    )
-    private String flightPhase = FLIGHT_PHASE_GENTLE;
-
-    public static final String FLIGHT_PHASE_GENTLE = "Gentle (cruise)";
-    public static final String FLIGHT_PHASE_AEROBATIC = "Aerobatic";
-    public static final String FLIGHT_PHASE_TERMINAL = "Takeoff and landing";
-
-    public String getFlightPhase() {
-        return flightPhase == null ? FLIGHT_PHASE_GENTLE : flightPhase;
-    }
-
-    public void setFlightPhase(String flightPhase) {
-        this.flightPhase = flightPhase;
-    }
 
     // Transient: not saved to file, only available during session
     private transient AvlCalculation lastCalculation;

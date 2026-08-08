@@ -18,7 +18,7 @@ import org.eclipse.swt.graphics.{Font, Color}
 import org.eclipse.swt.events.{SelectionAdapter, SelectionEvent}
 import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.avl.runcase.MilF8785cEvaluator
-import com.abajar.avleditor.avl.runcase.ModalNormRow
+import com.abajar.avleditor.avl.runcase.{ModalNormComparison, ModalNormRow}
 import com.abajar.avleditor.avl.runcase.FlightPhaseCategory
 import com.abajar.avleditor.avl.runcase.RowOutcome
 import scala.collection.JavaConverters._
@@ -102,7 +102,7 @@ class AvlResultsWindow(display: Display) {
     // Modal analysis vs MIL-F-8785C
     val modalGroup = new Group(content, SWT.NONE)
     modalGroup.setText("Flying qualities vs MIL-F-8785C")
-    modalGroup.setLayout(new GridLayout(5, false))
+    modalGroup.setLayout(new GridLayout(ModalColumns, false))
     val modalGridData = new GridData(GridData.FILL_HORIZONTAL)
     modalGridData.horizontalSpan = 2
     modalGroup.setLayoutData(modalGridData)
@@ -116,16 +116,16 @@ class AvlResultsWindow(display: Display) {
       headline.setBackground(failBgColor)
       headline.setForeground(failFgColor)
       val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
-      grid.horizontalSpan = 5
-      grid.widthHint = 1180
+      grid.horizontalSpan = ModalColumns
+      grid.widthHint = 1750
       headline.setLayoutData(grid)
     }
     def wideLine(text: String, indent: Int): Unit = {
       val line = new Label(modalGroup, SWT.WRAP)
       line.setText(text)
       val grid = new GridData(SWT.FILL, SWT.CENTER, true, false)
-      grid.horizontalSpan = 5
-      grid.widthHint = 1180
+      grid.horizontalSpan = ModalColumns
+      grid.widthHint = 1750
       grid.horizontalIndent = indent
       line.setLayoutData(grid)
     }
@@ -141,12 +141,13 @@ class AvlResultsWindow(display: Display) {
       neutrals.foreach(line => wideLine("• " + line, 12))
     }
 
-    // Which Flight Phase these verdicts are for, and whether the aircraft's size moved any of them. The
-    // Category is the one thing here that cannot be derived from the model: it is the mission, not the
-    // machine.
+    // Every Flight Phase at once, and whether the aircraft's size moved any of the thresholds. The Category
+    // is the one thing here that cannot be derived from the model — it is the mission, not the machine — so
+    // rather than ask for it and grade against one, all three are graded and the reader picks the column
+    // that is their aeroplane's life.
     val size = MilF8785cEvaluator.sizeOf(calculation)
-    val category = FlightPhaseCategory.fromModelLabel(calculation.getFlightPhase)
-    wideLine(f"Judged as Flight Phase Category ${category.label}%s — ${category.describes}%s." +
+    wideLine("Judged in all three Flight Phase Categories at once: " +
+      FlightPhaseCategory.All.map(c => f"${c.label}%s, ${c.describes}%s").mkString("; ") + "." +
       (if (size.scales)
         f" This aircraft spans ${size.spanMetres}%.2f m, below the ${size.ReferenceSpanMetres}%.0f m of the " +
           "smallest airplane the standard was written for, so its frequencies and times are scaled to that " +
@@ -170,10 +171,10 @@ class AvlResultsWindow(display: Display) {
       addModalHeader(modalGroup, "What it is")
       addModalHeader(modalGroup, "How often")
       addModalHeader(modalGroup, "Damping")
-      addModalHeader(modalGroup, "Verdict")
+      FlightPhaseCategory.All.foreach(c => addModalHeader(modalGroup, s"${c.label} — ${c.describes}"))
 
-      val rows = MilF8785cEvaluator.evaluate(calculation, category)
-      rows.foreach(row => addModalNormRow(modalGroup, row))
+      MilF8785cEvaluator.evaluateEveryCategory(calculation)
+        .foreach(motion => addModalNormRow(modalGroup, motion))
     }
 
     // Raw eigenvalues table from AVL .eig
@@ -284,21 +285,19 @@ class AvlResultsWindow(display: Display) {
     header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false))
   }
 
+  /** How wide each column of the modal table is. Named because the footnote has to span all of them. */
+  private val ModalColumns = 4 + FlightPhaseCategory.All.length
+
   /**
    * One motion per row, in the order a reader wants it: what it is, how fast it swings, how quickly it dies
-   * down, and whether that is good enough — with the numbers the standard is written in kept alongside.
+   * down, and then **one verdict per Flight Phase** — because what was measured is the aeroplane and what it
+   * is compared against is the mission, and the aircraft has no opinion about which mission it will fly.
    *
    * It used to be `wn [rad/s]`, `zeta` and `MIL-F-8785C L1 Phase B: 0.30 <= zeta <= 2.00` repeated on every
    * row, which names the standard three times, states the rule in symbols and leaves the reader to compare it
    * with the number themselves.
    */
-  private def addModalNormRow(parent: Composite, row: ModalNormRow): Unit = {
-    val bgColor = row.pass match {
-      case Some(true)  => passBgColor
-      case Some(false) => failBgColor
-      case None        => naBgColor
-    }
-
+  private def addModalNormRow(parent: Composite, motion: ModalNormComparison): Unit = {
     // No background on the data cells. Setting one without setting a foreground is how this table came out
     // white on white: the colours below are light, and a dark theme's default text is light too. The rule is
     // that whoever sets a background sets the text colour with it — so these set neither and inherit both.
@@ -312,57 +311,71 @@ class AvlResultsWindow(display: Display) {
       label
     }
 
-    cell(row.modeName, 175, font = headerFont)
-    cell(row.whatItIs, 260, wrap = true)
+    cell(motion.modeName, 165, font = headerFont)
+    cell(motion.whatItIs, 230, wrap = true)
     // The period is what a stopwatch would measure, and it means something; radians per second does not.
-    cell(row.period.map(p => f"every $p%.2f s").getOrElse("—"), 110, font = monoFont)
-    val damping = (row.zeta, row.swingsToHalf) match {
+    cell(motion.period.map(p => f"every $p%.2f s").getOrElse("—"), 105, font = monoFont)
+    val damping = (motion.zeta, motion.swingsToHalf) match {
       case (Some(z), Some(swings)) => f"$z%.2f  (half in ${swings}%.1f swings)"
       case (Some(z), None) if z >= 1.0 => f"$z%.2f  (no swing at all)"
       case (Some(z), None) => f"$z%.2f"
       case _ => "—"
     }
-    cell(damping, 190, font = monoFont)
+    cell(damping, 175, font = monoFont)
 
-    // The verdict is the one cell that carries a colour, and it carries both of them: a light background and
-    // a dark text on it, chosen together so the pair is readable whatever the desktop theme is.
-    val verdict = new Label(parent, SWT.WRAP)
-    // The Level, not a pass: the standard is written in three of them, and an aircraft that misses Level 1 is
-    // usually flyable rather than broken. The verdict says which one it reached; the colour still marks
-    // Level 1 apart, because that is the one to aim at.
-    // Matched on the sealed set, so a new kind of outcome is a compile error here rather than something
-    // that quietly falls through to the plain text.
-    verdict.setText(row.outcome match {
-      case RowOutcome.Reached(n)           => f"LEVEL $n%d — " + row.verdict
-      case RowOutcome.WorseThanLevelThree  => "WORSE THAN LEVEL 3 — " + row.verdict
-      case RowOutcome.OnTheBoundary        => "ON THE BOUNDARY — " + row.verdict
-      case RowOutcome.NotFound             => row.verdict
-      case RowOutcome.NotJudged            => row.verdict
-      case RowOutcome.DoesNotApply         => row.verdict
-    })
-    verdict.setBackground(bgColor)
-    verdict.setForeground(row.pass match {
-      case Some(true) => passFgColor
-      case Some(false) => failFgColor
-      case None => naFgColor
-    })
-    verdict.setFont(headerFont)
-    val verdictGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
-    verdictGrid.widthHint = 470
-    verdict.setLayoutData(verdictGrid)
+    // One verdict per Flight Phase. Each is the one cell that carries a colour, and it carries both of them:
+    // a light background and a dark text on it, chosen together so the pair is readable whatever the
+    // desktop theme is.
+    motion.byCategory.foreach { case (_, row) =>
+      val verdict = new Label(parent, SWT.WRAP)
+      // The Level, not a pass: the standard is written in three of them, and an aircraft that misses Level 1
+      // is usually flyable rather than broken. The verdict says which one it reached; the colour still marks
+      // Level 1 apart, because that is the one to aim at.
+      // Matched on the sealed set, so a new kind of outcome is a compile error here rather than something
+      // that quietly falls through to the plain text.
+      verdict.setText(row.outcome match {
+        case RowOutcome.Reached(n)           => f"LEVEL $n%d — " + row.verdict
+        case RowOutcome.WorseThanLevelThree  => "WORSE THAN LEVEL 3 — " + row.verdict
+        case RowOutcome.OnTheBoundary        => "ON THE BOUNDARY — " + row.verdict
+        case RowOutcome.NotFound             => row.verdict
+        case RowOutcome.NotJudged            => row.verdict
+        case RowOutcome.DoesNotApply         => row.verdict
+      })
+      verdict.setBackground(row.pass match {
+        case Some(true)  => passBgColor
+        case Some(false) => failBgColor
+        case None        => naBgColor
+      })
+      verdict.setForeground(row.pass match {
+        case Some(true) => passFgColor
+        case Some(false) => failFgColor
+        case None => naFgColor
+      })
+      verdict.setFont(headerFont)
+      val verdictGrid = new GridData(SWT.FILL, SWT.FILL, true, false)
+      verdictGrid.widthHint = 380
+      verdict.setLayoutData(verdictGrid)
+    }
 
     // The figures the standard is written in, and the rule it asks for, on their own line under the row: worth
-    // having to quote, not worth reading first.
+    // having to quote, not worth reading first. One rule per Category, because that is the half of the
+    // comparison that changes with the mission — the measurement above it does not.
     val footnote = new Label(parent, SWT.WRAP)
-    footnote.setText(row.wn.map(w => f"wn ${w}%.3f rad/s · ").getOrElse("") +
-      "MIL-F-8785C Level 1 wants " + row.requirement +
+    val rules = motion.byCategory.map { case (category, row) =>
       // What the requirement became at this aircraft's size, when its size moved it. Both are always shown:
       // a verdict that silently moved the goalposts would be worse than one that never moved them.
-      row.applied.map(applied => " · " + applied).getOrElse(""))
-    // Neither: the theme's own text colour, whatever it is. Grey on a dark theme is as unreadable as white
-    // on white was, and this line is already set apart by sitting under the row and indented.
+      f"${category.label}%s: " + row.requirement + row.applied.map(a => " (" + a + ")").getOrElse("")
+    }
+    // Said once when the three agree, which is most of them: repeating an identical rule three times is
+    // noise, and the reader is meant to notice the ones that differ.
+    val distinct = motion.byCategory.map(_._2.requirement).distinct
+    footnote.setText(motion.wn.map(w => f"wn ${w}%.3f rad/s · ").getOrElse("") +
+      "MIL-F-8785C Level 1 wants " +
+      (if (distinct.length == 1) rules.head.dropWhile(_ != ' ').trim else rules.mkString(" · ")))
+    // Neither background nor foreground: the theme's own text colour, whatever it is. Grey on a dark theme
+    // is as unreadable as white on white was, and this line is already set apart by sitting under the row.
     val footGrid = new GridData(SWT.FILL, SWT.CENTER, true, false)
-    footGrid.horizontalSpan = 5
+    footGrid.horizontalSpan = ModalColumns
     footGrid.horizontalIndent = 12
     footnote.setLayoutData(footGrid)
   }

@@ -50,7 +50,7 @@ object StaticStabilityCheck {
   }
 
   private def row(calc: AvlCalculation, name: String): ModalNormRow =
-    MilF8785cEvaluator.evaluate(calc).find(_.modeName == name).get
+    MilF8785cEvaluator.evaluate(calc, FlightPhaseCategory.B).find(_.modeName == name).get
 
   /** A real divergence whose mode shape is speed-dominated: u and theta, no pitch rate to speak of. */
   private def speedRunaway(sigma: Float, calc: AvlCalculation): AvlCalculation = {

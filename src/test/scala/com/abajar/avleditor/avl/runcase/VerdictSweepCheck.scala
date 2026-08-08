@@ -89,6 +89,19 @@ object VerdictSweepCheck {
       if (rowCount < 0) rowCount = rows.size
       check(s"the same rows come back every time ($where)", rows.size == rowCount)
 
+      // The report judges all three Flight Phases and joins them by position, which is only sound if the
+      // three passes return the same motions in the same order. Asserted here rather than assumed there,
+      // across every case in the sweep.
+      val everyPhase = MilF8785cEvaluator.evaluateEveryCategory(calc)
+      check(s"all three Categories are judged, in order ($where)",
+        everyPhase.forall(_.byCategory.map(_._1) == FlightPhaseCategory.All))
+      check(s"and they name the same motions in the same order ($where)",
+        everyPhase.map(_.modeName) == rows.map(_.modeName) &&
+          everyPhase.forall(m => m.byCategory.forall(_._2.modeName == m.modeName)))
+      check(s"each column is the single judgement for that Category ($where)",
+        everyPhase.forall(m => m.rowFor(category).map(_.verdict) ==
+          rows.find(_.modeName == m.modeName).map(_.verdict)))
+
       rows.foreach { row =>
         check(s"'${row.modeName}' always says something ($where)", row.verdict.trim.nonEmpty)
         check(s"'${row.modeName}' names the motion ($where)", row.whatItIs.trim.nonEmpty)

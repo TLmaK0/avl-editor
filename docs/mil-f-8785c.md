@@ -49,9 +49,10 @@ A suffix `-L` means land-based and `-C` carrier-based (§1.3.1.1).
 | 2 | Adequate, but with an increase in pilot workload or a degradation in mission effectiveness |
 | 3 | Degraded, but the airplane can still be controlled |
 
-The editor currently reports **Level 1, Category B** and nothing else, which is the right default for a
-model in cruise but is not stated as a choice anywhere. Levels 2 and 3 are far more useful answers than
-a bare FAIL, and an aerobatic model flies Category A.
+The editor reports **all three Levels in all three Categories**: one row per motion, one column per
+Flight Phase. The Category is the one thing about the judgement that cannot be derived from the aircraft,
+and judging one costs nothing over judging three — so it is not asked for. See AGENTS.md, "The Flight
+Phase Category is the one thing the aircraft cannot tell us".
 
 ---
 
@@ -97,8 +98,7 @@ is dimensionless and does not scale, while ωnsp goes as `1/sqrt(b)`.
 
 **Not implemented from those figures**: the additional ωnsp floors that Figures 1 and 3 draw as horizontal
 and vertical lines at low `n/α`, which depend on the aircraft Class — including Figure 3's note that ωnsp
-shall always exceed 0.6 rad/s for Level 3 in Classes I, II-C and IV. Category B, the default, has none of
-them.
+shall always exceed 0.6 rad/s for Level 3 in Classes I, II-C and IV. Category B has none of them.
 
 ### §3.2.2.1.2 Short-period damping — TABLE IV, PDF p. 13
 
@@ -112,7 +112,7 @@ them.
 
 \* May be reduced at altitudes above 20,000 ft if approved by the procuring activity.
 
-**Implemented** (Category B, Level 1) and correct.
+**Implemented**, in all three Categories.
 
 ### §3.2.1.1 Longitudinal static stability — p. 11
 

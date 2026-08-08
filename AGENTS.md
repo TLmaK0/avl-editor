@@ -727,12 +727,29 @@ an aircraft that misses it is usually flyable rather than broken. A row now says
 **and what kept it from Level 1** — a bare Level would be the old FAIL with a number on it, telling the
 reader where they are and not which way to move.
 
-**The Flight Phase Category is the one thing the aircraft cannot tell us.** It is the mission, not the
-machine: the same airframe flown gently is Category B and thrown around is Category A, which wants 0.35 of
-short-period damping rather than 0.30, 0.19 of dutch-roll damping rather than 0.08, and 60 degrees of bank
-in 1.3 s rather than 1.7. So it is a **field on the model** — `AVL.flightPhase`, "How it is flown" — saved
-with the file and defaulting to gentle, which is what a file written before the field existed is judged as
-and always was. Everything else is read off the model.
+**The Flight Phase Category is the one thing the aircraft cannot tell us**, and it is not asked for either.
+It is the mission, not the machine: the same airframe flown gently is Category B and thrown around is
+Category A, which wants 0.35 of short-period damping rather than 0.30, 0.19 of dutch-roll damping rather
+than 0.08, and 60 degrees of bank in 1.3 s rather than 1.7.
+
+It was a **field on the model** — `AVL.flightPhase`, "How it is flown" — and that was the wrong shape for
+it. Judging a Category is arithmetic over numbers the run has already produced: no second AVL pass, no
+second XFOIL. So asking the user to pick one bought nothing and cost them a setting to understand, and it
+quietly answered 3.2.1.3 — stated for the landing approach and for nothing else — with "does not apply" to
+everyone who never found the field.
+
+**All three are judged, and the report has a column each** (`MilF8785cEvaluator.evaluateEveryCategory`).
+The answer is better than the one a choice gave: not "Level 1", but *"Level 1 flown gently, Level 2 thrown
+around"* — a fact about the aeroplane rather than a configuration of the report. The split it rests on is
+that **what was measured is the aircraft and what it is compared against is the mission**, so a row carries
+one measurement and three verdicts. Two do not, and the shape says so rather than pretending: roll response
+is measured against a different bank angle in each Category (TABLE IXa), and flight-path stability exists
+only in C. There is deliberately **no default Category** — a default is what a caller falls into without
+deciding — so every caller names the one it means, and `EnvelopeSweepTool` says in its header that its CSV
+is Category B.
+
+A file saved with the old `flightPhase` key still loads: the YAML reader skips properties that no longer
+exist, which is what `CRRCSimRepository` set `skipMissingProperties` for in the first place.
 
 ### The criteria follow the aircraft's size
 

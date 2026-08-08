@@ -68,20 +68,6 @@ public class AvlCalculation {
         return controlMaxDeflections;
     }
 
-    /**
-     * How the model says it is meant to be flown, carried through from {@code AVL.getFlightPhase()} so that
-     * the results window grades against the Flight Phase the user chose rather than assuming one.
-     */
-    private String flightPhase;
-
-    public void setFlightPhase(String flightPhase) {
-        this.flightPhase = flightPhase;
-    }
-
-    public String getFlightPhase() {
-        return flightPhase;
-    }
-
     public void setTrimControlValues(float[] trimControlValues) {
         this.trimControlValues = trimControlValues;
     }

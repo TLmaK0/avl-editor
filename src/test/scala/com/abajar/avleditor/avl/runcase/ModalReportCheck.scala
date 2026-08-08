@@ -141,7 +141,7 @@ object ModalReportCheck {
     // Without the mode shapes AVL prints alongside each eigenvalue there is nothing to tell a short
     // period from a dutch roll, and the evaluator says so rather than picking one. The roll mode and the
     // spiral are real roots, so they are absent here for a different reason and are not part of this.
-    val oscillatoryRows = MilF8785cEvaluator.evaluate(oscillatory)
+    val oscillatoryRows = MilF8785cEvaluator.evaluate(oscillatory, FlightPhaseCategory.B)
       .filter(r => Set("Short-period", "Dutch-roll", "Phugoid").contains(r.modeName))
     check("but it will not name a mode it cannot identify",
       oscillatoryRows.forall(row => row.pass.isEmpty && row.verdict.contains("Not judged")))
@@ -149,7 +149,7 @@ object ModalReportCheck {
       oscillatoryRows.forall(_.verdict.contains("no mode shapes")))
 
     println("and the row says what the motion is, not only what the standard calls it")
-    val unnamed = MilF8785cEvaluator.evaluate(oscillatory)
+    val unnamed = MilF8785cEvaluator.evaluate(oscillatory, FlightPhaseCategory.B)
     check("each one is described in words",
       unnamed.forall(r => r.whatItIs.length > 20 && !r.whatItIs.contains("zeta")))
     check("and the rule is stated without repeating the standard's name on every row",
@@ -165,7 +165,7 @@ object ModalReportCheck {
     lateral.setModeStateAmplitude("v", 1.0f)
     lateral.setModeStateAmplitude("p", 0.8f)
     lateral.setModeStateAmplitude("r", 0.6f)
-    val judged = MilF8785cEvaluator.evaluate(shaped)
+    val judged = MilF8785cEvaluator.evaluate(shaped, FlightPhaseCategory.B)
     judged.foreach(r => println(f"    ${r.modeName}%-14s wn=${r.wn.getOrElse(Double.NaN)}%6.3f " +
       f"zeta=${r.zeta.getOrElse(Double.NaN)}%6.3f pass=${r.pass}"))
     // wn = sqrt(1 + 9) = 3.162, zeta = 1 / 3.162 = 0.316, inside MIL-F-8785C's 0.30..2.00.
@@ -188,7 +188,7 @@ object ModalReportCheck {
       phugoid.pass.isEmpty && phugoid.verdict.startsWith("Not found") &&
         !phugoid.verdict.contains("no mode shapes"))
 
-    val failing = MilF8785cEvaluator.evaluate(shaped).find(_.pass == Some(false))
+    val failing = MilF8785cEvaluator.evaluate(shaped, FlightPhaseCategory.B).find(_.pass == Some(false))
     failing.foreach { r =>
       println("    " + r.modeName + ": " + r.verdict)
       // Not "FAIL" and a symbol: which way it misses, by how much, and what moves it.
@@ -211,7 +211,7 @@ object ModalReportCheck {
     wag.setModeStateAmplitude("r", 0.3f)
     check("beta comes from the lateral velocity and the speed, as the experiment established",
       math.abs(wag.phiOverBeta(20f) - 10.0f) < 0.01f)
-    val augmentedRow = MilF8785cEvaluator.evaluate(augmented).find(_.modeName == "Dutch-roll").get
+    val augmentedRow = MilF8785cEvaluator.evaluate(augmented, FlightPhaseCategory.B).find(_.modeName == "Dutch-roll").get
     println("    " + augmentedRow.verdict)
     println("    " + augmentedRow.applied.getOrElse("(no augmentation)"))
     check("the requirement is raised above the tabulated one",
@@ -224,7 +224,7 @@ object ModalReportCheck {
     untouched.getEigenvalues.get(0).setModeStateAmplitude("v", 1.0f)
     untouched.getEigenvalues.get(0).setModeStateAmplitude("phi", 0.05f)
     untouched.getEigenvalues.get(0).setModeStateAmplitude("r", 0.3f)
-    val untouchedRow = MilF8785cEvaluator.evaluate(untouched).find(_.modeName == "Dutch-roll").get
+    val untouchedRow = MilF8785cEvaluator.evaluate(untouched, FlightPhaseCategory.B).find(_.modeName == "Dutch-roll").get
     println("    below the trigger: " + untouchedRow.verdict)
     check("under the trigger nothing is raised and the same aircraft meets Level 1",
       untouchedRow.level == Some(1) && untouchedRow.applied.isEmpty)
@@ -240,7 +240,7 @@ object ModalReportCheck {
     spiralRoot.setModeStateAmplitude("p", 0.1f)
     spiralRoot.setModeStateAmplitude("phi", 1.0f)
     spiralRoot.setModeStateAmplitude("psi", 0.8f)
-    val realRows = MilF8785cEvaluator.evaluate(lateralReal)
+    val realRows = MilF8785cEvaluator.evaluate(lateralReal, FlightPhaseCategory.B)
     realRows.foreach(r => println(f"    ${r.modeName}%-20s level=${r.level}%s  ${r.verdict}%s"))
     // tau = 1/3 s against TABLE VII's 1.4 s for Category B.
     val rollRow = realRows.find(_.modeName == "Roll mode").get
@@ -263,7 +263,7 @@ object ModalReportCheck {
     val stableSpiral = run(Seq((-0.05f, 0f)))
     stableSpiral.getEigenvalues.get(0).setModeStateAmplitude("phi", 1.0f)
     stableSpiral.getEigenvalues.get(0).setModeStateAmplitude("psi", 0.8f)
-    val stableRow = MilF8785cEvaluator.evaluate(stableSpiral).find(_.modeName == "Spiral").get
+    val stableRow = MilF8785cEvaluator.evaluate(stableSpiral, FlightPhaseCategory.B).find(_.modeName == "Spiral").get
     println("    " + stableRow.verdict)
     check("it meets Level 1", stableRow.level == Some(1))
     check("and says the bank rights itself", stableRow.verdict.contains("rights itself"))
@@ -278,7 +278,7 @@ object ModalReportCheck {
     small.getEigenvalues.get(1).setModeStateAmplitude("p", 0.1f)
     small.getEigenvalues.get(1).setModeStateAmplitude("phi", 1.0f)
     small.getEigenvalues.get(1).setModeStateAmplitude("psi", 0.8f)
-    val smallSpiral = MilF8785cEvaluator.evaluate(small).find(_.modeName == "Spiral").get
+    val smallSpiral = MilF8785cEvaluator.evaluate(small, FlightPhaseCategory.B).find(_.modeName == "Spiral").get
     println("    " + smallSpiral.verdict)
     println("    " + smallSpiral.applied.getOrElse("(not scaled)"))
     check("the same motion reaches Level 1 at model size", smallSpiral.level == Some(1))
@@ -286,10 +286,10 @@ object ModalReportCheck {
     check("while still stating what the standard says",
       smallSpiral.requirement.contains("20 s"))
     check("a full-size aircraft has nothing scaled",
-      MilF8785cEvaluator.evaluate(run(Seq((0.05f, 0f)), spanMetres = 30f))
+      MilF8785cEvaluator.evaluate(run(Seq((0.05f, 0f)), spanMetres = 30f), FlightPhaseCategory.B)
         .forall(_.applied.isEmpty))
 
-    println("the Flight Phase changes what is asked, and it is the one thing the aircraft cannot tell us")
+    println("the Flight Phase changes what is asked, and all three are answered rather than chosen")
     // TABLE IV: Category B wants 0.30 of short-period damping, Category A wants 0.35. Same aircraft.
     val marginal = run(Seq((-1.0f, 3.05f)))
     marginal.getEigenvalues.get(0).setModeStateAmplitude("w", 1.0f)
@@ -301,20 +301,38 @@ object ModalReportCheck {
       f"Category B -> ${shortLevel(FlightPhaseCategory.B)}%s, Category A -> ${shortLevel(FlightPhaseCategory.A)}%s")
     check("gentle flying accepts it", shortLevel(FlightPhaseCategory.B) == Some(1))
     check("and rapid maneuvering does not", shortLevel(FlightPhaseCategory.A) == Some(2))
-    // The user picks it on the model and it is saved with the file; a file written before the field existed
-    // has no opinion, and is judged as it always was.
-    check("the model's own words choose it",
-      FlightPhaseCategory.fromModelLabel(com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_AEROBATIC) ==
-        FlightPhaseCategory.A &&
-      FlightPhaseCategory.fromModelLabel(com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_TERMINAL) ==
-        FlightPhaseCategory.C &&
-      FlightPhaseCategory.fromModelLabel(com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_GENTLE) ==
-        FlightPhaseCategory.B)
-    check("and a file that never heard of it is judged as it always was",
-      FlightPhaseCategory.fromModelLabel(null) == FlightPhaseCategory.B)
-    check("a new model starts out flown gently",
-      FlightPhaseCategory.fromModelLabel(new com.abajar.avleditor.avl.AVL().getFlightPhase) ==
-        FlightPhaseCategory.B)
+
+    // It used to be a field on the model, so this same aircraft answered one of those two and kept the
+    // other to itself. Judging a Category is arithmetic over what the run already produced, so all three
+    // are answered and the reader takes the column that is their aeroplane's life.
+    val everyPhase = MilF8785cEvaluator.evaluateEveryCategory(marginal)
+    val shortPeriodEverywhere = everyPhase.find(_.modeName == "Short-period").get
+    println("    all three: " + shortPeriodEverywhere.byCategory
+      .map { case (c, row) => f"${c.label}%s -> ${row.level.map(_.toString).getOrElse("-")}%s" }
+      .mkString(", "))
+    check("every motion carries all three Categories",
+      everyPhase.forall(_.byCategory.map(_._1) == FlightPhaseCategory.All))
+    check("and the same motions come back as judging them one at a time",
+      everyPhase.map(_.modeName) ==
+        MilF8785cEvaluator.evaluate(marginal, FlightPhaseCategory.B).map(_.modeName))
+    check("the three verdicts are the three single judgements",
+      FlightPhaseCategory.All.forall(category =>
+        shortPeriodEverywhere.rowFor(category).map(_.level) == Some(shortLevel(category))))
+    // What was measured is the aeroplane and does not change with the mission; what it is compared against
+    // does. That split is the whole reason the row holds one measurement and three verdicts.
+    check("the measurement is shared, being a property of the mode",
+      shortPeriodEverywhere.byCategory.map(_._2.zeta).distinct.length == 1 &&
+        shortPeriodEverywhere.zeta == shortPeriodEverywhere.byCategory.head._2.zeta)
+    check("and the rule is not",
+      shortPeriodEverywhere.byCategory.map(_._2.requirement).distinct.length > 1)
+    // 3.2.1.3 is stated for the landing approach and for nothing else, which used to read as "does not
+    // apply" to everybody who never found the field. Now it is answered in the column where it applies.
+    val flightPath = everyPhase.find(_.modeName == "Flight-path stability").get
+    check("a Category C requirement says so in A and B",
+      Seq(FlightPhaseCategory.A, FlightPhaseCategory.B).forall(c =>
+        flightPath.rowFor(c).exists(_.outcome == RowOutcome.DoesNotApply)))
+    check("and is actually judged in C",
+      flightPath.rowFor(FlightPhaseCategory.C).exists(_.outcome != RowOutcome.DoesNotApply))
 
     println(if (ok) "MODAL_REPORT_OK" else "MODAL_REPORT_FAIL")
     if (!ok) sys.exit(1)

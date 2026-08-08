@@ -270,7 +270,6 @@ public class AvlRunner {
         float[] controlGains = extractControlGains(controlNames);
         runCase.setControlGains(controlGains);
         runCase.setControlMaxDeflections(extractControlMaxDeflections(controlNames));
-        runCase.setFlightPhase(avl.getFlightPhase());
         float[] trimControlValues = readTrimControlValues(stabilityFile, controlNames);
         runCase.setTrimControlValues(trimControlValues);
         runCase.setTrimControlDeflections(calculateTrimControlDeflections(trimControlValues, controlGains));

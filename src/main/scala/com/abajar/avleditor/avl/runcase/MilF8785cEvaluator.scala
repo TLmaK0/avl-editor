@@ -83,10 +83,21 @@ object RowOutcome {
 /**
  * Which Flight Phase the aircraft is being judged in (MIL-F-8785C 1.3.2, PDF p. 5-6).
  *
- * This is the one thing about the judgement that **cannot be derived from the aircraft**: it is the mission,
- * not the machine. The same airframe flown gently is Category B and thrown around is Category A, and Category
- * A wants noticeably more of it — short-period damping from 0.35 rather than 0.30, dutch-roll damping 0.19
- * rather than 0.08. So it is a choice, and its default is B: gradual maneuvering, which is cruise.
+ * It is the one thing about the judgement that **cannot be derived from the aircraft**: it is the mission,
+ * not the machine. The same airframe flown gently is Category B and thrown around is Category A, and
+ * Category A wants noticeably more of it — short-period damping from 0.35 rather than 0.30, dutch-roll
+ * damping 0.19 rather than 0.08.
+ *
+ * So it used to be a **field on the model**, defaulting to B, and it was the wrong shape for it. Judging one
+ * category is arithmetic over numbers already in hand — no second AVL run, no second XFOIL — so asking the
+ * user to pick one bought nothing and cost them a setting to understand. All three are judged instead, and
+ * the answer is better than the one a choice gave: not "Level 1", but *"Level 1 flown gently, Level 2 thrown
+ * around, Level 3 on approach"*, which is a fact about the aeroplane rather than a configuration of the
+ * report. It also stopped 3.2.1.3 — stated for the approach and for nothing else — from being answered
+ * "does not apply" to everyone who had not gone looking for the field.
+ *
+ * There is deliberately **no default**. A default is what a caller falls into without deciding, and the
+ * three are not interchangeable.
  */
 sealed abstract class FlightPhaseCategory(val label: String, val describes: String)
 
@@ -98,17 +109,33 @@ object FlightPhaseCategory {
   /** Terminal: takeoff, approach, landing. */
   case object C extends FlightPhaseCategory("C", "takeoff, approach and landing")
 
-  val Default: FlightPhaseCategory = B
+  /** All of them, in the order the standard names them and the report shows them. */
+  val All: List[FlightPhaseCategory] = List(A, B, C)
+}
 
-  /**
-   * The model's own words for it, from `AVL.flightPhase`. Anything unrecognised — including a file written
-   * before the field existed — is the default, which is what such a file was being judged as anyway.
-   */
-  def fromModelLabel(label: String): FlightPhaseCategory = label match {
-    case com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_AEROBATIC => A
-    case com.abajar.avleditor.avl.AVL.FLIGHT_PHASE_TERMINAL  => C
-    case _                                                   => Default
-  }
+/**
+ * One motion, judged in every Flight Phase at once.
+ *
+ * The split is the point: what was **measured** is the aeroplane and does not change with the mission, and
+ * what it is **compared against** does. Most motions therefore carry one measurement and three verdicts.
+ *
+ * Two do not, and pretending otherwise would be the lie this shape exists to avoid: roll response is
+ * measured against a different bank angle in each category (TABLE IXa), so its measurement differs too; and
+ * flight-path stability is stated for the landing approach only, so its A and B verdicts say the question
+ * was not asked. Both are carried per category, which is why `byCategory` holds whole rows rather than
+ * three Levels.
+ */
+case class ModalNormComparison(
+  modeName: String,
+  whatItIs: String,
+  wn: Option[Double],
+  zeta: Option[Double],
+  period: Option[Double],
+  swingsToHalf: Option[Double],
+  byCategory: List[(FlightPhaseCategory, ModalNormRow)]
+) {
+  def rowFor(category: FlightPhaseCategory): Option[ModalNormRow] =
+    byCategory.find(_._1 == category).map(_._2)
 }
 
 /**
@@ -524,8 +551,26 @@ object MilF8785cEvaluator {
     case None    => "Worse than Level 3: " + misses
   }
 
-  def evaluate(calculation: AvlCalculation): List[ModalNormRow] =
-    evaluate(calculation, FlightPhaseCategory.Default)
+  /**
+   * Every motion, judged in all three Flight Phases — which is what the report shows, because judging one
+   * more category costs arithmetic and the aircraft has no opinion about which one it will be flown in.
+   *
+   * The three passes return the same motions in the same order by construction — the list in `evaluate` is
+   * literal and its length does not branch on the category — so they are joined by position, and
+   * `VerdictSweepCheck` asserts across 1764 cases that the names line up. The shared measurements are taken
+   * from whichever category reported them; they are properties of the mode and cannot differ.
+   */
+  def evaluateEveryCategory(calculation: AvlCalculation): List[ModalNormComparison] = {
+    val byCategory = FlightPhaseCategory.All.map(category => (category, evaluate(calculation, category)))
+    val motions = byCategory.map(_._2.length).min
+    (0 until motions).toList.map { i =>
+      val rows = byCategory.map { case (category, list) => (category, list(i)) }
+      val all = rows.map(_._2)
+      ModalNormComparison(all.head.modeName, all.head.whatItIs,
+        all.flatMap(_.wn).headOption, all.flatMap(_.zeta).headOption,
+        all.flatMap(_.period).headOption, all.flatMap(_.swingsToHalf).headOption, rows)
+    }
+  }
 
   def evaluate(calculation: AvlCalculation, category: FlightPhaseCategory): List[ModalNormRow] = {
     val size = sizeOf(calculation)

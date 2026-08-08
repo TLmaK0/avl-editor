@@ -14,7 +14,7 @@ import com.abajar.avleditor.avl.AVL
 import com.abajar.avleditor.avl.AVLGeometry
 import com.abajar.avleditor.avl.connectivity.AvlRunner
 import com.abajar.avleditor.avl.mass.Mass
-import com.abajar.avleditor.avl.runcase.MilF8785cEvaluator
+import com.abajar.avleditor.avl.runcase.{FlightPhaseCategory, MilF8785cEvaluator}
 import com.abajar.avleditor.avl.runcase.ModalNormRow
 import com.abajar.avleditor.crrcsim.CRRCSimRepository
 import java.io.File
@@ -180,7 +180,10 @@ object EnvelopeSweepTool {
     try {
       val runner = new AvlRunner(avlPath, avl, originPath)
       val calc = runner.getCalculation
-      val milRows = MilF8785cEvaluator.evaluate(calc)
+      // One Category, stated: this tool sweeps mass and CG across a speed range and writes one CSV column
+      // per motion, so three verdicts per motion would not fit the shape of the file. B — gradual
+      // maneuvering — is the phase a cruise sweep is about, and the header says so.
+      val milRows = MilF8785cEvaluator.evaluate(calc, FlightPhaseCategory.B)
       val shortResult = modeResult(milRows, "Short-period")
       val dutchResult = modeResult(milRows, "Dutch-roll")
       val phugoidResult = modeResult(milRows, "Phugoid")
