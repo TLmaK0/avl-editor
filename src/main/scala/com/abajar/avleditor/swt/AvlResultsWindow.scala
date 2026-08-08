@@ -149,7 +149,7 @@ class AvlResultsWindow(display: Display) {
     wideLine("Judged in all three Flight Phase Categories at once: " +
       FlightPhaseCategory.All.map(c => f"${c.label}%s, ${c.describes}%s").mkString("; ") + "." +
       (if (size.scales)
-        f" This aircraft spans ${size.spanMetres}%.2f m, below the ${size.ReferenceSpanMetres}%.0f m of the " +
+        f" This aircraft spans ${size.spanMetres}%.2f m, below the ${size.ReferenceSpanMetres}%.2f m of the " +
           "smallest airplane the standard was written for, so its frequencies and times are scaled to that " +
           "size; both figures are given on each row."
       else if (size.known)
@@ -323,10 +323,13 @@ class AvlResultsWindow(display: Display) {
     }
     cell(damping, 175, font = monoFont)
 
-    // One verdict per Flight Phase. Each is the one cell that carries a colour, and it carries both of them:
-    // a light background and a dark text on it, chosen together so the pair is readable whatever the
-    // desktop theme is.
-    motion.byCategory.foreach { case (_, row) =>
+    // One verdict per Flight Phase — except when the three say exactly the same thing, which is most of
+    // them, and then it is said once across all three columns. Three identical paragraphs side by side are
+    // not three answers; they are one answer that makes the reader check whether it really is one, and
+    // they bury the rows where the Categories genuinely differ, which are the interesting ones.
+    val identical = motion.byCategory.map(r => (r._2.verdict, r._2.outcome, r._2.pass)).distinct.length == 1
+    val shown = if (identical) motion.byCategory.take(1) else motion.byCategory
+    shown.foreach { case (_, row) =>
       val verdict = new Label(parent, SWT.WRAP)
       // The Level, not a pass: the standard is written in three of them, and an aircraft that misses Level 1
       // is usually flyable rather than broken. The verdict says which one it reached; the colour still marks
@@ -353,7 +356,8 @@ class AvlResultsWindow(display: Display) {
       })
       verdict.setFont(headerFont)
       val verdictGrid = new GridData(SWT.FILL, SWT.FILL, true, false)
-      verdictGrid.widthHint = 380
+      verdictGrid.widthHint = if (identical) 380 * FlightPhaseCategory.All.length else 380
+      if (identical) verdictGrid.horizontalSpan = FlightPhaseCategory.All.length
       verdict.setLayoutData(verdictGrid)
     }
 
