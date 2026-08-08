@@ -64,6 +64,10 @@ public class UnitConversor {
     }
 
     public float convertToSeconds(float quantity, String timeUnit){
+        return quantity * this.getFactorTime(timeUnit);
+    }
+
+    private float getFactorTime(String timeUnit) {
         float factor;
         if (timeUnit.equals("h")) factor = HOURS_TO_SECONDS;
         else if (timeUnit.equals("m")) factor = MINUTES_TO_SECONDS;
@@ -71,7 +75,16 @@ public class UnitConversor {
         else throw new UnsupportedOperationException("unreconized unity " + timeUnit + ". Only allowed s, m or h");
         return factor;
     }
+
+    /**
+     * A speed stated in the model's length per the model's time, in m/s.
+     *
+     * The time factor <b>divides</b>, and that is the whole content of this method: a length converts by
+     * multiplying, a time in a denominator by dividing. Written the other way round — and it was —
+     * a model stated in minutes came out 3,600 times too fast, and one stated in seconds was right, which
+     * is why nothing noticed.
+     */
     public float convertToMetersPerSecond(float velocity, String lengthUnit, String timeUnit) {
-        return convertToSeconds(convertToMeters(velocity, lengthUnit), timeUnit);
+        return convertToMeters(velocity, lengthUnit) / this.getFactorTime(timeUnit);
     }
 }

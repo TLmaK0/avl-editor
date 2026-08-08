@@ -212,6 +212,36 @@ point** read twice — one converted, one not. Everything now goes through `Jsbs
 The one thing already in SI is `Config.mass_inertia`: `calculate()` writes kilograms and kg·m² into it whatever
 the model states, and that is why nothing converts it again.
 
+**And the aircraft AVL is asked about is the same aeroplane too** — which it was not, in the one place it
+matters most. `AVL.analysisLiftCoefficient()` is where the whole analysis's operating point comes from, and it
+divided a weight in **newtons** by a density in **kg/m³** times a speed and a reference area **in the model's
+own units**. A model in metres and seconds was right — every check here and every sample — which is precisely
+why it survived. One in centimetres was analysed at a ten-thousandth of the lift coefficient it needs.
+
+The other half of it could not be reasoned out and was **asked**, the way `EigenvectorUnitsCheck` asked what
+AVL's mode shapes are in: **AVL's run-case velocity is in m/s whatever `Lunit` says.** `Lunit` converts the
+geometry; the run case is stated in SI beside `g` and `rho`, as AVL's own mass-file comment says ("must be in
+the unit names given above, i.e. m,kg,s"). `AnalysisUnitsCheck` writes one aeroplane out twice, in metres and
+in centimetres, and flies both: at the same velocity *number* AVL returns identical eigenvalues, and at a
+hundred times it, motions a hundred times faster. So the speed handed to AVL was a hundred times too high for a
+centimetre model, and every derivative, mode and deflection came from that aeroplane.
+
+`AVL.analysisVelocityMetresPerSecond()` and `analysisReferenceAreaSquareMetres()` are the one place each is
+converted, and `Configuration.getVelocityMetresPerSecond()`/`getReferenceAreaSquareMetres()` are the same two
+numbers reached from the run's own record — the check asserts the two routes agree, because a run whose record
+disagreed with the run would be worse than either being wrong.
+
+Two more of the same family fell out of it:
+
+- `UnitConversor.convertToSeconds()` **returned the factor and threw the quantity away**: five minutes came
+  back as sixty. It was right everywhere it was used, because `ModelUnits.secondsPerTimeUnit()` passes 1.
+- `convertToMetersPerSecond()` **multiplied** by the time factor instead of dividing — the sibling of
+  `MINUTES_TO_SECONDS = 36`, and hidden the same way: nothing called it.
+
+`FlightSanity`'s wing loading read `Sref` as m² beside a weight in kilograms, and the mass file wrote
+`g = 9.81` by hand next to a `GRAVITY = 9.80665` used to derive the coefficient. Both now go through the one
+place, for the reason the whole section exists: **a second table is what lets the first stay wrong.**
+
 **A section can be dragged by an axis as well as by its centre.** The centre drag snaps to the nearest vertex,
 which is what puts a station exactly on a fuselage; an axis handle moves it along one direction and nothing
 else, which is what a wing's geometry is usually built from. Both are wanted, so both are offered and the

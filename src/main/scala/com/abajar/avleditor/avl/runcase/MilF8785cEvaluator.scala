@@ -547,7 +547,12 @@ object MilF8785cEvaluator {
     List(
       shortPeriodRow(shortPeriod, category, shapesReported),
       shortPeriodFrequencyRow(calculation, shortPeriod, category, size, shapesReported),
-      dutchRollRow(dutchRoll, category, size, Option(calculation.getConfiguration).map(_.getVelocity.toDouble).getOrElse(0.0), shapesReported),
+      // In m/s: TABLE VI's footnote is written in |phi/beta|, and beta = v/V with AVL's mode-shape v
+      // dimensional and in the same SI system its eigenvalues are in. The speed the model states is not
+      // that number unless the model happens to be written in metres and seconds.
+      dutchRollRow(dutchRoll, category, size,
+        Option(calculation.getConfiguration).map(_.getVelocityMetresPerSecond.toDouble).getOrElse(0.0),
+        shapesReported),
       phugoidRow(phugoid, category, size, shapesReported),
       rollModeRow(rollMode, category, size, shapesReported),
       spiralRow(findSpiralCandidate(realModes(calculation)), category, size, shapesReported),

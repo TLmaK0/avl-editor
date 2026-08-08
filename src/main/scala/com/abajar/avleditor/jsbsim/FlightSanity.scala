@@ -111,7 +111,9 @@ object FlightSanity {
   /** Weight over wing area, in the units a modeller sizes a wing in. */
   private def wingLoadingWarnings(crrcsim: CRRCSim): Seq[String] = {
     val weightKg = crrcsim.getConfig.getMass_inertia.getMass.toDouble
-    val sref = Option(crrcsim.getAvl).map(_.getGeometry.getSref.toDouble).getOrElse(0.0)
+    // In m², not in whatever the model writes its lengths in: the weight beside it is in kilograms, so a
+    // model stated in centimetres would otherwise be told its wing loading was ten thousand times what it is.
+    val sref = Option(crrcsim.getAvl).map(_.analysisReferenceAreaSquareMetres.toDouble).getOrElse(0.0)
     if (weightKg <= 0 || sref <= 0) return Nil
 
     // 1 kg/m² is 10 g/dm².

@@ -200,11 +200,8 @@ object StallAnalysis {
    * area the stall speed has to use — the same `Sref` and not a wing area worked out again from the
    * geometry, which would put a `CL` from one aeroplane over the area of another.
    */
-  private def surfaceReferenceArea(avl: AVL, metresPerLengthUnit: Double): Double = {
-    val geometry = avl.getGeometry
-    if (geometry == null) 0.0
-    else geometry.getSref.toDouble * metresPerLengthUnit * metresPerLengthUnit
-  }
+  private def surfaceReferenceArea(avl: AVL, metresPerLengthUnit: Double): Double =
+    avl.analysisReferenceAreaSquareMetres.toDouble
 
   /** Each surface's sections with their absolute spanwise stations — the surface's own `TRANSLATE` added. */
   private def sectionsBySurface(avl: AVL, metresPerLengthUnit: Double): Map[String, Seq[(Double, Section, Double)]] = {

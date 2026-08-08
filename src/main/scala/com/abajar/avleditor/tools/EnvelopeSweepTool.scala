@@ -114,19 +114,27 @@ object EnvelopeSweepTool {
     }
 
     val masses = geometry.getMassesRecursive.asScala.toList
+    // The model's own figures, in the model's own units — which is what `applyScenario` writes back — and
+    // separately what they weigh, which is what a lift coefficient is derived from. The two are the same
+    // number only for a model stated in kilograms.
+    val units = avl.units
     val baselineMasses = masses.map(_.getMass.toDouble)
-    val baselineMassKg = baselineMasses.sum
+    val baselineMassKg = baselineMasses.map(m => units.toKilograms(m.toFloat).toDouble).sum
     if (baselineMassKg <= 0.0) {
       System.err.println("Total mass is zero. Define masses first.")
       sys.exit(1)
     }
     val baselineXref = geometry.getXref.toDouble
 
-    val sref = geometry.getSref.toDouble
+    // In m2, beside a density in kg/m3 and a weight in newtons. The speeds on the command line are in m/s,
+    // so the velocity written onto the model has to be turned back into what the model would state.
+    val sref = avl.analysisReferenceAreaSquareMetres.toDouble
     if (sref <= 0.0) {
       System.err.println("Sref is zero after geometry validation.")
       sys.exit(1)
     }
+    def asTheModelStatesSpeed(metresPerSecond: Double): Float =
+      (metresPerSecond / units.metresPerLengthUnit * units.secondsPerTimeUnit).toFloat
 
     val originPath = Option(modelFile.getParentFile).map(_.toPath).getOrElse(new File(".").toPath)
     val originalVelocity = avl.getVelocity
@@ -140,11 +148,11 @@ object EnvelopeSweepTool {
     try {
       scenarios.foreach { scenario =>
         applyScenario(geometry, masses, baselineMasses, scenario.massScale, baselineXref + scenario.cgxOffsetMeters)
-        val totalMassKg = masses.map(_.getMass.toDouble).sum
+        val totalMassKg = masses.map(m => units.toKilograms(m.getMass).toDouble).sum
 
         speeds.foreach { speed =>
           val clTarget = levelFlightCl(totalMassKg, density, speed, sref)
-          avl.setVelocity(speed.toFloat)
+          avl.setVelocity(asTheModelStatesSpeed(speed))
           avl.setLiftCoefficient(clTarget.toFloat)
 
           val row = runPoint(avlPath.get, avl, originPath, speed, clTarget)

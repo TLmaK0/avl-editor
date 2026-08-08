@@ -206,8 +206,9 @@ public class AVL implements Serializable{
         this.timeUnit = timeUnit;
     }
 
-    void writeAVLMassData(FileOutputStream fos) {
-        PrintStream ps = new PrintStream(fos);
+    /** An {@code OutputStream} and not a file, so what goes into the mass file can be read back and checked. */
+    void writeAVLMassData(java.io.OutputStream out) {
+        PrintStream ps = new PrintStream(out);
 
         // Straight from the units themselves, rather than a second table of factors written out by hand
         // here — which is how "1.0 s" ended up standing for every time unit and a minute for 36 seconds.
@@ -216,10 +217,14 @@ public class AVL implements Serializable{
         String munit = units.avlMassUnit();
         String tunit = units.avlTimeUnit();
         
+        // g and rho are stated in m, kg, s whatever Lunit/Munit/Tunit say — AVL's own mass-file comment
+        // is "must be in the unit names given above (i.e. m,kg,s)", and the units named there are the SI
+        // ones on the right of each line. So neither is converted, and g is the same constant the lift
+        // coefficient is derived with rather than a second, rounder copy of it.
         ps.print("Lunit = " + lunit + "\n" +
                     "Munit = " + munit + "\n" +
                     "Tunit = " + tunit + "\n" +
-                    "g   = 9.81\n" +
+                    "g   = " + GRAVITY + "\n" +
                     "rho = " + this.getReynoldsNumber() + "\n");
         ps.print("#mass     x       y        z        Ixx      Iyy      Izz\n");
 
@@ -279,6 +284,34 @@ public class AVL implements Serializable{
     }
 
     /**
+     * The speed the aircraft is analysed at, in <b>metres per second</b>, whatever the model states its
+     * lengths and times in.
+     *
+     * This is the number AVL is handed, and it is the one place that converts it. AVL's run-case velocity
+     * is in m/s <b>regardless of the {@code Lunit} declared in the mass file</b> — that was established by
+     * asking it: the same aeroplane written in metres and again in centimetres returns identical
+     * eigenvalues at the same velocity, and eigenvalues a hundred times faster at a hundred times it. The
+     * geometry is what {@code Lunit} converts; the run case is stated in SI beside {@code g} and
+     * {@code rho}, exactly as AVL's own mass-file comment says ("must be in the unit names given above,
+     * i.e. m, kg, s").
+     *
+     * Handing AVL the raw field is what this replaces, and it was silent: a model stated in centimetres was
+     * flown a hundred times too fast, and every derivative, mode and deflection came from that aeroplane.
+     * A model in metres and seconds — every check in this project, and every sample — was unaffected, which
+     * is why it survived.
+     *
+     * @return 0 when there is no speed to convert, so the callers' "not yet" test stays one comparison.
+     */
+    public float analysisVelocityMetresPerSecond() {
+        return velocity <= 0f ? 0f : units().toMetresPerSecond(velocity);
+    }
+
+    /** The reference area in m², whatever the model states its lengths in. An area, so the factor squares. */
+    public float analysisReferenceAreaSquareMetres() {
+        return this.getGeometry() == null ? 0f : units().toSquareMetres(this.getGeometry().getSref());
+    }
+
+    /**
      * The lift coefficient the analysis runs at: the one this aircraft needs to hold its own weight at the
      * stated speed. In level flight the lift equals the weight, so
      *
@@ -288,15 +321,23 @@ public class AVL implements Serializable{
      * the stability run, the eigenvalue pass, the plots — comes here, so they cannot end up analysing
      * different aircraft.
      *
+     * <b>Every term of it is in SI</b>, and that is not decoration. The weight is in newtons and the
+     * density in kg/m³ — neither follows the model's units — so the speed and the area must not either.
+     * They used to: the field and {@code Sref} went in as the user wrote them, so the coefficient the whole
+     * analysis is measured at was out by 10⁴ for a model stated in centimetres and by 2.4 x 10⁵ for one in
+     * ounces and inches. The same family as the four {@code ExportUnitsCheck} found, and the same fix: one
+     * conversion, in the one place that needs it.
+     *
      * @return null when it cannot be derived — no weight yet, no reference area, no speed, no air — rather
      *         than a number that would look like an answer. The requirements refuse before the analysis
      *         reaches this state; the null is what makes a mistake loud instead of silent.
      */
     public Float analysisLiftCoefficient() {
-        float sref = this.getGeometry() == null ? 0f : this.getGeometry().getSref();
-        if (analysisWeightKg <= 0f || sref <= 0f || velocity <= 0f || getAirDensity() <= 0f) return null;
+        float sref = analysisReferenceAreaSquareMetres();
+        float speed = analysisVelocityMetresPerSecond();
+        if (analysisWeightKg <= 0f || sref <= 0f || speed <= 0f || getAirDensity() <= 0f) return null;
 
-        double liftPerCl = 0.5 * getAirDensity() * velocity * velocity * sref;
+        double liftPerCl = 0.5 * getAirDensity() * speed * speed * sref;
         return (float) (analysisWeightKg * GRAVITY / liftPerCl);
     }
 
@@ -311,8 +352,12 @@ public class AVL implements Serializable{
     public String describeAnalysisPoint() {
         Float cl = analysisLiftCoefficient();
         if (cl == null) return "needs a weight, a speed, an air density and a reference area";
+        // Both the speed the user wrote and the speed it is: a message that names a unit has to name the
+        // right one, and this is the line that would have said "14 m/s" for a model stated in cm/s.
         return String.format(java.util.Locale.ENGLISH,
-            "CL = %.3f for %.3f kg at %.1f m/s", cl, analysisWeightKg, velocity);
+            "CL = %.3f for %.3f kg at %.2f m/s, stated as %s %s/%s",
+            cl, analysisWeightKg, analysisVelocityMetresPerSecond(),
+            String.valueOf(velocity), units().lengthUnit(), units().timeUnit());
     }
 
     /** Air density in kg/m³ — the meaningful name for what {@link #getReynoldsNumber()} holds. */

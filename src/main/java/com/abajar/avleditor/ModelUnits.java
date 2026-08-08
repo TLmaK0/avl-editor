@@ -80,6 +80,23 @@ public final class ModelUnits {
         return conversor.convertToKilogramsSquareMeters(stated, massUnit, lengthUnit);
     }
 
+    /** An area stated in the model's length unit squared, in m². The factor is squared with it. */
+    public float toSquareMetres(float stated) {
+        return conversor.convertToSquareMeters(stated, lengthUnit);
+    }
+
+    /**
+     * A speed stated in the model's length per the model's time, in m/s.
+     *
+     * Both units enter it, and in opposite directions. This is what AVL has to be handed: its run-case
+     * velocity is in <b>metres per second whatever {@code Lunit} says</b> — measured, not assumed, by
+     * flying one aircraft written in metres and again in centimetres and finding that the second matched
+     * at the same number rather than at a hundred times it.
+     */
+    public float toMetresPerSecond(float stated) {
+        return conversor.convertToMetersPerSecond(stated, lengthUnit, timeUnit);
+    }
+
     /** A physical length in metres, as the model would state it. */
     public float fromMetres(float metres) {
         float factor = metresPerLengthUnit();

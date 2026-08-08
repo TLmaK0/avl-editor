@@ -194,7 +194,8 @@ public class AvlRunner {
         if (cl == null) {
             throw new IllegalStateException(
                 "The AVL operating point cannot be derived: it needs the aircraft's weight, its speed, the "
-                + "air density and the reference area. Speed " + avl.getVelocity() + " m/s, density "
+                + "air density and the reference area. Speed " + avl.analysisVelocityMetresPerSecond()
+                + " m/s, density "
                 + avl.getAirDensity() + " kg/m3, weight " + avl.getAnalysisWeightKg() + " kg, Sref "
                 + (avl.getGeometry() == null ? 0f : avl.getGeometry().getSref()) + " m2.");
         }
@@ -218,7 +219,8 @@ public class AvlRunner {
         sendCommand("c1\n");
         sendCommand("v\n");
 
-        sendCommand(avl.getVelocity() + "\n\n");        //setting velocity
+        // In m/s, which is what AVL's run case is stated in whatever Lunit the mass file declares.
+        sendCommand(avl.analysisVelocityMetresPerSecond() + "\n\n");        //setting velocity
         sendCommand("a c " + analysisLiftCoefficient() + "\n");
         //execute run case
         sendCommand("x\n");
@@ -439,7 +441,8 @@ public class AvlRunner {
         try (OutputStream sweepIn = sweepProcess.getOutputStream();
              BufferedReader sweepOut = new BufferedReader(new InputStreamReader(sweepProcess.getInputStream()))) {
 
-            for (String command : sweepCommands(avl.getVelocity(), SWEEP_ANGLES_DEG, avlFileBase)) {
+            for (String command : sweepCommands(avl.analysisVelocityMetresPerSecond(), SWEEP_ANGLES_DEG,
+                    avlFileBase)) {
                 writeModeCommand(sweepIn, command + "\n");
             }
             sweepIn.flush();
@@ -615,7 +618,7 @@ public class AvlRunner {
         if (trimConvergenceFailed) {
             return String.format(
                 "AVL trim convergence failed at V=%.3f m/s and CL=%.6f; no stability file generated: %s",
-                avl.getVelocity(), analysisLiftCoefficient(), resultFile
+                avl.analysisVelocityMetresPerSecond(), analysisLiftCoefficient(), resultFile
             );
         }
         if (noFlowSolution) {
@@ -779,7 +782,7 @@ public class AvlRunner {
 
             writeModeCommand(modeIn, "c1\n");
             writeModeCommand(modeIn, "v\n");
-            writeModeCommand(modeIn, avl.getVelocity() + "\n\n");
+            writeModeCommand(modeIn, avl.analysisVelocityMetresPerSecond() + "\n\n");
             writeModeCommand(modeIn, "a c " + analysisLiftCoefficient() + "\n");
             writeModeCommand(modeIn, "x\n");
             writeModeCommand(modeIn, "\n");
@@ -918,7 +921,7 @@ public class AvlRunner {
         try (OutputStream plotIn = plotProcess.getOutputStream();
              BufferedReader plotOut = new BufferedReader(new InputStreamReader(plotProcess.getInputStream()))) {
 
-            for (String command : plotCommands(elevatorPosition, avl.getVelocity(),
+            for (String command : plotCommands(elevatorPosition, avl.analysisVelocityMetresPerSecond(),
                     analysisLiftCoefficient(), viewAzimuth, viewElevation)) {
                 writeModeCommand(plotIn, command + "\n");
             }
