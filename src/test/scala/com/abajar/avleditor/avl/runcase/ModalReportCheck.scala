@@ -289,6 +289,48 @@ object ModalReportCheck {
       MilF8785cEvaluator.evaluate(run(Seq((0.05f, 0f)), spanMetres = 30f), FlightPhaseCategory.B)
         .forall(_.applied.isEmpty))
 
+    println("a response integrated out of a divergence is not a measurement")
+    // Both 3.3.2.2 and 3.3.2.4 are features of a time history, and a time history of a divergent system
+    // measures how long it was integrated. The sample quoted "25.2 degrees of proverse sideslip" and "the
+    // roll rate holds 100 % of its peak" on an aeroplane whose yaw doubles every 0.12 s.
+    def lateralRows(sigma: Float): List[ModalNormRow] = {
+      val calc = run(Seq((sigma, 0f), (-8.0f, 0f)), spanMetres = 1.2f)
+      calc.getEigenvalues.get(0).setModeStateAmplitude("v", 1.0f)
+      calc.getEigenvalues.get(0).setModeStateAmplitude("r", 0.9f)
+      calc.getEigenvalues.get(0).setModeStateAmplitude("phi", 0.3f)
+      val config = calc.getConfiguration
+      config.setVelocity(14f); config.setSecondsPerTimeUnit(1f); config.setCLtot(0.4f)
+      config.setSref(0.24f); config.setCref(0.2f); config.setAlpha(3.4f)
+      config.setAnalysisInertias(1.17f, 0.03f, 0.05f, 0f, 1.225f)
+      val stab = new StabilityDerivatives
+      stab.initControls(3)
+      stab.setCLa(5.7f); stab.setCnb(0.07f); stab.setCYb(-0.2f); stab.setClb(-0.04f)
+      stab.setClp(-0.4f); stab.setCnr(-0.06f); stab.setClr(0.08f); stab.setCnp(-0.02f)
+      stab.getCld()(2) = 0.05f
+      calc.setStabilityDerivatives(stab)
+      calc.setControlGains(Array(1f, 1f, 20f))
+      calc.setControlMaxDeflections(Array(30f, 30f, 25f))
+      MilF8785cEvaluator.evaluate(calc, FlightPhaseCategory.B)
+    }
+    // Doubling every 0.12 s, far inside any window these are read over.
+    val fast = lateralRows(5.568f)
+    Seq("Roll rate oscillation", "Sideslip in a roll").foreach { name =>
+      val row = fast.find(_.modeName == name).get
+      println("  " + name + ": " + row.verdict.take(96))
+      check(s"'$name' is not judged on a divergent response",
+        row.outcome == RowOutcome.NotJudged && row.level.isEmpty && row.pass.isEmpty)
+      check(s"'$name' says it is the window and not the aircraft",
+        row.verdict.contains("runs away") && row.verdict.contains("how long it was integrated"))
+      check(s"'$name' quotes the doubling time and the window", row.verdict.contains("doubles every"))
+    }
+    // A slow spiral is what most models have and is flown through; it must not stop the measurement.
+    val slow = lateralRows(0.044f)
+    Seq("Roll rate oscillation", "Sideslip in a roll").foreach { name =>
+      val row = slow.find(_.modeName == name).get
+      check(s"'$name' is still measured through a slow spiral",
+        !row.verdict.contains("how long it was integrated"))
+    }
+
     println("the Flight Phase changes what is asked, and all three are answered rather than chosen")
     // TABLE IV: Category B wants 0.30 of short-period damping, Category A wants 0.35. Same aircraft.
     val marginal = run(Seq((-1.0f, 3.05f)))

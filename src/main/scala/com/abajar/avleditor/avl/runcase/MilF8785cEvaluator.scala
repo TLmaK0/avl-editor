@@ -1135,13 +1135,16 @@ object MilF8785cEvaluator {
       ModalNormRow("Flight-path stability", is, None, None, None, None, wants,
         "Not judged: " + why, None, None, applied, RowOutcome.NotJudged)
 
-    // The standard states it for the landing approach and for nothing else. Asked of an aircraft being
-    // flown as Category A or B, the honest answer is that the question was not asked — not a pass.
+    // The standard states it for the landing approach and for nothing else, so in the other two Categories
+    // the honest answer is that the question was not asked — not a pass. It says only that, and points at
+    // the column that does answer it: this used to tell the reader to go and set a Flight Phase field,
+    // which was true while the Category was a choice and became dead text the moment all three were
+    // judged side by side.
     if (category != FlightPhaseCategory.C)
       return ModalNormRow("Flight-path stability", is, None, None, None, None, wants,
-        s"Does not apply: 3.2.1.3 is stated for the landing approach, and this model says it is flown " +
-          s"${category.describes}. Set the Flight Phase to Category C — ${FlightPhaseCategory.C.describes} " +
-          "— to have it judged.", None, None, applied, RowOutcome.DoesNotApply)
+        s"Does not apply: 3.2.1.3 is stated for the landing approach only, so it is not asked of an " +
+          s"aircraft ${category.describes}. Category ${FlightPhaseCategory.C.label} answers it.",
+        None, None, applied, RowOutcome.DoesNotApply)
 
     val config = calculation.getConfiguration
     if (config == null) return cannot("AVL returned no configuration for this run.")
@@ -1379,6 +1382,19 @@ object MilF8785cEvaluator {
    *
    * The two rows share every input, so they share the flying: one trajectory, measured twice.
    */
+  /**
+   * The fastest lateral divergence that doubles inside a window, if there is one.
+   *
+   * AVL's eigenvalues are the source, and they are the right one: `LateralModelCheck` verifies that the
+   * roots of the very matrix these responses are integrated from are the ones AVL returned, to better than
+   * 2.5 %. So asking AVL is asking the model that is being integrated.
+   */
+  private def lateralRunawayWithin(calculation: AvlCalculation, windowSeconds: Double): Option[Divergence] =
+    divergences(calculation)
+      .filter(d => d.axis == RunawayAxis.YawAndRoll || d.axis == RunawayAxis.Spiral)
+      .filter(d => d.doublingTime > 0.0 && d.doublingTime <= windowSeconds)
+      .sortBy(_.doublingTime).headOption
+
   private def rollSideslipRows(calculation: AvlCalculation, category: FlightPhaseCategory,
                                dutchRoll: Option[AvlEigenvalue], size: FroudeScale): List[ModalNormRow] = {
     val oscillationIs = "the roll rate wobbling: it builds, sags and builds again as the nose swings"
@@ -1411,6 +1427,23 @@ object MilF8785cEvaluator {
         RollSideslipCoupling.of(model, math.toRadians(stops(aileron).toDouble), period, damping,
             size.time(2.0)) match {
           case None => refused("the aircraft did not roll enough to measure anything on.")
+          // Both of these are features of a **time history**, and a time history of a divergent system is
+          // not a measurement of the aircraft — it is a measurement of how long it was integrated. On the
+          // sample this quoted "25.2 degrees of proverse sideslip" and "the roll rate holds 100 % of its
+          // peak", on an aeroplane whose yaw doubles every 0.12 s: the first is an exponential read off at
+          // an arbitrary moment, the second a sag that never happened because nothing was oscillating.
+          //
+          // The test needs no invented threshold and is in the report's own words: a lateral motion that
+          // **doubles at least once inside the window** dominates whatever else is in it. A slow spiral —
+          // which most models have and fly through — doubles in tens of seconds and does not.
+          case Some(measured) if lateralRunawayWithin(calculation, measured.windowSeconds).isDefined =>
+            val runaway = lateralRunawayWithin(calculation, measured.windowSeconds).get
+            val growth = math.pow(2.0, measured.windowSeconds / runaway.doublingTime)
+            refused(f"the lateral motion runs away — it doubles every ${runaway.doublingTime}%.2f s in " +
+              f"${runaway.axisLabel}%s — and this is read over ${measured.windowSeconds}%.2f s, across " +
+              f"which the response grows by a factor of ${growth}%.0f. Whatever comes out of that is a " +
+              "property of how long it was integrated, not of the aircraft. It is listed above with the " +
+              "other runaways, and that is the thing to fix first.")
           case Some(measured) =>
             val oscillationKept = 1.0 - measured.oscillationRatio
             val oscillationLevel = levelMet(oscillationLimits.map { case (n, keep) =>
