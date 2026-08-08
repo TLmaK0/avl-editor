@@ -54,6 +54,8 @@ case class LoadedStation(
   /** Spanwise station in the model's length unit, reflected back onto the half the model states. */
   station: Double,
   chordMetres: Double,
+  /** The strip's own area, in the model's length unit squared — only ever used as a share of a total. */
+  area: Double,
   /** The attitudes, in degrees, in increasing order. */
   attitudesDeg: Seq[Double],
   /** The local lift coefficient at each of them, referred to this strip's own area and chord. */
@@ -67,6 +69,10 @@ case class LoadedStation(
     f"$surface%s${if (mirrored) " (mirrored)" else ""}%s at y = $station%.3f"
 
   private def sample(i: Int): (Double, Double) = (attitudesDeg(i), liftCoefficients(i))
+
+  /** This strip's local lift coefficient at an attitude, between the ones measured and never beyond them. */
+  def liftAt(alphaDeg: Double): Option[Double] =
+    WingMaximumLift.liftAt(attitudesDeg.zip(liftCoefficients), alphaDeg)
 
   /**
    * The lowest attitude at which this station's lift reaches `limit`, by interpolation between the
@@ -145,7 +151,8 @@ object WingMaximumLift {
       val residual = alphas.zip(cls).map { case (a, c) => math.abs(c - (intercept + slope * a)) }.max
       val head = ordered.head._2
       LoadedStation(surface, mirrored, index, head.getStationY.toDouble,
-        head.getChord.toDouble * metresPerLengthUnit, alphas, cls, intercept, slope, residual)
+        head.getChord.toDouble * metresPerLengthUnit, head.getArea.toDouble,
+        alphas, cls, intercept, slope, residual)
     }.sortBy(s => (s.surface, s.mirrored, s.index))
   }
 
@@ -204,6 +211,41 @@ object WingMaximumLift {
           f"short of its $max%.3f. Continuing its loading out past the last measurement would be " +
           "the extrapolation this measurement replaces")
     }
+  }
+
+  /**
+   * The first station to give up **on each surface**, separately.
+   *
+   * This is what the aircraft's stall has to be read from, and reading it from the first station anywhere
+   * was wrong. NACA TR 572's method is about **a wing**. A canard or a tailplane reaching its section limit
+   * first is not the aircraft giving up: on a close-coupled canard it is the design intent, the canard
+   * being there precisely to give up first and hold the wing below its own limit. Taken as the aircraft's
+   * maximum lift it produced a `CLmax` of 0.311 on the sample, which is not a stall, and a stall speed out
+   * of it that then set the approach speed 3.2.1.3 is judged at.
+   *
+   * Every surface's answer is kept, because a surface that gives up early is worth being told about even
+   * when it is not what limits the aircraft.
+   */
+  def onsetBySurface(limits: Seq[StationLimits]): Map[String, Either[String, StallOnset]] =
+    limits.groupBy(_.station.surface).map { case (surface, own) => (surface, onset(own)) }
+
+  /**
+   * How much of the lift each surface is carrying, as a share of the total, at one attitude.
+   *
+   * Measured — `sum of cl x area` over each surface's own strips — rather than guessed from a name or from
+   * which surface is biggest. It is what picks the surface whose stall is the aircraft's, and a ratio, so
+   * the units of the areas cancel and none of it needs converting.
+   *
+   * Surfaces pushing **down** carry a negative share and are not candidates: a tailplane holding the nose
+   * up is not what the aeroplane is flying on.
+   */
+  def liftShareBySurface(stations: Seq[LoadedStation], alphaDeg: Double): Map[String, Double] = {
+    def liftOf(station: LoadedStation): Double =
+      station.liftAt(alphaDeg).getOrElse(0.0) * station.area
+    val perSurface = stations.groupBy(_.surface).map { case (s, own) => (s, own.map(liftOf).sum) }
+    val total = perSurface.values.filter(_ > 0.0).sum
+    if (total <= 0.0) perSurface.map { case (s, _) => (s, 0.0) }
+    else perSurface.map { case (s, lift) => (s, lift / total) }
   }
 
   /**

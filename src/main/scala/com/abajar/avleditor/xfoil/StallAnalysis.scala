@@ -35,6 +35,12 @@ import com.abajar.avleditor.avl.runcase.AvlCalculation
  * speed goes as its square root — and polars are cached by aerofoil and Reynolds, so the passes after the
  * first mostly cost nothing.
  */
+/**
+ * @param mainSurface the surface the stall speed is read from, and the share of the lift it was carrying
+ *                    when that was decided
+ * @param earlier     surfaces that reach their own limit before it does — real, worth saying, and not what
+ *                    the aircraft's maximum lift is
+ */
 case class StallResult(
   clMax: Double,
   alphaDeg: Double,
@@ -42,6 +48,9 @@ case class StallResult(
   critical: StallOnset,
   reynoldsAtCriticalSection: Double,
   worstResidual: Double,
+  mainSurface: String,
+  mainSurfaceLiftShare: Double,
+  earlier: Seq[StallOnset],
   notes: Seq[String]
 )
 
@@ -177,21 +186,55 @@ object StallAnalysis {
          f"${SectionStall.AlphaStartDeg}%.0f deg); they were left out of the search. This is about a " +
          "tailplane's own stall, not the wing's."))
 
-    WingMaximumLift.onset(resolved).right.flatMap { onset =>
-      WingMaximumLift.liftAt(liftCurve, onset.alphaDeg) match {
-        case None =>
-          Left(f"the stall onset falls at ${onset.alphaDeg}%.1f deg, which is outside the attitudes AVL " +
-            "measured, so there is no lift coefficient to read there.")
-        case Some(clMax) =>
-          WingMaximumLift.stallSpeed(weightNewtons, density, wingAreaM2, clMax) match {
-            case None => Left("the stall speed needs a weight, an air density, a reference area and a " +
-              f"positive maximum lift coefficient; the maximum came out as $clMax%.3f.")
-            case Some(vs) =>
-              val re = StandardAir.reynolds(density, speed, onset.station.chordMetres).getOrElse(0.0)
-              Right(StallResult(clMax, onset.alphaDeg, vs, onset, re,
-                stations.map(_.worstResidual).max, notes))
-          }
-      }
+    // Which surface's stall is the aircraft's. Measured, at the top of the range AVL swept — the attitude
+    // nearest a stall, which is what this is about — and never taken from a name or from which surface is
+    // largest. See `WingMaximumLift.onsetBySurface` for why the first station *anywhere* was the wrong
+    // answer and what it produced on a canard aircraft.
+    val topAttitude = stations.flatMap(_.attitudesDeg).reduceOption(_ max _).getOrElse(0.0)
+    val shares = WingMaximumLift.liftShareBySurface(stations, topAttitude)
+    val bySurface = WingMaximumLift.onsetBySurface(resolved)
+    val carrying = shares.filter(_._2 > 0.0)
+    if (carrying.isEmpty)
+      return Left("no surface is carrying any lift at the top of the attitudes AVL measured, so there is " +
+        "no wing whose stall could be the aircraft's.")
+    val (main, share) = carrying.maxBy(_._2)
+
+    bySurface.get(main) match {
+      case None =>
+        Left(f"'$main%s' carries ${share * 100}%.0f %% of the lift and no station of it could be matched " +
+          "to an aerofoil, so the aircraft's stall cannot be read from it.")
+      case Some(Left(why)) =>
+        Left(f"'$main%s' carries ${share * 100}%.0f %% of the lift and is what the aircraft's stall has " +
+          s"to be read from, and $why")
+      case Some(Right(onset)) =>
+        // Surfaces that give up before the wing does. A canard is meant to; a tailplane doing it is worth
+        // knowing. Neither sets the stall speed, and both are stated because past that attitude AVL's
+        // inviscid curve stops describing the aircraft.
+        val earlier = bySurface.collect {
+          case (surface, Right(other)) if surface != main && other.alphaDeg < onset.alphaDeg => other
+        }.toSeq.sortBy(_.alphaDeg)
+
+        WingMaximumLift.liftAt(liftCurve, onset.alphaDeg) match {
+          case None =>
+            Left(f"the stall onset falls at ${onset.alphaDeg}%.1f deg, which is outside the attitudes AVL " +
+              "measured, so there is no lift coefficient to read there.")
+          case Some(clMax) =>
+            WingMaximumLift.stallSpeed(weightNewtons, density, wingAreaM2, clMax) match {
+              case None => Left("the stall speed needs a weight, an air density, a reference area and a " +
+                f"positive maximum lift coefficient; the maximum came out as $clMax%.3f.")
+              case Some(vs) =>
+                val re = StandardAir.reynolds(density, speed, onset.station.chordMetres).getOrElse(0.0)
+                Right(StallResult(clMax, onset.alphaDeg, vs, onset, re,
+                  stations.map(_.worstResidual).max, main, share, earlier,
+                  notes ++ earlier.map(other =>
+                    f"${other.station.describe}%s reaches its aerofoil's limit of " +
+                      f"${other.sectionLimit}%.3f at ${other.alphaDeg}%.2f deg, before '$main%s' does. " +
+                      "That is not the aircraft's stall — a canard is meant to give up first, and holding " +
+                      "the wing below its own limit is what it is for — but past that attitude AVL is " +
+                      "still solving it as though it were lifting, so the lift curve above it describes " +
+                      "an aircraft this one is not.")))
+            }
+        }
     }
   }
 

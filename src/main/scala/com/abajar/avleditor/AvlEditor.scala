@@ -1062,6 +1062,8 @@ object AvlEditor{
                   result.critical.station.describe)
                 logger.log(Level.INFO, f"Stall: CLmax ${result.clMax}%.3f at ${result.alphaDeg}%.2f deg, " +
                   f"Vs ${result.stallSpeedMetresPerSecond}%.2f m/s")
+                logger.log(Level.INFO, f"  read from '${result.mainSurface}%s', which carries " +
+                  f"${result.mainSurfaceLiftShare * 100}%.0f %% of the lift at the top of the swept range")
                 logger.log(Level.INFO, f"  first to give up: ${result.critical.station.describe}%s, " +
                   f"${if (result.critical.downward) "downwards" else "upwards"}%s, against a section limit " +
                   f"of ${result.critical.sectionLimit}%.3f at Re ${result.reynoldsAtCriticalSection}%.0f " +

@@ -20,13 +20,16 @@ object CriticalSectionCheck {
     println((if (cond) "  PASS " else "  FAIL ") + name); ok &= cond
   }
 
+  /** Every strip is this wide, so its area follows its chord as a real strip's does. */
+  private val StripWidth = 0.05
+
   /** A strip whose local lift is exactly `intercept + slope * alpha`, sampled at a list of attitudes. */
   private def loading(alphas: Seq[Double])(strips: Seq[(String, Int, Double, Double, Double, Double)]
                      ): Seq[(Double, Seq[StripForce])] =
     alphas.map { alpha =>
       (alpha, strips.map { case (surface, index, station, chord, intercept, slope) =>
-        new StripForce(surface, false, index, station.toFloat, chord.toFloat, 0.01f,
-          (intercept + slope * alpha).toFloat)
+        new StripForce(surface, false, index, station.toFloat, chord.toFloat,
+          (chord * StripWidth).toFloat, (intercept + slope * alpha).toFloat)
       })
     }
 
@@ -96,6 +99,42 @@ object CriticalSectionCheck {
     check("and left out when its aerofoil never stalled downwards in the sweep",
       WingMaximumLift.onset(download.map(s => StationLimits(s, Some(1.4), None)))
         .right.exists(o => o.station.surface == "wing" && !o.downward))
+
+    println("which surface's stall is the aircraft's")
+    // The defect this closes: the first station **anywhere** decided the aircraft's maximum lift. A canard
+    // set at 25 degrees of incidence reaches its section limit almost at once — by design, that being what
+    // a close-coupled canard is for — and the sample's stall came out at CL 0.311, which is not a stall.
+    val canardAircraft = WingMaximumLift.stations(loading(Attitudes)(Seq(
+      // A big wing carrying the lift, working up to its limit gradually.
+      ("wing", 1, 0.3, 0.25, 0.20, 0.070),
+      ("wing", 2, 0.6, 0.25, 0.18, 0.068),
+      // A small canard already most of the way to its limit at zero attitude.
+      ("canard", 1, 0.15, 0.10, 1.20, 0.060))), 1.0)
+    val limitsOf = canardAircraft.map(s => StationLimits(s, Some(1.4), None))
+    val perSurface = WingMaximumLift.onsetBySurface(limitsOf)
+    println("  per surface: " + perSurface.toSeq.sortBy(_._1)
+      .map { case (s, o) => f"$s%s -> " + o.right.map(x => f"${x.alphaDeg}%.2f deg").right.getOrElse("none") }
+      .mkString(", "))
+    check("each surface gets its own answer", perSurface.keySet == Set("wing", "canard"))
+    check("and the canard gives up long before the wing",
+      perSurface("canard").right.get.alphaDeg < perSurface("wing").right.get.alphaDeg)
+
+    // Which one is the aircraft's is decided by a measurement — the share of the lift each is carrying —
+    // and never by its name or by which is bigger.
+    val shares = WingMaximumLift.liftShareBySurface(canardAircraft, 10.0)
+    println("  lift share at 10 deg: " + shares.toSeq.sortBy(_._1)
+      .map { case (s, f) => f"$s%s ${f * 100}%.0f %%" }.mkString(", "))
+    check("the wing is carrying most of the lift", shares("wing") > shares("canard"))
+    check("and the shares are a share, adding to one", math.abs(shares.values.sum - 1.0) < 1e-9)
+    // A surface pushing down is not a candidate for carrying the aeroplane.
+    val withDownload = WingMaximumLift.stations(loading(Attitudes)(Seq(
+      ("wing", 1, 0.3, 0.25, 0.20, 0.070),
+      ("tailplane", 1, 0.1, 0.10, -0.40, 0.020))), 1.0)
+    check("a surface holding the nose up carries a negative share",
+      WingMaximumLift.liftShareBySurface(withDownload, 0.0)("tailplane") < 0.0)
+    check("with no lift anywhere, no surface is claimed to carry it",
+      WingMaximumLift.liftShareBySurface(WingMaximumLift.stations(loading(Attitudes)(Seq(
+        ("fin", 1, 0.0, 0.1, 0.0, 0.0))), 1.0), 5.0).forall(_._2 == 0.0))
 
     println("what it refuses to answer")
     check("nothing to match, nothing to say",
