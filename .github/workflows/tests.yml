@@ -1,0 +1,97 @@
+name: Checks
+
+# The checks run BEFORE the merge, on the pull request. Until now nothing did: `release.yml`
+# triggers on push to master, so its build ran after the code was already on the default branch —
+# a report, not a gate — and the same push publishes a release, so a bad merge was downloadable
+# rather than merely present.
+#
+# It runs `sbt checks`, NOT `sbt test`. `sbt test` executes nothing in this build and prints
+# `[success]` having done so: there is no test framework on the classpath, so `Test / definedTests`
+# is empty. A workflow running `sbt test` would be a green tick that measured nothing, which is
+# worse than no workflow. See the `checks` task in build.sbt.
+#
+# It also runs on master, so a merge is measured too.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A new push to the same pull request makes the previous run obsolete; cancel it rather than paying
+# for both. Never cancel a master run: that one is the record of what the branch did.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    # Pinned, not `ubuntu-latest`, and for a reason this project has already been bitten by: the
+    # published XFOIL binary was built on `ubuntu-latest` and needed a newer C library than the
+    # machine running it had, so it died at the loader and every polar came back empty — which,
+    # read through the analysis, looks exactly like an aerofoil that never stalls. That is why
+    # `xfoil-binaries.yml` pins its build to ubuntu-22.04. The runner that consumes those binaries
+    # is pinned for the same reason: a moving `latest` on either side reopens it.
+    runs-on: ubuntu-22.04
+
+    # The checks drive AVL, XFOIL and JSBSim, so this is minutes, not seconds. The limit is here to
+    # kill a hang: a job that sits for the six-hour default looks identical to one still working.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          # Caches ~/.sbt, ~/.ivy2/cache and the coursier directory, keyed on the build files.
+          # Without it every run re-resolves SWT, JOGL, MOxy and the Scala 2.10 compiler.
+          cache: 'sbt'
+
+      - uses: sbt/setup-sbt@v1
+
+      # Measured, not guessed. AVL's modal pass — the one that writes the eigenvalue file — is an
+      # X client: with no display it prints "Cannot open display...aborting", and under a bare Xvfb
+      # with no fonts it dies with "X Error of failed request: BadName ... X_OpenFont". Either way
+      # it writes no eigenvalues, every modal check then reports "0 modes", and four checks fail
+      # (AnalysisUnitsCheck, EigenvectorUnitsCheck, LateralModelCheck, AvlPlotCheck) for a reason
+      # that has nothing to do with the code. `xfonts-base` is what supplies the font it opens.
+      #
+      # Ghostscript is what turns AVL's PostScript pages into the images AvlPlotCheck asserts two of.
+      - name: Install what AVL needs to draw
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xfonts-base ghostscript
+
+      # AvlManager downloads AVL from web.mit.edu and XfoilManager fetches the published binary,
+      # both into ~/.avleditor, exactly as they do on a user's machine. Cached so a rerun does not
+      # hammer MIT, and keyed by name because both are pinned versions rather than moving targets.
+      - name: Cache the AVL and XFOIL binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.avleditor
+          key: avleditor-binaries-avl3.40-xfoil6.99
+
+      # JSBSim is what several checks measure the exported aircraft against: they export a model,
+      # run JSBSim on it from the command line and compare its forces against the tables in the
+      # file it loaded. `pip install jsbsim` is how the pivot was validated.
+      # `--user` puts it in ~/.local/bin, which is not necessarily on the PATH, and a JSBSim the
+      # checks cannot find is the same as no JSBSim: they excuse themselves and exit 0. So it goes
+      # in system-wide and the step proves it can be run rather than assuming the install worked.
+      - name: Install JSBSim
+        run: |
+          sudo pip install jsbsim
+          jsbsim --version
+
+      # Under a virtual display, because AVL's modal and plot passes are X clients — see above.
+      # `-a` picks a free server number rather than assuming :99 is idle.
+      #
+      # CHECKS_REQUIRE_ALL turns "a check excused itself" into a failure. Two of them exit 0 when
+      # JSBSim is missing, and they are the ones that fly the exported aircraft — the evidence for
+      # the whole export path. On a runner every dependency is installed above, so a check that
+      # still excuses itself means an install silently did not take, and this job must go red
+      # rather than report a green tick over nothing.
+      - name: Run the checks
+        env:
+          CHECKS_REQUIRE_ALL: '1'
+        run: xvfb-run -a sbt -batch checks
