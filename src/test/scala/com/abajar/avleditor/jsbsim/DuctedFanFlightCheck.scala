@@ -158,15 +158,35 @@ object DuctedFanFlightCheck {
     var worstCt = 0.0
     var worstThrust = 0.0
     var maxThrustN = 0.0
+
+    // Once JSBSim's integration gives up it writes `nan` into every column, and `toDouble` on that
+    // raises a NumberFormatException — a stack trace where a verdict belongs, naming nothing and
+    // saying nothing about the aeroplane. A `nan` in a flight trace IS the finding: the aircraft
+    // did not fly. So it is read as one, and the row it started on is reported, because when it
+    // happens is what says whether the model diverged on the first step or ten seconds in.
+    def finite(cell: String): Option[Double] =
+      scala.util.Try(cell.trim.toDouble).toOption.filter(d => !d.isNaN && !d.isInfinite)
+
+    var divergedAt: Option[String] = None
+
     println(f"${"rpm"}%8s ${"J"}%8s ${"Ct flown"}%9s ${"Ct table"}%9s ${"T flown"}%9s ${"Ct rho n2 D4"}%13s")
     lines.tail.zipWithIndex.foreach { case (line, i) =>
       val cells = line.split(",")
-      val rpm = cells(rpmc).toDouble
-      if (rpm > 0) {
-        val j = cells(jc).toDouble
-        val ctFlown = cells(ctc).toDouble
-        val thrustN = cells(tc).toDouble * LbsToNewtons
-        val rho = cells(rhoc).toDouble * SlugFt3ToKgM3
+      val rpmOrNot = finite(cells(rpmc))
+      if (rpmOrNot.isEmpty && divergedAt.isEmpty)
+        divergedAt = Some(s"t=${cells.headOption.getOrElse("?")}s, row ${i + 1}: ${line.take(120)}")
+      val rpm = rpmOrNot.getOrElse(0.0)
+      // A row can carry a finite rpm and `nan` beside it, so every column is read the same way and
+      // a row that is not wholly finite is recorded and skipped rather than averaged into the
+      // worst-case gaps, where one NaN would swallow every real measurement in the run.
+      val row = Seq(jc, ctc, tc, rhoc).map(idx => finite(cells(idx)))
+      if (rpm > 0 && row.exists(_.isEmpty) && divergedAt.isEmpty)
+        divergedAt = Some(s"t=${cells.headOption.getOrElse("?")}s, row ${i + 1}: ${line.take(120)}")
+
+      if (rpm > 0 && row.forall(_.isDefined)) {
+        val Seq(j, ctFlown, thrustLbs, rhoSlugs) = row.map(_.get)
+        val thrustN = thrustLbs * LbsToNewtons
+        val rho = rhoSlugs * SlugFt3ToKgM3
         val n = rpm / 60.0
         // The definition under test: JSBSim's own thrust against the coefficient it looked up.
         val fromDefinition = ctFlown * rho * n * n * math.pow(diameter, 4)
@@ -181,6 +201,13 @@ object DuctedFanFlightCheck {
     println(f"  $turning%d samples with the fan turning")
     println(f"  worst gap in Ct against the exported table: $worstCt%.2e")
     println(f"  worst gap in thrust against Ct rho n^2 D^4: ${worstThrust * 100}%.4f %%")
+
+    divergedAt.foreach { where =>
+      println("  the flight trace stopped being numbers here:")
+      println(s"    $where")
+      println("  that is JSBSim's integration giving up, not a measurement — see issue #24")
+    }
+    check("the flight stayed finite from start to finish", divergedAt.isEmpty)
 
     check("the fan turned", turning > 50)
     check("JSBSim read the exported curve, row for row", worstCt < 1e-9)
