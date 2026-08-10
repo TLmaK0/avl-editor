@@ -22,8 +22,18 @@ object DuctedFanFlightCheck {
     println((if (cond) "  PASS " else "  FAIL ") + name); ok &= cond
   }
 
-  private val JsbsimCandidates =
-    Seq("/usr/games/JSBSim", "/usr/bin/JSBSim", "/usr/local/bin/JSBSim", "/usr/bin/jsbsim")
+  /**
+   * The four fixed locations a Debian or Ubuntu package uses, and then **whatever the PATH offers**,
+   * under both spellings — see the same list in [[JsbsimCurveCheck]]. `pip install jsbsim` lands in
+   * `/usr/local/bin/jsbsim`, which the fixed list missed, so this check excused itself and exited 0
+   * on any machine that had JSBSim installed that way.
+   */
+  private val JsbsimCandidates: Seq[String] =
+    Seq("/usr/games/JSBSim", "/usr/bin/JSBSim", "/usr/local/bin/JSBSim", "/usr/bin/jsbsim") ++
+      (for {
+        dir <- Option(System.getenv("PATH")).getOrElse("").split(File.pathSeparator).toSeq
+        name <- Seq("JSBSim", "jsbsim")
+      } yield new File(dir, name).getPath)
 
   private val SlugFt3ToKgM3 = 515.378818
   private val LbsToNewtons = 4.4482216

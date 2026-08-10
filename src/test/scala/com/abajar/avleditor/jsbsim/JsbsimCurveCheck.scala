@@ -21,8 +21,20 @@ object JsbsimCurveCheck {
     println((if (cond) "  PASS " else "  FAIL ") + name); ok &= cond
   }
 
-  private val JsbsimCandidates =
-    Seq("/usr/games/JSBSim", "/usr/bin/JSBSim", "/usr/local/bin/JSBSim", "/usr/bin/jsbsim")
+  /**
+   * The four fixed locations a Debian or Ubuntu package uses, and then **whatever the PATH offers**,
+   * under both spellings. The fixed list alone missed the ordinary way of installing it:
+   * `pip install jsbsim` lands in `/usr/local/bin/jsbsim`, and the list held that directory only
+   * with a capital J and the lowercase name only under `/usr/bin`. This check then excused itself
+   * and exited 0 — reporting success on a run that measured nothing — on any machine that had
+   * JSBSim installed that way, CI included.
+   */
+  private val JsbsimCandidates: Seq[String] =
+    Seq("/usr/games/JSBSim", "/usr/bin/JSBSim", "/usr/local/bin/JSBSim", "/usr/bin/jsbsim") ++
+      (for {
+        dir <- Option(System.getenv("PATH")).getOrElse("").split(File.pathSeparator).toSeq
+        name <- Seq("JSBSim", "jsbsim")
+      } yield new File(dir, name).getPath)
 
   private def write(file: File, content: String): Unit = {
     Option(file.getParentFile).foreach(_.mkdirs())
