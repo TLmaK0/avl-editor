@@ -17,6 +17,38 @@ To compile the project, run the following command:
 sbt compile
 ```
 
+### Running the checks — and why `sbt test` is not how
+
+**`sbt test` runs nothing in this build, and prints `[success]` while doing it.** Measured: it
+compiles the 58 sources under `src/test` and exits 0 in under a minute, having executed not one
+check. `show Test/definedTests` comes back empty.
+
+That is not a fault to be fixed by running it harder. There is **no test framework on the
+classpath** — no ScalaTest, no MUnit, and not even `junit-interface`, so the `junit` dependency
+cannot be discovered either — and `@Test` appears in no file. sbt has nothing to find.
+
+A check here is an **executable object**, not a framework test:
+
+```bash
+sbt "Test/runMain com.abajar.avleditor.avl.mass.MassMirrorCheck"
+```
+
+The header of every check file states its own command that way. It prints `PASS`/`FAIL` per
+assertion and calls `sys.exit(1)` if any failed, so **its exit code is the result** — which is what
+lets a check drive AVL, XFOIL or JSBSim as a subprocess and read what came back, rather than being
+confined to what a test framework can express. `show Test/discoveredMainClasses` lists them all.
+
+Two things follow, and the first is the one that costs people time:
+
+- **A green `sbt test` means nothing.** It says the tests compile. Anybody — human or agent —
+  concluding from it that the checks pass has been told the opposite of the truth by a tool that
+  looked like it was answering. This project already holds that a refusal reaching only the log is
+  indistinguishable from success; this is the same failure wearing a success message.
+- **A check that cannot find what it drives may excuse itself.** `JsbsimCurveCheck` and
+  `DuctedFanFlightCheck` print `..._SKIPPED` and exit **0** when JSBSim is not installed, and they
+  are the two that fly the exported aircraft. A run that reports success having skipped them has
+  measured nothing about the export. Read the output, not only the exit code.
+
 ### Running the application
 
 Use the provided script to start the application:
