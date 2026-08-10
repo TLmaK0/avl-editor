@@ -44,6 +44,35 @@ Commit messages should be concise, clear, and a maximum of two lines. The first 
 
 **IMPORTANT:** Never push to remote without explicit user permission. Always ask before running `git push`.
 
+### One worktree per task, never the main checkout
+
+**Every task is worked on in its own git worktree**, branched from the main branch:
+
+```bash
+git worktree add .claude/worktrees/<branch> -b <branch> origin/master
+```
+
+Never edit, branch or commit in the main checkout at the top of this repository.
+
+**Why:** more than one agent can be working in this repository at the same time, and in the main
+checkout they overwrite each other. There is one working tree there and one `HEAD`: whoever
+switches branch, stages a file or stashes moves the ground under everyone else, and the damage is
+silent — the second agent's `git status` shows changes it did not make, its commit picks up
+another task's files, and a `git checkout` throws away work nobody has pushed yet. A worktree gives
+each task its own directory, its own branch and its own index, so two tasks cannot collide however
+they interleave.
+
+The main checkout stays on the main branch and is only read. Work goes back through a branch and a
+pull request, never a push to the main branch. A finished worktree is left in place unless the user
+asks for it to be removed — `git worktree remove` deletes files, and deleting is the one thing that
+cannot be undone.
+
+`.claude/` is in `.gitignore`, and it has to be: the worktrees live under it, so an untracked
+`.claude/` leaves this repository permanently dirty in `git status`. That is not cosmetic. Anything
+watching for work at risk reads `git status`, and a repository that is always dirty is one that has
+stopped being able to report the day something really is uncommitted — the alarm rings constantly,
+so nobody hears the real one.
+
 ### Recent UI Changes
 
 - The button to add a new section to a surface has been changed to a `+` button for a more intuitive user experience.
@@ -54,18 +83,32 @@ Commit messages should be concise, clear, and a maximum of two lines. The first 
 
 ## Feature Planning
 
+### Features, bugs and plans live in GitHub issues
+
+**One issue per thing**, and a change of plan is a **comment on its issue** — not a rewritten file.
+
+Before starting any task, the agent opens or updates the issue it is working on, in English, with
+enough context that somebody else could pick it up: what is wanted, why, and what has been ruled
+out. The issue is the plan; the branch and the pull request reference it.
+
+**Why:** a plan in a working file is visible to whoever happens to hold that checkout, and it is
+rewritten when the next feature starts, so the reasoning behind the last one is gone. Issues are
+one per subject, they survive being finished, they can be read by everybody at once, and they can
+be prioritised against each other — which a single file describing one feature cannot.
+
+The same applies to work the repository already writes down in prose. A "not implemented" line in
+`docs/mil-f-8785c.md` or a stated assumption in this file records a decision; the **work** it
+implies belongs in an issue, or nobody schedules it.
+
 ### PLAN.md
 
-**IMPORTANT:** Before starting any task, the agent MUST first create or update the plan in `PLAN.md`. No implementation work should begin until the plan is written and reviewed.
+`PLAN.md` is **history, and local only** (it is in `.gitignore`). It holds the record of the
+CRRCsim-to-JSBSim pivot. It is not where new work is planned — see above — and it is not read to
+find out what is outstanding, because it says nothing about anything done after it was last
+written.
 
-The project uses a local `PLAN.md` file (not tracked in git) to maintain context across sessions for the current feature being developed.
-
-**Usage:**
-- Plans must be written in English
-- This file should be rewritten/reset when starting a new feature
-- It contains the feature description, current status, next steps, and relevant context
-- Helps the agent continue work after context cleanup
-- Should include task lists, important decisions, and files being modified
+A scratch file for the notes of a task in progress is fine and stays out of git; what may not live
+there is the plan itself.
 
 ## Engineering Policy
 

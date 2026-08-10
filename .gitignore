@@ -16,3 +16,4 @@ target
 .cache
 PLAN.md
 .run.pid
+.claude/
