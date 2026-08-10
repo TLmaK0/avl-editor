@@ -67,6 +67,12 @@ pull request, never a push to the main branch. A finished worktree is left in pl
 asks for it to be removed — `git worktree remove` deletes files, and deleting is the one thing that
 cannot be undone.
 
+`.claude/` is in `.gitignore`, and it has to be: the worktrees live under it, so an untracked
+`.claude/` leaves this repository permanently dirty in `git status`. That is not cosmetic. Anything
+watching for work at risk reads `git status`, and a repository that is always dirty is one that has
+stopped being able to report the day something really is uncommitted — the alarm rings constantly,
+so nobody hears the real one.
+
 ### Recent UI Changes
 
 - The button to add a new section to a surface has been changed to a `+` button for a more intuitive user experience.
