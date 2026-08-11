@@ -39,6 +39,8 @@ object ShaftAssemblyCheck {
     val point = new EngineData
     point.setU_K(22.2f); point.setI_M(60f); point.setRpms(38000f)
     engine.getData.add(point)
+    val idle = engine.createDataIdle()
+    idle.setU_K(22.2f); idle.setI_M(1.2f)
     val fan = shaft.createDuctedFan()
     fan.setInnerDiameterMm(68f); fan.setBlades(12); fan.setMass(0.19f)
     fan.getPos.setX(0.10f)     // 10 cm forward of the shaft

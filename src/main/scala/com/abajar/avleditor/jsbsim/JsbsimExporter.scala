@@ -129,7 +129,7 @@ object JsbsimExporter {
     for {
       battery <- power.getBateries.asScala.headOption
       shaft <- Option(battery.getShafts).map(_.asScala).getOrElse(Nil).headOption
-      motor <- buildMotor(shaft)
+      motor <- buildMotor(shaft, battery.getU_0.toDouble)
       thruster <- buildThruster(shaft, units)
     } yield Propulsion(motor, thruster.diameterM, thruster.blades, thruster.at,
       buildFuelTanks(power, units), thruster.curves)
@@ -232,7 +232,8 @@ object JsbsimExporter {
    * The shaft's motor: a combustion engine when present, else the electric one. A shaft carrying
    * both is rejected by [[SimulationRequirements]] rather than silently resolved here.
    */
-  private def buildMotor(shaft: com.abajar.avleditor.crrcsim.Shaft): Option[Motor] = {
+  private def buildMotor(shaft: com.abajar.avleditor.crrcsim.Shaft,
+                         batteryVolts: Double): Option[Motor] = {
     val piston = Option(shaft.getCombustionEngines).map(_.asScala).getOrElse(Nil).headOption
       .map(e => PistonEngine(e.getDisplacement.toDouble, e.getMaxPower.toDouble,
         e.getIdleRpm.toDouble, e.getMaxRpm.toDouble, e.getCycles, e.getFuelConsumption.toDouble))
@@ -240,7 +241,10 @@ object JsbsimExporter {
       for {
         engine <- Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
         watts <- maxPowerWatts(engine)
-      } yield ElectricMotor(watts)
+        kv <- velocityConstant(engine)
+        i0 <- noLoadCurrentA(engine)
+        if batteryVolts > 0
+      } yield ElectricMotor(watts, kv, CoilResistanceOhm, i0, batteryVolts)
     }
   }
 
@@ -255,20 +259,63 @@ object JsbsimExporter {
     }.toSeq
 
   /**
-   * Motor power from the CRRCsim data curve: the largest electrical input power over its points
-   * (terminal voltage x current). Nothing is assumed about efficiency — JSBSim's electric engine
-   * is rated by shaft power, and using the electrical input overstates it slightly, which is
-   * stated here rather than hidden behind a fudge factor.
+   * Electrical input power from the CRRCsim data curve: the largest terminal voltage x current
+   * over its points. This is **not** what drives the exported model — the brushless motor works
+   * its own shaft power out from the constants below, losses included — and it is kept for
+   * [[FlightSanity]], whose watts-per-kilogram rule of thumb is stated in electrical watts.
    *
    * None when no point carries both a voltage and an rpm; the caller must not invent one, and
    * [[SimulationRequirements]] rejects such a model up front.
    */
   private def maxPowerWatts(engine: com.abajar.avleditor.crrcsim.Engine): Option[Double] = {
-    val data = Option(engine.getData).map(_.asScala.toSeq).getOrElse(Nil)
-      .filter(d => d.getU_K > 0 && d.getRpms > 0)
+    val data = usableData(engine)
     val watts = data.map(d => d.getU_K.toDouble * d.getI_M.toDouble).filter(_ > 0)
     if (watts.isEmpty) None else Some(watts.max)
   }
+
+  private def usableData(engine: com.abajar.avleditor.crrcsim.Engine): Seq[com.abajar.avleditor.crrcsim.EngineData] =
+    Option(engine.getData).map(_.asScala.toSeq).getOrElse(Nil).filter(d => d.getU_K > 0 && d.getRpms > 0)
+
+  /**
+   * The coil resistance is the one stated assumption in the motor: it is not derivable from
+   * voltage, current and rpm without a load model, and 0.1 ohm is representative of an RC
+   * outrunner in this class. Deriving it instead — two data rows give `rpm = Kv (U - I R)` twice,
+   * which solves for `Kv` and `R` together — is real and belongs to #19, not here.
+   */
+  private val CoilResistanceOhm = 0.1
+
+  /**
+   * `Kv`, the motor's velocity constant in rpm per volt, from the most unloaded point of the
+   * curve: `rpm / U_K`, taking the back-EMF as the terminal voltage and ignoring the `I R` drop.
+   */
+  private def velocityConstant(engine: com.abajar.avleditor.crrcsim.Engine): Option[Double] = {
+    val data = usableData(engine)
+    if (data.isEmpty) None
+    else {
+      val fastest = data.maxBy(_.getRpms)
+      Some((fastest.getRpms.toDouble / fastest.getU_K.toDouble).max(1.0))
+    }
+  }
+
+  /**
+   * The no-load current, which is what the motor draws turning nothing, and it comes **only from
+   * the idle rows** the model states for exactly that.
+   *
+   * It must not be taken as the lowest current of the loaded curve, which is what this did before
+   * `electric_engine` replaced it. On a curve of a single row — which is all
+   * [[SimulationRequirements]] demands, and all this project's own check aircraft states — the
+   * lowest current *is* the operating current, so the whole of it is counted as loss and almost
+   * all the torque is thrown away: measured, the rotor settled at 7,122 rpm against the 9,500 the
+   * model states, 25 % slow, on an aeroplane that otherwise flew perfectly. A flight model that
+   * flies while quietly turning a quarter slow is the same failure as one that will not fly, only
+   * harder to notice.
+   *
+   * None when no idle row states one; [[SimulationRequirements]] then refuses, rather than this
+   * inventing a figure the model is perfectly able to express.
+   */
+  private def noLoadCurrentA(engine: com.abajar.avleditor.crrcsim.Engine): Option[Double] =
+    Option(engine.getDataIdle).map(_.asScala.toSeq).getOrElse(Nil)
+      .map(_.getI_M.toDouble).filter(_ > 0).reduceOption(_ min _)
 
   /** Span efficiency as AVL reported it, or None when the run did not produce a usable one. */
   def spanEfficiency(calc: AvlCalculation): Option[Double] =

@@ -61,6 +61,8 @@ object FlightSanityCheck {
     val point = new EngineData
     point.setU_K(volts); point.setI_M(amps); point.setRpms(9000f)
     engine.getData.add(point)
+    val idle = engine.createDataIdle()
+    idle.setU_K(volts); idle.setI_M(0.4f)
     crrcsim
   }
 

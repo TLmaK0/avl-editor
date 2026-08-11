@@ -113,9 +113,22 @@ object SimulationRequirements {
           // from passing a model the export then quietly turns back into a glider.
           val usable = Option(e.getData).map(_.asScala).getOrElse(Nil)
             .count(d => d.getU_K > 0 && d.getI_M > 0 && d.getRpms > 0)
-          if (usable > 0) Nil
-          else Seq("The engine needs a Data row with 'Voltage', 'Current' and 'Rpms' all above " +
-            "zero; the motor's power is derived from them. Add it with '+ Data'.")
+          val curve =
+            if (usable > 0) Nil
+            else Seq("The engine needs a Data row with 'Voltage', 'Current' and 'Rpms' all above " +
+              "zero; the motor's power is derived from them. Add it with '+ Data'.")
+          // The exported brushless motor states a no-load current, and the only honest source for
+          // it is the idle measurement the model already asks for. Taken instead from the lowest
+          // current of the loaded curve — which on a single-row curve is the operating current —
+          // the whole draw counts as loss and the rotor turns 25% slow while the aircraft still
+          // flies, which is exactly the kind of plausible wrong answer this project refuses.
+          val idle = Option(e.getDataIdle).map(_.asScala).getOrElse(Nil).count(_.getI_M > 0)
+          val idleProblem =
+            if (idle > 0) Nil
+            else Seq("The engine needs a Data Idle row with 'Current at idle' above zero; it is " +
+              "the motor's no-load current, and the exported motor states one. Add it with " +
+              "'+ Data Idle'.")
+          curve ++ idleProblem
       }
       val voltage = battery.filter(_.getU_0 <= 0).map(b =>
         s"'${label(classOf[Battery], "U_0")}' on the Battery must be greater than zero " +

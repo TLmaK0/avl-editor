@@ -80,16 +80,43 @@ object JsbsimWriter {
 
   /**
    * What drives the propeller. Kept as a sum type so the two are never conflated: an electric
-   * motor is rated by power alone, while a combustion engine needs its displacement, rev range
-   * and fuel consumption, and burns fuel from a tank.
+   * motor is stated by its motor constants, while a combustion engine needs its displacement, rev
+   * range and fuel consumption, and burns fuel from a tank.
    *
-   * Do not emit a `brushless_dc_motor` for the electric case: that element exists in newer JSBSim
-   * only, and the JSBSim inside FlightGear 2020.3 rejects the whole aircraft with "Unknown engine
-   * type" and aborts on load.
+   * **The electric case must stay a `brushless_dc_motor`, and must not go back to
+   * `electric_engine`.** The reason is one line of physics: `electric_engine` states a constant
+   * `<power>` and nothing else, and power is torque times angular velocity, so at zero rpm it asks
+   * for **unbounded torque**. A rotor therefore cannot be spun up from rest at all — measured on
+   * this project's own exported aircraft, 116 of 121 samples came back `nan` within 0.15 s of the
+   * throttle opening, on the ordinary propeller as readily as on a ducted fan, and no timestep, no
+   * rotor inertia and no throttle rate limit removes it. The brushless model instead states the
+   * motor's constants, so, in the words of the comment that stood here before `electric_engine`
+   * replaced it:
+   *
+   * > the model self-limits RPM via back-EMF, which a bare power model does not.
+   *
+   * Its torque at zero rpm is finite — the stall torque of a real motor — and there is nothing to
+   * diverge. See issue #24, which measures both halves.
+   *
+   * **The declared cost, accepted deliberately: FlightGear 2020.3 and earlier will not load the
+   * model**, reporting "Unknown engine type" and aborting. That is not a defect on either side —
+   * JSBSim gained `brushless_dc_motor` on 11 January 2022 and FlightGear 2020.3 is from December
+   * 2020, so its parser predates the element. Every JSBSim since reads it, including the 1.3.1 the
+   * checks here fly and the one inside current FlightGear. Swapping the element back to make an
+   * old FlightGear load the aircraft is what produced the divergence above: it trades a model that
+   * will not load for one that loads and cannot fly, which is worse, because nothing about it looks
+   * broken until the throttle is opened.
    */
   sealed trait Motor
 
-  final case class ElectricMotor(maxPowerWatts: Double) extends Motor
+  /**
+   * A brushless motor, as JSBSim states one. `maxPowerWatts` is the electrical input power the
+   * data curve gives; it drives no part of the exported model and is kept only because
+   * [[FlightSanity]] weighs watts per kilogram with it.
+   */
+  final case class ElectricMotor(maxPowerWatts: Double, kvRpmPerVolt: Double,
+                                 coilResistanceOhm: Double, noLoadCurrentA: Double,
+                                 maxVolts: Double) extends Motor
 
   /** Combustion engine, metric; the writer converts to the units JSBSim's piston model wants. */
   final case class PistonEngine(displacementCm3: Double, maxPowerWatts: Double, idleRpm: Double,
@@ -244,11 +271,14 @@ object JsbsimWriter {
   }
 
   private def engineFile(name: String, motor: Motor): String = motor match {
-    case ElectricMotor(watts) =>
+    case em: ElectricMotor =>
       s"""<?xml version="1.0"?>
-      |<electric_engine name="${xml(name)}">
-      |  <power unit="WATTS">${f(watts)}</power>
-      |</electric_engine>
+      |<brushless_dc_motor name="${xml(name)}">
+      |  <velocityconstant>${f(em.kvRpmPerVolt)}</velocityconstant>
+      |  <coilresistance>${f(em.coilResistanceOhm)}</coilresistance>
+      |  <noloadcurrent>${f(em.noLoadCurrentA)}</noloadcurrent>
+      |  <maxvolts>${f(em.maxVolts)}</maxvolts>
+      |</brushless_dc_motor>
       |""".stripMargin
     case pe: PistonEngine => pistonEngineFile(name, pe)
   }

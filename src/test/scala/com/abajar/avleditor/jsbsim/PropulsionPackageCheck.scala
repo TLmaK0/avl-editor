@@ -11,9 +11,14 @@ import com.abajar.avleditor.avl.geometry.Control
 
 object PropulsionPackageCheck {
 
-  /** Engine and thruster elements this JSBSim (FlightGear 2020.3) accepts. */
+  /**
+   * Engine and thruster elements JSBSim accepts. `brushless_dc_motor` is in the list because it is
+   * what the electric export writes and what JSBSim has read since January 2022; see the note on
+   * [[JsbsimWriter.Motor]] for why it is that and not `electric_engine`, and for the cost.
+   */
   private val EngineTypes = Set(
-    "electric_engine", "piston_engine", "turbine_engine", "turboprop_engine", "rocket_engine")
+    "brushless_dc_motor", "electric_engine", "piston_engine", "turbine_engine",
+    "turboprop_engine", "rocket_engine")
   private val ThrusterTypes = Set("propeller", "nozzle", "rotor", "direct")
 
   private var ok = true
@@ -64,6 +69,8 @@ object PropulsionPackageCheck {
       p.setU_K(u); p.setI_M(i); p.setRpms(rpm)
       engine.getData.add(p)
     }
+    val idle = engine.createDataIdle()
+    idle.setU_K(11.1f); idle.setI_M(0.5f)
     crrcsim
   }
 
@@ -103,13 +110,24 @@ object PropulsionPackageCheck {
 
     // The engine element must be one this JSBSim knows, and carry a positive rating.
     val engineXml = generated.engineFiles.find(_._1.endsWith("_motor.xml")).map(_._2).getOrElse("")
-    val watts = """<power unit="WATTS">([0-9.eE+-]+)</power>""".r
-      .findFirstMatchIn(engineXml).map(_.group(1).toDouble)
-    println(s"  engine power: ${watts.getOrElse(0.0)} W")
-    check("the engine is rated in watts", watts.exists(_ > 0))
-    // 11.1 V x 18 A is the strongest point of the fixture's curve.
-    check("the rating comes from the model's data curve",
-      watts.exists(w => math.abs(w - 11.1 * 18.0) < 0.5))
+    // A brushless motor is stated by its constants rather than by a power, so what is asserted is
+    // the same property in the terms the element now uses: every figure in it traces to something
+    // the model states, and none of them is invented here.
+    def number(tag: String): Option[Double] =
+      s"""<$tag>([0-9.eE+-]+)</$tag>""".r.findFirstMatchIn(engineXml).map(_.group(1).toDouble)
+    val kv = number("velocityconstant")
+    val i0 = number("noloadcurrent")
+    val volts = number("maxvolts")
+    println(s"  motor: Kv=${kv.getOrElse(0.0)} rpm/V, no-load=${i0.getOrElse(0.0)} A, " +
+      s"maxvolts=${volts.getOrElse(0.0)} V")
+    check("the motor is rated by its constants", kv.exists(_ > 0) && volts.exists(_ > 0))
+    // 11,000 rpm at 11.1 V is the most unloaded point of the fixture's curve.
+    check("Kv comes from the model's data curve",
+      kv.exists(k => math.abs(k - 11000.0 / 11.1) < 0.5))
+    // The idle row states 0.5 A, and the lightest loaded point states 0.8 A: reading the loaded one
+    // as no-load is the defect this change fixes, so the check pins which of the two arrives.
+    check("the no-load current comes from the idle row", i0.exists(c => math.abs(c - 0.5) < 1e-6))
+    check("the pack voltage comes from the battery", volts.exists(v => math.abs(v - 11.1) < 1e-6))
 
     println(if (ok) "PROPULSION_PACKAGE_OK" else "PROPULSION_PACKAGE_FAIL")
     if (!ok) sys.exit(1)

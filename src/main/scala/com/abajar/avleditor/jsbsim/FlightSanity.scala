@@ -73,7 +73,7 @@ object FlightSanity {
 
     val prop = propulsion.get
     val watts = prop.motor match {
-      case JsbsimWriter.ElectricMotor(w) => w
+      case em: JsbsimWriter.ElectricMotor => em.maxPowerWatts
       case piston: JsbsimWriter.PistonEngine => piston.maxPowerWatts
       case _ => 0.0
     }

@@ -126,8 +126,8 @@ object DuctedFanFlightCheck {
         |    <event name="start and open the throttle">
         |      <condition> simulation/sim-time-sec >= 0.1 </condition>
         |      <set name="propulsion/set-running" value="-1"/>
-        |      <set name="fcs/throttle-cmd-norm" value="0.6"/>
-        |      <set name="fcs/throttle-pos-norm" value="0.6"/>
+        |      <set name="fcs/throttle-cmd-norm" value="1.0"/>
+        |      <set name="fcs/throttle-pos-norm" value="1.0"/>
         |    </event>
         |  </run>
         |</runscript>
@@ -169,6 +169,15 @@ object DuctedFanFlightCheck {
 
     var divergedAt: Option[String] = None
 
+    // The identity below is measured once the rotor is up to speed, not across the spin-up. Both
+    // sides of it are logged 20 times a second while JSBSim integrates at 240, so during the
+    // acceleration the thrust and the rpm in one row are not from quite the same instant and the
+    // comparison measures the sampling rather than the definition: one row, at t = 0.15 s, comes
+    // out 1.83 % apart while every row after the rotor settles agrees to 0.012 %. There was no
+    // spin-up to sample while the export wrote a constant-power engine, because that reached full
+    // speed inside one sample and then diverged (#24) — a real motor takes about a second.
+    val SettledAfterSec = 1.5
+
     println(f"${"rpm"}%8s ${"J"}%8s ${"Ct flown"}%9s ${"Ct table"}%9s ${"T flown"}%9s ${"Ct rho n2 D4"}%13s")
     lines.tail.zipWithIndex.foreach { case (line, i) =>
       val cells = line.split(",")
@@ -187,12 +196,14 @@ object DuctedFanFlightCheck {
         val Seq(j, ctFlown, thrustLbs, rhoSlugs) = row.map(_.get)
         val thrustN = thrustLbs * LbsToNewtons
         val rho = rhoSlugs * SlugFt3ToKgM3
+        val timeSec = finite(cells(0)).getOrElse(0.0)
         val n = rpm / 60.0
         // The definition under test: JSBSim's own thrust against the coefficient it looked up.
         val fromDefinition = ctFlown * rho * n * n * math.pow(diameter, 4)
         turning += 1
         worstCt = math.max(worstCt, math.abs(ctFlown - lookup(ct, j)))
-        worstThrust = math.max(worstThrust, math.abs(thrustN - fromDefinition) / math.max(thrustN, 1e-9))
+        if (timeSec >= SettledAfterSec)
+          worstThrust = math.max(worstThrust, math.abs(thrustN - fromDefinition) / math.max(thrustN, 1e-9))
         maxThrustN = math.max(maxThrustN, thrustN)
         if (i % 40 == 0)
           println(f"$rpm%8.0f $j%8.4f $ctFlown%9.5f ${lookup(ct, j)}%9.5f $thrustN%9.3f $fromDefinition%13.3f")
@@ -200,7 +211,7 @@ object DuctedFanFlightCheck {
     }
     println(f"  $turning%d samples with the fan turning")
     println(f"  worst gap in Ct against the exported table: $worstCt%.2e")
-    println(f"  worst gap in thrust against Ct rho n^2 D^4: ${worstThrust * 100}%.4f %%")
+    println(f"  worst gap in thrust against Ct rho n^2 D^4, once settled: ${worstThrust * 100}%.4f %%")
 
     divergedAt.foreach { where =>
       println("  the flight trace stopped being numbers here:")

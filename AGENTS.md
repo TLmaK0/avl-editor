@@ -963,8 +963,35 @@ What remains are **stated assumptions**: values the model genuinely cannot expre
 where it is defined, and none of them standing in for something the user should have entered.
 Currently, all in `JsbsimWriter`/`JsbsimExporter`: the propeller's generic thrust and power
 coefficient tables and its inertia (scaled from a DJI 9450), the gear friction coefficients, the
-gear stiffness rule taken from FlightGear's c172p, and treating the motor curve's electrical input
-power as shaft power. Replace one only with a better-sourced derivation, never with a guess.
+gear stiffness rule taken from FlightGear's c172p, and the motor's coil resistance. Replace one
+only with a better-sourced derivation, never with a guess.
+
+### An electric motor is stated by its constants, never by a power
+
+The electric export writes a **`brushless_dc_motor`** — `velocityconstant` from the most unloaded
+point of the motor's data curve, `noloadcurrent` from its idle row, `maxvolts` from the battery, and
+the coil resistance as the one assumption above. It briefly wrote an `electric_engine` instead, rated
+in watts, and that is a mistake worth never repeating: **constant power at zero rpm is unbounded
+torque**, so the rotor could not be spun up from rest at all. Measured, 116 of 121 samples came back
+`nan` within 0.15 s of the throttle opening — on the ordinary propeller as readily as on a ducted fan
+— and no timestep, no rotor inertia and no throttle rate limit removes it, because the singularity is
+in the engine model rather than in the integration. A brushless motor's torque at zero rpm is its
+stall torque, which is finite; in the words of the comment that the swap deleted, *the model
+self-limits RPM via back-EMF, which a bare power model does not*.
+
+The **declared cost, accepted deliberately: FlightGear 2020.3 and earlier will not load the model**,
+reporting "Unknown engine type". That is a matter of dates rather than of support — JSBSim gained the
+element in January 2022 and that FlightGear is from December 2020 — so every JSBSim since reads it,
+including current FlightGear's. Swapping the element back to satisfy an old FlightGear trades a model
+that will not load for one that loads and cannot fly, which is worse: nothing about it looks broken
+until the throttle is opened. See issue #24, and `JsbsimWriter.Motor`, which carries the whole of
+this beside the code.
+
+The **no-load current comes from the idle row and from nowhere else**. Taking it as the lowest
+current of the loaded curve — which on a single-row curve is the operating current — counts the whole
+draw as loss and costs most of the torque: measured, 7,122 rpm against the 9,500 the model states. A
+model that states no idle row is refused rather than defaulted, because it is a value the model can
+express.
 
 `SimpleTrust` is a CRRCsim thrust model, and with the CRRCsim export gone it has no destination at
 all, so the editor no longer offers to create one: the `+ Trust` button is removed. The node and

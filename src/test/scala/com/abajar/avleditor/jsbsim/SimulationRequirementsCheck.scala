@@ -70,6 +70,8 @@ object SimulationRequirementsCheck {
     val point = new EngineData
     point.setU_K(11.1f); point.setI_M(0.45f); point.setRpms(10000f)
     engine.getData.add(point)
+    val idle = engine.createDataIdle()
+    idle.setU_K(11.1f); idle.setI_M(0.3f)
   }
 
   private def addWheels(crrcsim: CRRCSim, at: Seq[(Float, Float)]): Unit = {

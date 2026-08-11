@@ -86,6 +86,8 @@ object ExportUnitsCheck {
     val point = new EngineData
     point.setU_K(11.1f); point.setI_M(20f); point.setRpms(9000f)
     engine.getData.add(point)
+    val idle = engine.createDataIdle()
+    idle.setU_K(11.1f); idle.setI_M(0.4f)
 
     val tank = new FuelTank
     tank.setCapacity(0.25f * perKg); tank.setContents(0.2f * perKg)

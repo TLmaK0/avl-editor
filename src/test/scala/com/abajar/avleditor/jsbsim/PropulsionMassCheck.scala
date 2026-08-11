@@ -53,6 +53,8 @@ object PropulsionMassCheck {
     val point = new EngineData
     point.setU_K(11.1f); point.setI_M(20f); point.setRpms(10000f)
     engine.getData.add(point)
+    val idle = engine.createDataIdle()
+    idle.setU_K(11.1f); idle.setI_M(0.4f)
     crrcsim
   }
 

@@ -32,6 +32,8 @@ object DuctedFanExportCheck {
     engine.setMass(0.2f)
     val data = engine.createData()
     data.setU_K(22.2f); data.setI_M(60f); data.setRpms(38000f)
+    val idle = engine.createDataIdle()
+    idle.setU_K(22.2f); idle.setI_M(1.2f)
     shaft.getEngines.add(engine)
     if (withFan) {
       val fan = shaft.createDuctedFan()

@@ -11,7 +11,7 @@
 package com.abajar.avleditor
 
 import com.abajar.avleditor.avl.geometry.{Control, Section, Surface}
-import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, EngineData, Wheel}
+import com.abajar.avleditor.crrcsim.{CRRCSim, CRRCSimFactory, EngineData, EngineDataIdle, Wheel}
 
 /**
  * The aircraft the checks fly.
@@ -127,6 +127,20 @@ object TestAircraft {
     engine.getData.clear()
     val row = engine.createData()
     row.setU_K(22.2f); row.setI_M(60f); row.setRpms(38000f)
+    // The pack has to be the one that motor point is measured on. This fixture stated a 22.2 V
+    // (6S) point while keeping the sport model's 3S battery, which is not a thing that can be
+    // wired: 1332 W at 60 A is a 6S setup. Nothing noticed while the export reduced the motor to
+    // U x I — 1332 W is 1332 W however it is wired — and the brushless motor does notice, because
+    // it is the pack voltage that decides how fast the rotor can turn. Left at 12.6 V the fan
+    // settled at 12,700 rpm against the 38,000 it is specified at.
+    val battery = crrcsim.getConfig.getPower.getBateries.get(0)
+    battery.setU_0(25.2f)   // 6S at 4.2 V a cell, the pack the 22.2 V nominal point comes from
+    battery.setU_off(19.8f) // and 3.3 V a cell at the other end
+    engine.getDataIdle.clear()
+    val idle = engine.createDataIdle()
+    // The fan motor's own no-load current: a 1332 W outrunner draws appreciably more turning
+    // nothing than the 250 W one in `propulsion()` does, so this fixture states its own.
+    idle.setU_K(22.2f); idle.setI_M(1.5f)
     crrcsim.calculate()
     crrcsim
   }
@@ -238,6 +252,13 @@ object TestAircraft {
     val row = new EngineData
     row.setU_K(11.1f); row.setI_M(22.5f); row.setRpms(9500f)
     engine.getData.add(row)
+    // The no-load current, which the exported brushless motor states. 0.45 A is what DJI publish
+    // for the E305, a motor of this class — and the one whose propeller, the 9450, the exporter
+    // already takes its generic thrust and power curves from. It is a figure of this fixture, not
+    // a default the exporter would ever supply: a model that states no idle row is refused.
+    val idle = new EngineDataIdle
+    idle.setU_K(11.1f); idle.setI_M(0.45f)
+    engine.getDataIdle.add(idle)
 
     val propeller = shaft.createPropeller()
     propeller.setD(0.254f) // 10 inches

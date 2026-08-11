@@ -16,6 +16,11 @@ object PropulsionMappingCheck {
     val ed1 = new EngineData(); ed1.setU_K(14.0f); ed1.setI_M(1.0f); ed1.setRpms(9000f)
     val ed2 = new EngineData(); ed2.setU_K(14.0f); ed2.setI_M(20.0f); ed2.setRpms(6000f)
     engine.getData.add(ed1); engine.getData.add(ed2)
+    // The no-load current comes from the idle rows and from nowhere else. Note it is deliberately
+    // not the 1.0 A of the lightest loaded point: that point is loaded, and reading it as no-load
+    // is the defect this check now pins.
+    val idle = new EngineDataIdle(); idle.setU_K(14.0f); idle.setI_M(0.6f)
+    engine.getDataIdle.add(idle)
 
     val shaft = new Shaft()
     shaft.getPropellers.add(prop)
@@ -30,8 +35,12 @@ object PropulsionMappingCheck {
     val ok = p.exists { pr =>
       math.abs(pr.propDiameterM - 0.25) < 0.001 &&
       pr.numBlades == 3 &&                                  // the blade count, not n_fold
-      (pr.motor match {                                     // strongest point of the curve
-        case JsbsimWriter.ElectricMotor(w) => math.abs(w - 14.0 * 20.0) < 0.5
+      (pr.motor match {
+        case em: JsbsimWriter.ElectricMotor =>
+          math.abs(em.maxPowerWatts - 14.0 * 20.0) < 0.5 &&   // strongest point of the curve
+          math.abs(em.kvRpmPerVolt - 9000.0 / 14.0) < 0.5 &&  // Kv from the most unloaded point
+          math.abs(em.noLoadCurrentA - 0.6) < 1e-6 &&         // the idle row, not the lightest load
+          math.abs(em.maxVolts - 14.8) < 1e-6                 // the battery's full charge
         case _ => false
       })
     }
