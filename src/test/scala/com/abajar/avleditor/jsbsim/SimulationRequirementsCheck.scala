@@ -163,6 +163,18 @@ object SimulationRequirementsCheck {
     check("and no propulsion is exported for it",
       JsbsimExporter.buildPropulsion(zeroCurrent).isEmpty)
 
+    // The no-load current is the one figure of the exported motor that the loaded curve cannot
+    // give, and reading it off the curve anyway is what made the rotor turn 25% slow (#24). So a
+    // model that states no idle row is refused rather than defaulted — the model can express this,
+    // which by this project's rule makes it a requirement and not a stated assumption.
+    val noIdle = flyableModel()
+    noIdle.getConfig.getPower.getBateries.get(0).getShafts.get(0)
+      .getEngines.get(0).getDataIdle.clear()
+    check("an engine with no idle row is reported",
+      mentions(SimulationRequirements.validate(noIdle), "Data Idle"))
+    check("and no no-load current is invented for it",
+      JsbsimExporter.buildPropulsion(noIdle).isEmpty)
+
     // A propeller wider than the wingspan is a units mistake.
     val hugeProp = flyableModel()
     hugeProp.getConfig.getPower.getBateries.get(0).getShafts.get(0)
