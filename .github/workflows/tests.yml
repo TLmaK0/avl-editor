@@ -72,16 +72,15 @@ jobs:
           path: ~/.avleditor
           key: avleditor-binaries-avl3.40-xfoil6.99
 
-      # JSBSim is what several checks measure the exported aircraft against: they export a model,
-      # run JSBSim on it from the command line and compare its forces against the tables in the
-      # file it loaded. `pip install jsbsim` is how the pivot was validated.
-      # `--user` puts it in ~/.local/bin, which is not necessarily on the PATH, and a JSBSim the
-      # checks cannot find is the same as no JSBSim: they excuse themselves and exit 0. So it goes
-      # in system-wide and the step proves it can be run rather than assuming the install worked.
-      - name: Install JSBSim
-        run: |
-          sudo pip install jsbsim
-          jsbsim --version
+      # JSBSim is NOT installed here, deliberately. The checks that fly the exported aircraft
+      # install it themselves, into `~/.avleditor`, through `JsbsimManager` — so they work on this
+      # runner and on any machine, and a check that drives a tool carries the tool.
+      #
+      # It used to be `sudo pip install jsbsim`, and before that somebody had symlinked
+      # /usr/local/bin/JSBSim to a binary inside a session's scratch directory. Both are the same
+      # mistake: an arrangement made on a host, invisible, not travelling with the repository, and
+      # expiring without saying so. When it expires the checks excuse themselves and exit 0, and the
+      # suite reports green having measured nothing.
 
       # Under a virtual display, because AVL's modal and plot passes are X clients — see above.
       # `-a` picks a free server number rather than assuming :99 is idle.

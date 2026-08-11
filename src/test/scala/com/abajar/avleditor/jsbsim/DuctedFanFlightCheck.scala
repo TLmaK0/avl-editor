@@ -8,7 +8,7 @@
  */
 package com.abajar.avleditor.jsbsim
 
-import com.abajar.avleditor.AvlManager
+import com.abajar.avleditor.{AvlManager, JsbsimManager}
 import com.abajar.avleditor.avl.connectivity.AvlRunner
 import java.io.{File, PrintWriter}
 import java.util.Properties
@@ -23,17 +23,11 @@ object DuctedFanFlightCheck {
   }
 
   /**
-   * The four fixed locations a Debian or Ubuntu package uses, and then **whatever the PATH offers**,
-   * under both spellings — see the same list in [[JsbsimCurveCheck]]. `pip install jsbsim` lands in
-   * `/usr/local/bin/jsbsim`, which the fixed list missed, so this check excused itself and exited 0
-   * on any machine that had JSBSim installed that way.
+   * JSBSim is no longer looked for on the machine here: having it is [[JsbsimManager]]'s job, and
+   * it installs one under `~/.avleditor` when the machine has none. A check that drives a tool has
+   * to bring the tool with it, or what it measures depends on what somebody once arranged by hand
+   * on that host — see the note in the manager, which is the bug this replaced.
    */
-  private val JsbsimCandidates: Seq[String] =
-    Seq("/usr/games/JSBSim", "/usr/bin/JSBSim", "/usr/local/bin/JSBSim", "/usr/bin/jsbsim") ++
-      (for {
-        dir <- Option(System.getenv("PATH")).getOrElse("").split(File.pathSeparator).toSeq
-        name <- Seq("JSBSim", "jsbsim")
-      } yield new File(dir, name).getPath)
 
   private val SlugFt3ToKgM3 = 515.378818
   private val LbsToNewtons = 4.4482216
@@ -61,7 +55,7 @@ object DuctedFanFlightCheck {
     }.getOrElse(rows.last._2)
 
   def main(args: Array[String]): Unit = {
-    val jsbsim = JsbsimCandidates.find(p => new File(p).canExecute)
+    val jsbsim = JsbsimManager.ensureJsbsimAvailable()
     val props = new Properties()
     val avl = AvlManager.ensureAvlAvailable(props)
     if (jsbsim.isEmpty || !avl) {

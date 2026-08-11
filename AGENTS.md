@@ -149,6 +149,31 @@ there is the plan itself.
 - If a temporary workaround is unavoidable, label it explicitly as temporary, explain the risk, and propose the permanent fix immediately.
 - Prefer robust, evidence-based behavior over UI heuristics that can misclassify results.
 
+### A tool is installed by whatever needs it, in the user's own directory — never on the machine
+
+**No `sudo`. Nothing under `/usr`, `/etc` or `/opt`. No system packages. No symlink.** If the checks
+need a binary, the checks install it; if the application needs one, the application installs it. It
+goes in the user's own space — this project keeps its tools under `~/.avleditor` — so it travels with
+the repository, works on CI and on a machine nobody has prepared, and disappears with one directory.
+
+Hugo's rule, and the case that produced it: JSBSim was once put on a machine by hand with
+`sudo ln -sf <a session's scratch directory>/bin/jsbsim /usr/local/bin/JSBSim`. It worked, on that
+machine, that day. It did not travel with the repository, it did not exist on the runner, and it
+pointed inside `/tmp` — so the first cleanup of that directory would leave the link dangling, the two
+checks that fly the exported aircraft would stop finding JSBSim, **excuse themselves and exit 0**,
+and the suite would report green having measured nothing. That is the same hole this file already
+closes elsewhere, reintroduced through the back door: an arrangement made on a host is invisible,
+does not travel, and expires without saying so.
+
+`AvlManager`, `XfoilManager` and `JsbsimManager` are the shape to copy: ask for the tool, and get it
+installed if it is not there. `JsbsimManager` installs into a virtual environment of its own rather
+than with `pip install --user`, because a current Debian or Ubuntu marks the system Python as
+externally managed (PEP 668) and refuses the latter — the flag that overrides it is called
+`--break-system-packages`, which is answer enough.
+
+And **if you think the host has to be touched, ask and wait.** Asking and doing it at the same time
+is not asking.
+
 ### No silent fallbacks
 
 **Never invent data for a model that does not provide it.** If a model cannot be handed to a

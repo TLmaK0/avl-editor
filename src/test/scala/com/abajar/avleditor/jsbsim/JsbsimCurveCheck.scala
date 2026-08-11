@@ -7,7 +7,7 @@
  */
 package com.abajar.avleditor.jsbsim
 
-import com.abajar.avleditor.AvlManager
+import com.abajar.avleditor.{AvlManager, JsbsimManager}
 import com.abajar.avleditor.avl.connectivity.AvlRunner
 import java.io.{File, PrintWriter}
 import java.util.Properties
@@ -22,19 +22,11 @@ object JsbsimCurveCheck {
   }
 
   /**
-   * The four fixed locations a Debian or Ubuntu package uses, and then **whatever the PATH offers**,
-   * under both spellings. The fixed list alone missed the ordinary way of installing it:
-   * `pip install jsbsim` lands in `/usr/local/bin/jsbsim`, and the list held that directory only
-   * with a capital J and the lowercase name only under `/usr/bin`. This check then excused itself
-   * and exited 0 — reporting success on a run that measured nothing — on any machine that had
-   * JSBSim installed that way, CI included.
+   * JSBSim is no longer looked for on the machine here: having it is [[JsbsimManager]]'s job, and
+   * it installs one under `~/.avleditor` when the machine has none. A check that drives a tool has
+   * to bring the tool with it, or what it measures depends on what somebody once arranged by hand
+   * on that host — see the note in the manager, which is the bug this replaced.
    */
-  private val JsbsimCandidates: Seq[String] =
-    Seq("/usr/games/JSBSim", "/usr/bin/JSBSim", "/usr/local/bin/JSBSim", "/usr/bin/jsbsim") ++
-      (for {
-        dir <- Option(System.getenv("PATH")).getOrElse("").split(File.pathSeparator).toSeq
-        name <- Seq("JSBSim", "jsbsim")
-      } yield new File(dir, name).getPath)
 
   private def write(file: File, content: String): Unit = {
     Option(file.getParentFile).foreach(_.mkdirs())
@@ -61,7 +53,7 @@ object JsbsimCurveCheck {
     }.getOrElse(rows.last._2)
 
   def main(args: Array[String]): Unit = {
-    val jsbsim = JsbsimCandidates.find(p => new File(p).canExecute)
+    val jsbsim = JsbsimManager.ensureJsbsimAvailable()
     val props = new Properties()
     val avlAvailable = AvlManager.ensureAvlAvailable(props)
     if (jsbsim.isEmpty || !avlAvailable) {
