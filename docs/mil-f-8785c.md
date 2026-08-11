@@ -284,8 +284,9 @@ the condition being analysed.
 
 (The Level 3 column of 10 s spans all rows in the original.)
 
-**Not implemented.** τR is a real root, and real roots are invisible in the editor today unless they
-diverge.
+**Implemented** — `MilF8785cEvaluator.rollModeLimits`. It reads τR off the roll mode, which is a
+**real** root: the table used to be built from the oscillatory modes alone, so this one was thrown
+away with the rest of the real roots until they were kept.
 
 ### §3.3.1.3 Spiral stability — TABLE VIII, PDF p. 23
 
@@ -299,7 +300,10 @@ greater than:
 | A & C | 12 s | 8 s | 4 s |
 | **B** | **20 s** | **8 s** | **4 s** |
 
-**Not implemented.** This is the table the invented 10 s stands in for.
+**Implemented** — `MilF8785cEvaluator.spiralLimits`. This is the table that **replaced the invented
+10 s**: that figure decided whether a lateral divergence counted as a slow spiral, it was in no table
+at all, and the standard says 20 s for Category B. A stable spiral meets every Level at once; an
+unstable one is judged on how long it takes to double.
 
 ### §3.3.1.4 Coupled roll-spiral oscillation — PDF p. 23
 
@@ -312,7 +316,10 @@ Categories B and C provided:
 | 2 | ≥ 0.3 |
 | 3 | ≥ 0.15 |
 
-**Not implemented.**
+**Implemented** — `MilF8785cEvaluator.CoupledRollSpiralLimits`, with the candidate found by
+`findCoupledRollSpiralCandidate`: the roll mode and the spiral merged into one oscillation, which
+happens when the two real roots meet. Not permitted at all for Category A; judged on `ζ·ωn` for B
+and C.
 
 ### §3.3.4 Roll control effectiveness — TABLE IXa, PDF p. 27
 
@@ -383,7 +390,7 @@ Stated here rather than silently skipped.
 | Section | Why not |
 |---------|---------|
 | §3.2.2.2, §3.2.3.x forces, §3.3.4.3, **§3.3.5 in full** — all control-force requirements | A radio-controlled model has no stick feel system. There is no force to specify. §3.3.5.1, §3.3.5.1.1 and §3.3.5.2 (pp. 31-32) are stated entirely in pounds of yaw-control-pedal force. |
-| §3.3.2.2 roll rate oscillations, §3.3.2.3 bank angle oscillations, §3.3.2.4 sideslip excursions (p. 24, definitions on p. 78) | Not blocked by physics — blocked by machinery the editor does not have. See below. |
+| ~~§3.3.2.2 roll rate oscillations, §3.3.2.3 bank angle oscillations, §3.3.2.4 sideslip excursions~~ | **No longer in this table — they are implemented.** The machinery they were waiting on is `LateralModel` and `RollSideslipCoupling`; see below and AGENTS.md. |
 | §3.3.9 asymmetric thrust, §3.3.9.5 two engines inoperative | Single-engine models. |
 | §3.4.2 flight at high angle of attack, stalls | AVL is inviscid and cannot see one. Where a wing **stops** lifting is now measured (XFOIL plus AVL's spanwise loading — see AGENTS.md and §3.2.1.3 above), but what it does *past* that point is not modelled at all. |
 | §3.7 atmospheric disturbances | Needs a turbulence model the editor does not have. |
@@ -454,18 +461,29 @@ Likewise `Δβ` is "the maximum change in sideslip occurring within 2 seconds or
 roll, whichever is greater", and `k` is "the ratio of command roll performance to the applicable roll
 performance requirement of 3.3.4" — which reuses the roll response already implemented.
 
-**What is actually missing** is the transfer function: the editor never forms a state-space or transfer
-function model of the aircraft. It takes AVL's eigenvalues as given. Building `p/δa` and `β/δa` from the
-derivatives and the inertias is the real cost, and it is algebra.
+**What was missing** was the transfer function: the editor took AVL's eigenvalues as given and never
+formed a state-space model of the aircraft. **That is now `LateralModel`** — the four-state lateral
+system assembled from AVL's derivatives and the inertias, verified the only way that needs no second
+flight dynamics model: the four roots of its matrix are the dutch roll pair, the roll mode and the
+spiral AVL already returned (`LateralModelCheck`).
+
+The peaks are found the way this section says they have to be — on the exact slope rather than by
+scanning samples, since near a peak the curve is almost flat — and `RollSideslipCoupling` applies
+6.2.6's own formula to them. Neither is measured on an aircraft that is running away: a time history
+of a divergent system measures how long it was integrated, not the aeroplane. See AGENTS.md, "The
+lateral model, and the three things AVL does that a textbook does not say", for the three wiring
+faults this uncovered — the inertias about the origin, AVL's apparent mass of the air, and its
+derivatives being in stability axes while its modes are in body axes.
 
 The limits then come from **figures 4 and 5** (p. 25), piecewise-linear boundaries of `posc/pav` and
 `φosc/φav` against `ψβ`. Unlike figures 1-3 those carry no printed constant — they are polylines and would
 have to be digitised at their breakpoints.
 
-One argument against doing it inside the editor survives, weaker than it was first put: the verdict would
-come from a second dynamic model of the aircraft, while the one the user flies is the JSBSim export. Two
-models are free to disagree. Running JSBSim on the exported aircraft — as `JsbsimCurveCheck` and
-`DuctedFanFlightCheck` already do — keeps one source of truth.
+One reservation stands, and it stands after the fact rather than against doing it: the verdict comes
+from a **second** dynamic model of the aircraft, while the one the user flies is the JSBSim export,
+and two models are free to disagree. That is why `LateralModelCheck` pins `LateralModel` against
+AVL's own eigenvalues root for root instead of against itself — the second model has to agree with
+the first one about the same aeroplane, or its verdicts describe something nobody flies.
 
 ## The assumption the specification cannot state for us
 
