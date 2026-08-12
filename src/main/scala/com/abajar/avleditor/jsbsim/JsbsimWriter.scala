@@ -134,9 +134,15 @@ object JsbsimWriter {
    */
   final case class ThrusterCurves(ct: Seq[(Double, Double)], cp: Seq[(Double, Double)])
 
+  /**
+   * `rotorInertiaKgM2` is what the model **states** for the parts that turn, when it states
+   * anything at all. `None` means it states nothing, and the writer then falls back to a constant
+   * documented where it is used — see [[propellerFile]] and issue #32.
+   */
   final case class Propulsion(motor: Motor, propDiameterM: Double, numBlades: Int, at: Vec3,
                               tanks: Seq[FuelTank] = Nil,
-                              curves: Option[ThrusterCurves] = None)
+                              curves: Option[ThrusterCurves] = None,
+                              rotorInertiaKgM2: Option[Double] = None)
 
   /** The generated aircraft plus the auxiliary engine/thruster files it references. */
   final case class GeneratedModel(name: String, aircraftXml: String, engineFiles: Seq[(String, String)])
@@ -179,7 +185,8 @@ object JsbsimWriter {
       case None => Seq.empty
       case Some(pr) => Seq(
         engineName(ac) + ".xml" -> engineFile(engineName(ac), pr.motor),
-        propName(ac) + ".xml" -> propellerFile(propName(ac), pr.propDiameterM, pr.numBlades, pr.curves)
+        propName(ac) + ".xml" -> propellerFile(propName(ac), pr.propDiameterM, pr.numBlades,
+          pr.curves, pr.rotorInertiaKgM2)
       )
     }
     GeneratedModel(ac.name, sb.toString, engineFiles)
@@ -319,9 +326,27 @@ object JsbsimWriter {
   private def rows(table: Seq[(Double, Double)]): String =
     table.map { case (j, c) => s"      ${f(j)} ${f(c)}" }.mkString("\n")
 
+  /**
+   * The rotor's inertia decides how fast the thruster answers the throttle, and nothing else:
+   * measured on the check aircraft's fan, spinning up to 95 % of its settled speed takes 0.45 s at
+   * the constant below and 1.95 s at what the fan's own stated mass implies, while the speed it
+   * settles at moves by 0.8 % (#32).
+   *
+   * **What the model states wins**, and until now nothing read it: `Propeller` carries an
+   * `Inertia (J)`, `Engine` a `Rotor inertia (J_M)` and `Gearing` one of its own, and a figure the
+   * user had entered in any of them was replaced by the constant.
+   *
+   * That constant is what is left when the model states nothing, and it is worth naming for what it
+   * is rather than what its comment used to say. `1.06e-3 * D²` is JSBSim's own `DJI_9450`
+   * derivation — `(1/12) * 12.6e-3 * L²`, a uniform rod — with its **mass frozen at 12.7 g**. It
+   * scales with the diameter and with nothing else, so it is the same 12.7 g for a five-inch
+   * propeller and for a twelve-blade ducted fan whose unit weighs 190 g. Replacing it is #32's
+   * remaining question, and it is a decision rather than a measurement.
+   */
   private def propellerFile(name: String, diameterM: Double, numBlades: Int,
-                            curves: Option[ThrusterCurves] = None): String = {
-    val ixx = 1.06e-3 * diameterM * diameterM // scaled from the DJI 9450 reference prop
+                            curves: Option[ThrusterCurves] = None,
+                            statedInertia: Option[Double] = None): String = {
+    val ixx = statedInertia.filter(_ > 0).getOrElse(1.06e-3 * diameterM * diameterM)
     // A thruster that stated its own curves gets them; anything else gets the generic propeller's, which are
     // documented as an assumption in AGENTS.md.
     val ctTable = curves.map(c => rows(c.ct)).getOrElse(GENERIC_CT)

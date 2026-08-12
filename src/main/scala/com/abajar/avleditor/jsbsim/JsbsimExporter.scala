@@ -132,7 +132,7 @@ object JsbsimExporter {
       motor <- buildMotor(shaft, battery.getU_0.toDouble)
       thruster <- buildThruster(shaft, units)
     } yield Propulsion(motor, thruster.diameterM, thruster.blades, thruster.at,
-      buildFuelTanks(power, units), thruster.curves)
+      buildFuelTanks(power, units), thruster.curves, thruster.inertiaKgM2)
   }
 
   /**
@@ -154,7 +154,8 @@ object JsbsimExporter {
    * gets right; the station along the fuselage never mattered to the moment and still does not.
    */
   private final case class Thruster(diameterM: Double, blades: Int, at: Vec3,
-                                    curves: Option[ThrusterCurves])
+                                    curves: Option[ThrusterCurves],
+                                    inertiaKgM2: Option[Double] = None)
 
   private def buildThruster(shaft: com.abajar.avleditor.crrcsim.Shaft,
                             units: com.abajar.avleditor.ModelUnits): Option[Thruster] = {
@@ -179,11 +180,13 @@ object JsbsimExporter {
           // sits relative to the fan, and the shaft where the assembly is.
           metres(units, shaft.absoluteX(f.exhaustX()), shaft.absoluteY(f.exhaustY()),
             shaft.absoluteZ(f.exhaustZ())),
-          Some(ThrusterCurves(curves.ct, curves.cp))))
+          Some(ThrusterCurves(curves.ct, curves.cp)),
+          statedInertia(shaft, None, units)))
       case None =>
         Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
           // The diameter is stated in the model's length unit; JSBSim's propeller states it in metres.
-          .map(p => Thruster(units.toMetres(p.getD).toDouble, p.getBlades, at(shaft, p.getPos, units), None))
+          .map(p => Thruster(units.toMetres(p.getD).toDouble, p.getBlades, at(shaft, p.getPos, units), None,
+            statedInertia(shaft, Some(p), units)))
     }
   }
 
@@ -246,6 +249,36 @@ object JsbsimExporter {
         if batteryVolts > 0
       } yield ElectricMotor(watts, kv, CoilResistanceOhm, i0, batteryVolts)
     }
+  }
+
+  /**
+   * What the model states about the inertia of the parts that turn, in kg·m², or `None` when it
+   * states nothing.
+   *
+   * Everything here is read rather than assumed, and the arithmetic is the model's own definitions:
+   *
+   *  - the thruster's `Inertia (J)`, when it is a propeller — a `DuctedFan` has no such field, so a
+   *    fan can only contribute through its motor (issue #32);
+   *  - the motor's `Rotor inertia (J_M)`, **referred to the propeller shaft**. `Gearing.i` says in
+   *    its own help that "given omega is the speed of the shaft, i·omega is the speed of the device
+   *    connected to the shaft", and the gearing belongs to the engine, so the motor turns `i` times
+   *    faster and its inertia counts as `J_M · i²` at the shaft;
+   *  - the gearing's own `Inertia (J)`.
+   *
+   * Each is stated in the **model's** units, like every other figure it holds and like the
+   * airframe's own `I_xx`, so each goes through `toKilogramsSquareMetres`.
+   */
+  private def statedInertia(shaft: com.abajar.avleditor.crrcsim.Shaft,
+                            propeller: Option[com.abajar.avleditor.crrcsim.Propeller],
+                            units: com.abajar.avleditor.ModelUnits): Option[Double] = {
+    def kgM2(stated: Float): Double = units.toKilogramsSquareMetres(stated).toDouble
+    val fromPropeller = propeller.map(p => kgM2(p.getJ)).filter(_ > 0)
+    val engine = Option(shaft.getEngines).map(_.asScala).getOrElse(Nil).headOption
+    val ratio = engine.flatMap(e => Option(e.getGearing)).map(_.getI.toDouble).filter(_ > 0).getOrElse(1.0)
+    val fromMotor = engine.map(e => kgM2(e.getJ_M) * ratio * ratio).filter(_ > 0)
+    val fromGearing = engine.flatMap(e => Option(e.getGearing)).map(g => kgM2(g.getJ)).filter(_ > 0)
+    val parts = Seq(fromPropeller, fromMotor, fromGearing).flatten
+    if (parts.isEmpty) None else Some(parts.sum)
   }
 
   /** Fuel tanks, with the mass the model states; a combustion engine burns from them. */
