@@ -5,6 +5,23 @@ on:
     branches: [master]
   workflow_dispatch:
 
+# The newest commit wins, and it kills the older run rather than queueing behind it.
+#
+# Every push here rewrites the same fixed tag, so two runs publishing at once fight over one set of
+# assets — and they did: three merges 50 seconds apart had their release steps interleave, one run
+# deleted the six assets another had just uploaded, its own metadata updates came back 404, it
+# swallowed them and finished green having published nothing. Two of three green runs published
+# nothing. The window is not seconds either: measured over seven runs the release step lands between
+# 168 s and 279 s after the run starts, so any two merges closer than that spread can collide, and a
+# faster later run can even leave the OLDER commit's binaries on top.
+#
+# Cancelling rather than queueing is the deliberate choice: a queue would publish the older commit
+# *after* the newer one and leave the wrong binary up, which is the very thing this is for. What is
+# downloadable has to be what is on the branch.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -162,3 +179,36 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publishing has to be *checked*, not assumed, because the step above can report success
+      # having published nothing. It did: when two runs collided it hit `error updating release
+      # asset metadata ... HttpError: Not Found` six times, swallowed each with "continuing", and
+      # exited 0. A green job whose artifacts are not on the release is the same failure this
+      # repository closes everywhere else — a refusal that only reaches the log.
+      #
+      # So every file we built is looked up on the release by name and by size. Size is what makes
+      # this worth running: a stale asset from another run has the right name.
+      - name: Verify what was published is what we built
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+            --jq '.assets[] | "\(.name) \(.size)"' | sort > published.txt
+          echo "on the release:"; sed 's/^/  /' published.txt
+          missing=0
+          for f in artifacts/*; do
+            name=$(basename "$f")
+            size=$(stat -c%s "$f")
+            if ! grep -qx "$name $size" published.txt; then
+              echo "NOT PUBLISHED: $name ($size bytes) is not on the release, or differs in size"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "The release does not carry what this run built. Failing rather than reporting a"
+            echo "green run that published nothing — see the note above the Create Release step."
+            exit 1
+          fi
+          echo "every artifact this run built is on the release, with the size it was built at"
