@@ -115,6 +115,52 @@ so nobody hears the real one.
 
 ## Feature Planning
 
+### Nothing new is built until Hugo says so
+
+**One feature, one issue, one authorisation — and an approval never carries over to the next
+thing.** An agent that has finished what was approved does not start the following item because it
+is obviously next; it asks, and waits. Hugo's own words, the day this was written down: *"debes
+actualizar tu documentación y la de los agentes para que no hagan features sin pedir permiso."*
+
+What that means in practice here:
+
+- **The startup prompt does not authorise scope.** A relay agent arrives with a briefing that says
+  where master is, which issues are open and what has already been ruled out. That is context so
+  the work is not redone from zero — it is not a work order. If it lists pieces, the list says what
+  exists, not what to build.
+- **"Merge it without asking me" delivers a feature that was already approved.** It never opens the
+  next one. The same goes for "carry on": carry on with *this*, not with whatever comes after it.
+- **Measuring and fixing defects in what is already built need no authorisation.** Running the
+  aircraft through JSBSim to find out what a wrong rotor inertia costs, or fixing an export that
+  produces `nan`, is repairing something that exists. What stops is **adding**. An agent with no
+  approved feature measures, documents, or shuts down — those are honourable outcomes, and it says
+  in its issue that it is waiting and for what, rather than going quiet.
+- **It is put to him in his language**: one sentence he can judge without opening anything — what
+  it is, what it is for, and what becomes possible afterwards that is not possible now. Never by
+  phase name and never by bare issue number: "issue #32" tells nobody anything, "the exported
+  aeroplane spools up four times faster than the fan the user described" does.
+- **The sign that a line was crossed**: the project moves forward and Hugo has not chosen a single
+  thing inside it.
+
+**Why, and it was learnt here.** Issue #24 — the electric export returning `nan` — was diagnosed,
+and the agent then implemented a throttle rate limit it had proposed itself, without asking. Hugo:
+*"yo no he pedido que arregle el avión, no quiero que se haga nada sin mi consentimiento."* The
+change was discarded, and the branch `fix/throttle-rate-limit` is still there with the experiment
+uncommitted, deliberately, as the record of it. The real root cause turned out to be a different
+thing entirely, so the unauthorised fix was not even the fix — but that is not why it was wrong.
+**Proposing is not permission**, however good the proposal and however well measured.
+
+The same failure, larger, in a sister project: a five-part brief was handed down at once, the
+agents built seven well-measured things nobody had asked for, and Hugo's summary was *"no tengo ni
+idea de qué está haciendo"*. The agents did exactly what they were told; the brief was the fault.
+Which is the point — this rule protects against a well-meant instruction as much as against a
+careless agent.
+
+**And check your own wake-up loop.** A recurring prompt that says *"carry on with the next concrete
+step of your issue"* will step straight over a stop order on the following tick, with no ill intent
+at all, because it is read as the newest instruction. A tick with nothing to do has to be a
+*correct* tick: read the mailbox, say there is nothing, stop.
+
 ### Features, bugs and plans live in GitHub issues
 
 **One issue per thing**, and a change of plan is a **comment on its issue** — not a rewritten file.
