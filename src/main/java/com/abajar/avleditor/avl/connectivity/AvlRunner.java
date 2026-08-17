@@ -548,8 +548,11 @@ public class AvlRunner {
      * elsewhere in the file cannot be mistaken for a strip. A mirrored surface arrives as its own block
      * named {@code ... (YDUP)}, and both halves are kept: they are separate strips of the real aircraft,
      * and the analysis that uses them asks which single strip is closest to stalling.
+     *
+     * Shared rather than private, because the decambering measures the same {@code fs} files for its
+     * influence matrix. One parser for one file format: a second one is what lets the first stay wrong.
      */
-    private List<StripForce> parseStripForces(File file) throws IOException {
+    public static List<StripForce> parseStripForces(File file) throws IOException {
         List<StripForce> strips = new ArrayList<StripForce>();
         String surfaceName = null;
         boolean mirrored = false;

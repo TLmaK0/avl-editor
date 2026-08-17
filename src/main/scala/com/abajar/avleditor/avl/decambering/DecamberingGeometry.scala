@@ -41,7 +41,7 @@
 package com.abajar.avleditor.avl.decambering
 
 import com.abajar.avleditor.avl.AVL
-import com.abajar.avleditor.avl.geometry.{Section, Surface}
+import com.abajar.avleditor.avl.geometry.{Control, Section, Surface}
 import com.abajar.avleditor.crrcsim.CRRCSim
 import com.abajar.avleditor.view.avl.DeepCopy
 import scala.collection.JavaConverters._
@@ -52,6 +52,12 @@ case class RefinedSurface(name: String, panels: Int, nodesBefore: Int, nodesAfte
 
 /** A surface left as drawn, and why — never silently. */
 case class RefusedSurface(name: String, reason: String)
+
+/**
+ * One decambering variable, as AVL will know it: the control's name, the number OPER answers to (`d5`), and
+ * which panel of which surface it acts on.
+ */
+case class StripControl(name: String, index: Int, surface: String, panel: Int, hingeFraction: Float)
 
 /** The refined model, with an account of every surface: refined with its nodes, or refused with its reason. */
 case class Refinement(model: CRRCSim, refined: Seq[RefinedSurface], refused: Seq[RefusedSurface]) {
@@ -202,6 +208,79 @@ object DecamberingGeometry {
   }
 
   private def mix(from: Float, to: Float, fraction: Float): Float = from + (to - from) * fraction
+
+  /**
+   * A control per strip, which is how the decambering variables reach AVL.
+   *
+   * `delta1` is a whole-chord camber change, which for a thin section is a change of incidence, and `delta2`
+   * is a flap hinged at `x2 = 0.8` (Eq. 3, p. 5). AVL has both: a `CONTROL` hinged at the leading edge *is*
+   * `delta1`, and one hinged at 0.8 of the chord *is* `delta2`. So nothing about AVL has to be reimplemented.
+   *
+   * Why controls rather than the sections' own `Ainc`, which is the obvious reading of "change the camber":
+   * `Ainc` is geometry, so every perturbation needs the file rewritten and AVL restarted, while a control is
+   * an OPER constraint varied **inside one session**. Measured on the check aircraft: 1.42 s for the whole
+   * 12 x 12 influence matrix through controls, against 7.71 s for fourteen processes rewriting `Ainc`, for the
+   * same numbers.
+   *
+   * Two things about it are not guessable and were measured:
+   *
+   *   - **A control declared on one section does nothing at all.** With one control per section node AVL
+   *     loaded the aircraft happily and reported `CLd01 ... CLd12` all exactly 0.000000. A control needs the
+   *     sections that *bound* its spanwise extent, so one named on a single section has no extent — and it is
+   *     silent: the file loads and the run succeeds. Each control here is therefore declared on **both** nodes
+   *     of its panel.
+   *   - **AVL prints control derivatives for the aircraft, not for the strips.** `CLd`, `Cmd`, `Cld` per
+   *     control are in the stability file, but the Jacobian this method needs is `d(cl_i)/d(delta_k)`, per
+   *     strip, so the derivatives AVL volunteers are not the ones required and the deflections have to be
+   *     solved one at a time. See {@code StripInfluence}.
+   *
+   * The gain is **1.0**, so AVL's dimensionless control variable *is* the deflection in degrees and there is
+   * no conversion to get wrong — the factor whose absence made every exported model's controls three times too
+   * weak. `SgnDup` is +1, so a mirrored surface's other half deflects identically: at a symmetric flight
+   * condition the decambered solution is symmetric too, which halves the unknowns. An asymmetric stall — a
+   * dropped wing, roll damping past the stall — would need the halves independent, and that is a stated
+   * limitation of this parameterisation rather than something it silently approximates.
+   *
+   * @param hingeFraction 0 for `delta1`, 0.8 for `delta2`
+   * @return one entry per panel, carrying the index AVL will know the control by
+   */
+  def declareStripControls(refinement: Refinement, hingeFraction: Float): Seq[StripControl] = {
+    val geometry = refinement.model.getAvl.getGeometry
+    val declared = refinement.refined.flatMap { refined =>
+      val surface = geometry.getSurfaces.asScala.find(_.getName == refined.name).get
+      val sections = surface.getSections.asScala.toList
+      sections.indices.dropRight(1).map { panel =>
+        val name = controlName(refined.name, panel, hingeFraction)
+        List(sections(panel), sections(panel + 1)).foreach { section =>
+          val control = new Control()
+          control.setParentSection(section)
+          control.setName(name)
+          control.setGain(1f)
+          control.setXhinge(hingeFraction)
+          control.setXhvec(0f); control.setYhvec(1f); control.setZhvec(0f)
+          control.setSgnDup(1f)
+          section.getControls.add(control)
+        }
+        (refined.name, panel, name)
+      }
+    }
+    geometry.initParents()
+
+    // AVL numbers its controls by first appearance as it reads the file — surfaces, then sections, then the
+    // controls on them — which is the order the rest of the editor already reads them in. Derived in one
+    // place here, and asserted by measurement in InfluenceMatrixCheck: deflecting control k has to move
+    // strip k more than any other, or this mapping is wrong and everything built on it is meaningless.
+    val avlOrder = geometry.getSurfaces.asScala.flatMap(_.getSections.asScala)
+      .flatMap(_.getControls.asScala).map(_.getName).distinct.toList
+    declared.map { case (surfaceName, panel, name) =>
+      StripControl(name, avlOrder.indexOf(name) + 1, surfaceName, panel, hingeFraction)
+    }
+  }
+
+  /** Without spaces, and short: AVL reads the name as one token. */
+  private def controlName(surfaceName: String, panel: Int, hingeFraction: Float): String =
+    f"${if (hingeFraction <= 0f) "d1" else "d2"}%s${surfaceName.replaceAll("\\s+", "")
+      .take(4)}%s$panel%02d"
 
   private def aerofoilName(section: Section): String =
     if (section.getNACA != null && !section.getNACA.isEmpty) "NACA " + section.getNACA
