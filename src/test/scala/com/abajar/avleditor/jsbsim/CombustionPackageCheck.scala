@@ -12,7 +12,8 @@ import com.abajar.avleditor.avl.geometry.Control
 object CombustionPackageCheck {
 
   /** Elements this JSBSim (FlightGear 2020.3) reads for a piston engine, verified in the binary. */
-  private val PistonElements = Seq("displacement", "maxhp", "cycles", "idlerpm", "maxrpm", "bsfc")
+  private val PistonElements = Seq("displacement", "maxhp", "cycles", "idlerpm", "maxrpm", "bsfc",
+    "bore", "stroke", "cylinders", "static-friction")
 
   private var ok = true
 
@@ -118,6 +119,34 @@ object CombustionPackageCheck {
     check("consumption is converted to lb/hp/h", bsfc.exists(v => math.abs(v - 700.0 / 608.277) < 1e-3))
     check("the rev range is passed through",
       valueOf(engineXml, "idlerpm").exists(_ == 2500.0) && valueOf(engineXml, "maxrpm").exists(_ == 14000.0))
+
+    // Issue #41: the four figures JSBSim substitutes a Lycoming O-360's for when they are absent.
+    // Asserted as properties rather than as the numbers they come out to, so they survive any engine.
+    val bore = valueOf(engineXml, "bore")
+    val stroke = valueOf(engineXml, "stroke")
+    val cylinders = valueOf(engineXml, "cylinders")
+    println(f"  geometry: ${bore.getOrElse(0.0)}%.4f in bore x ${stroke.getOrElse(0.0)}%.4f in stroke" +
+      f" x ${cylinders.getOrElse(0.0)}%.0f cylinder(s)")
+    check("it states its own geometry rather than taking JSBSim's",
+      bore.isDefined && stroke.isDefined && cylinders.isDefined)
+    check("the cylinder is square", (for (b <- bore; s <- stroke) yield math.abs(b - s) < 1e-6).getOrElse(false))
+    check("on one cylinder", cylinders.exists(_ == 1.0))
+    // The whole point of the geometry: pi/4 B^2 S must be the displacement the model states, or the
+    // engine JSBSim holds is not the engine the user described.
+    val sweptIn3 = for (b <- bore; s <- stroke; n <- cylinders) yield n * math.Pi / 4.0 * b * b * s
+    println(f"  swept volume from that geometry: ${sweptIn3.getOrElse(0.0)}%.6f in3")
+    check("and it sweeps exactly the stated displacement",
+      (for (v <- sweptIn3; d <- in3) yield math.abs(v - d) < 1e-5 * d).getOrElse(false))
+
+    // 1.5 hp is JSBSim's default and belongs to its default 200 hp engine; on a 1.61 hp motor it is
+    // 93 % of everything the engine makes, and the exported aircraft could not be started (#41).
+    val friction = valueOf(engineXml, "static-friction")
+    println(f"  static friction: ${friction.getOrElse(0.0)}%.5f hp against ${hp.getOrElse(0.0)}%.4f hp rated")
+    check("it states its own static friction", friction.isDefined)
+    check("which keeps JSBSim's own ratio to rated power",
+      (for (fr <- friction; p <- hp) yield math.abs(fr / p - 1.5 / 200.0) < 1e-6).getOrElse(false))
+    check("and is therefore a small fraction of what the engine makes",
+      (for (fr <- friction; p <- hp) yield fr < 0.05 * p).getOrElse(false))
 
     // Without a <feed> the engine has no fuel source: it cranks but never runs.
     val feeds = """<feed>([0-9]+)</feed>""".r.findAllMatchIn(generated.aircraftXml).map(_.group(1)).toSeq

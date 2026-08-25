@@ -115,9 +115,22 @@ object CombustionFlightCheck {
         |  <property> atmosphere/rho-slugs_ft3 </property>
         |</output>
         |""".stripMargin)
-    // A piston engine needs its mixture and magnetos as well as a throttle: `set-running` arms it, and
-    // an engine left lean or with the magnetos off simply never fires, which would read here as an
-    // aeroplane that glides.
+    // A piston engine is started the way a real one is: magnetos on, mixture rich, throttle open,
+    // and the **starter** turning it until it fires.
+    //
+    // Not `propulsion/set-running`, which is what this check used to do and which cannot work here:
+    // `FGEngine::InitRunning()` is `{ return 1; }` and `FGPiston` does not override it, so for a
+    // piston engine that property sets the throttle and mixture and then calls a no-op. It reads back
+    // 0 immediately, and `FGPiston::doEngineStartup` will not light an engine turning below
+    // 0.8 x idle — which at rest is every engine. The turbine classes do override it, which is why the
+    // property works everywhere else and looked as though it worked here.
+    //
+    // Nor can this aeroplane windmill up to that speed instead: the exported `C_POWER` table bottoms
+    // out at +0.0061 and holds its last row, so the propeller absorbs power at every advance ratio and
+    // can never drive the engine round. The starter is the only way in, and it is also the honest one.
+    //
+    // The starter is then **released**, because an engine that is being motored looks exactly like one
+    // that is running until you let go of it. Before #41 was fixed it stopped dead at that instant.
     write(new File(root, "run.xml"),
       """<?xml version="1.0"?>
         |<runscript name="full power from a slow start">
@@ -125,12 +138,16 @@ object CombustionFlightCheck {
         |  <run start="0.0" end="8.0" dt="0.0041666">
         |    <event name="start and open the throttle">
         |      <condition> simulation/sim-time-sec >= 0.1 </condition>
-        |      <set name="propulsion/set-running" value="-1"/>
+        |      <set name="propulsion/starter_cmd" value="1"/>
+        |      <set name="propulsion/magneto_cmd" value="3"/>
         |      <set name="fcs/throttle-cmd-norm" value="1.0"/>
         |      <set name="fcs/throttle-pos-norm" value="1.0"/>
         |      <set name="fcs/mixture-cmd-norm" value="1.0"/>
         |      <set name="fcs/mixture-pos-norm" value="1.0"/>
-        |      <set name="propulsion/magneto_cmd" value="3"/>
+        |    </event>
+        |    <event name="let go of the starter">
+        |      <condition> simulation/sim-time-sec >= 1.0 </condition>
+        |      <set name="propulsion/starter_cmd" value="0"/>
         |    </event>
         |  </run>
         |</runscript>
@@ -187,7 +204,9 @@ object CombustionFlightCheck {
         if (propRpm > 0) {
           turning += 1
           maxEngineRpm = math.max(maxEngineRpm, engineRpm)
-          if (timeSec >= 1.0) minRunningEngineRpm = math.min(minRunningEngineRpm, engineRpm)
+          // From half a second after the starter was let go, so the slowest speed this sees is one
+          // the engine held on its own. Include the cranking and it would report the starter's.
+          if (timeSec >= 1.5) minRunningEngineRpm = math.min(minRunningEngineRpm, engineRpm)
           maxThrustN = math.max(maxThrustN, thrustLbs * LbsToNewtons)
           if (i % 40 == 0)
             println(f"$timeSec%6.2f $engineRpm%11.0f $propRpm%9.0f ${thrustLbs * LbsToNewtons}%8.2f $fuelKg%8.4f $speed%7.2f")

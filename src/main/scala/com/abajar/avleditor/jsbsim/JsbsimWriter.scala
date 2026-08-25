@@ -295,17 +295,79 @@ object JsbsimWriter {
   /** JSBSim wants brake specific fuel consumption in lb/(hp*h); the model states g/kWh. */
   private val GPerKWhPerLbPerHpH = 608.277
 
-  private def pistonEngineFile(name: String, pe: PistonEngine): String =
+  /**
+   * JSBSim's own defaults for a `piston_engine`, from `FGPiston.cpp`'s constructor, whose comment
+   * says what they are: *"Defaults are from a Lycoming O-360, more or less"* — 360 in³ making 200 hp
+   * on four cylinders of 5.125 in bore and 4.375 in stroke, with 1.5 hp of static friction.
+   *
+   * They are listed here because the two we leave out are the two that decide whether a model engine
+   * runs at all, and both are absolutes rather than ratios: applied to a 10 cm³ glow motor they
+   * describe a different machine by a factor of six hundred. See [[pistonEngineFile]].
+   */
+  private val JsbsimDefaultMaxHp = 200.0
+  private val JsbsimDefaultStaticFrictionHp = 1.5
+
+  /**
+   * A piston engine, with **its own geometry and its own friction** rather than a full-size aero
+   * engine's.
+   *
+   * The model states a displacement, a rated power, the cycles, the idle and the maximum speed. It
+   * does not state a bore, a stroke, a cylinder count or a friction, and JSBSim substitutes its
+   * Lycoming O-360 defaults for all four — which is this repository's own definition of a silent
+   * fallback arriving from the outside. Measured on the check aircraft's 10 cm³ two-stroke, the
+   * exported engine could not be started at all (issue #41): cranked, it sagged to 1,891 rpm against
+   * the 2,500 idle it states, made 0.073 lbf of thrust, and stopped dead the moment the starter was
+   * released.
+   *
+   * Two of the four defaults are the cause, and **neither is sufficient alone** — which is why an
+   * earlier bisection cleared the geometry. Written together the same engine holds 6,700 rpm on its
+   * own and makes 1.52 lbf:
+   *
+   *  - `<static-friction>` defaults to **1.5 hp**, which is 0.75 % of JSBSim's default 200 hp engine
+   *    and **93 % of this one's 1.61 hp**. There is no speed at which such an engine makes net power.
+   *  - `<bore>`/`<stroke>`/`<cylinders>` set the mean piston speed, and the friction mean effective
+   *    pressure is derived from it. A 4.375 in stroke at model-aircraft revolutions puts the friction
+   *    far past anything the engine can produce. This one only bites **once the engine is running**,
+   *    because `FGPiston` computes FMEP inside `if (Running)` and leaves it at zero otherwise — so on
+   *    a stalled engine the geometry provably cannot matter, and that is the state it was tested in.
+   *
+   * Both figures are **stated assumptions**, and each is derived rather than chosen:
+   *
+   *  - the geometry is **one square cylinder**: `bore = stroke = (4V/π)^(1/3)`, `cylinders = 1`. A
+   *    model glow or petrol motor is single-cylinder and close to square, and the model states no
+   *    more than its displacement.
+   *  - the friction keeps **JSBSim's own ratio** — 1.5 hp on 200 hp, so 0.75 % of the engine's rated
+   *    power. Taken from the reference that demonstrably works, as this project's rule for an
+   *    unavoidable constant requires. It is that ratio rather than a scaling by displacement because
+   *    `FGPiston` computes its ISFC with `MaxHP + hp_loss - StaticFriction_HP` in a denominator: a
+   *    friction that is not a small fraction of the rated power makes JSBSim's own arithmetic
+   *    ill-posed. The two candidates differ by five times in the constant and by 2 % in the
+   *    resulting rpm, so the choice is not carrying the answer.
+   *
+   * Pinned by [[CombustionPackageCheck]] on the arithmetic and by `CombustionFlightCheck`, which
+   * flies it.
+   */
+  private def pistonEngineFile(name: String, pe: PistonEngine): String = {
+    val displacementIn3 = pe.displacementCm3 / Cm3PerIn3
+    val maxHp = pe.maxPowerWatts / WattsPerHp
+    // One square cylinder of the whole displacement: V = (pi/4) B^2 S with B = S.
+    val boreIn = math.cbrt(4.0 * displacementIn3 / math.Pi)
+    val staticFrictionHp = maxHp * (JsbsimDefaultStaticFrictionHp / JsbsimDefaultMaxHp)
     s"""<?xml version="1.0"?>
     |<piston_engine name="${xml(name)}">
-    |  <displacement unit="IN3">${f(pe.displacementCm3 / Cm3PerIn3)}</displacement>
-    |  <maxhp>${f(pe.maxPowerWatts / WattsPerHp)}</maxhp>
+    |  <displacement unit="IN3">${f(displacementIn3)}</displacement>
+    |  <maxhp>${f(maxHp)}</maxhp>
     |  <cycles>${pe.cycles}</cycles>
     |  <idlerpm>${f(pe.idleRpm)}</idlerpm>
     |  <maxrpm>${f(pe.maxRpm)}</maxrpm>
     |  <bsfc>${f(pe.fuelConsumptionGPerKWh / GPerKWhPerLbPerHpH)}</bsfc>
+    |  <bore unit="IN">${f(boreIn)}</bore>
+    |  <stroke unit="IN">${f(boreIn)}</stroke>
+    |  <cylinders>1</cylinders>
+    |  <static-friction unit="HP">${f(staticFrictionHp)}</static-friction>
     |</piston_engine>
     |""".stripMargin
+  }
 
   /**
    * The tanks an engine draws from, by index. Without a `<feed>` an engine has no fuel source: it
