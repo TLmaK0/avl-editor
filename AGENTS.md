@@ -1034,8 +1034,68 @@ What remains are **stated assumptions**: values the model genuinely cannot expre
 where it is defined, and none of them standing in for something the user should have entered.
 Currently, all in `JsbsimWriter`/`JsbsimExporter`: the propeller's generic thrust and power
 coefficient tables and its inertia (scaled from a DJI 9450), the gear friction coefficients, the
-gear stiffness rule taken from FlightGear's c172p, and the motor's coil resistance. Replace one
-only with a better-sourced derivation, never with a guess.
+gear stiffness rule taken from FlightGear's c172p, the motor's coil resistance, and the piston
+engine's cylinder geometry and static friction (next section). Replace one only with a
+better-sourced derivation, never with a guess.
+
+### A default you did not write is still a default
+
+A silent fallback does not have to be ours. JSBSim's `piston_engine` fills in **everything the file
+leaves out** from its own constructor, whose comment says what those numbers are: *"Defaults are from
+a Lycoming O-360, more or less"* — 360 in³ making 200 hp on four cylinders of 5.125 in bore and
+4.375 in stroke, with 1.5 hp of static friction. We wrote six elements and left four, so every
+exported glow motor was a full-size aero engine wearing a 10 cm³ displacement, and **the exported
+combustion aircraft could not be started at all** (#41). Cranked, it sagged to 1,891 rpm against the
+2,500 idle it states, made 0.073 lbf, and stopped dead the instant the starter was released.
+
+Two of the four are the cause, and **neither is sufficient on its own** — which is the whole lesson:
+
+- **`<static-friction>` defaults to 1.5 hp.** That is 0.75 % of JSBSim's 200 hp default engine and
+  **93 % of this one's 1.61 hp**. There is no speed at which such an engine makes net power.
+- **`<bore>`/`<stroke>`/`<cylinders>` set the mean piston speed**, from which the friction mean
+  effective pressure is derived. A 4.375 in stroke at model revolutions puts the friction past
+  anything the engine can produce.
+
+Written together the same engine holds **6,767 rpm unaided, burns 0.39 g of fuel over 8 s, pushes
+7.04 N and accelerates the aeroplane from 10 to 13.4 m/s**. Either one alone leaves it dead.
+
+**Which is why an earlier bisection cleared the geometry, and the reasoning is worth keeping.** The
+geometry was written on its own, JSBSim confirmed it had read it, and *nothing changed to any printed
+digit* — so it was recorded as ruled out. It was not: `FGPiston` computes FMEP inside `if (Running)`
+and leaves it at zero otherwise, so on an engine that never turns the geometry **provably cannot
+matter**, and that is the only state it was ever tested in. **A variable tested only in the state
+that masks it has not been tested.** When two candidate causes are each necessary, bisecting one at a
+time clears both.
+
+Both figures are stated assumptions, and each is derived rather than picked: the geometry is one
+square cylinder, `bore = stroke = (4V/π)^(1/3)` with `cylinders = 1`, since a model glow or petrol
+motor is single-cylinder and close to square and the model states nothing beyond its displacement;
+the friction keeps **JSBSim's own ratio** of 1.5 hp to 200 hp, so 0.75 % of rated power — taken from
+the reference that demonstrably works, as the rule for an unavoidable constant requires. It is that
+ratio rather than a scaling by displacement because `FGPiston` computes its ISFC with
+`MaxHP + hp_loss - StaticFriction_HP` in a **denominator**: a friction that is not a small fraction
+of rated power makes JSBSim's own arithmetic ill-posed. The two candidates differ by five times in
+the constant and by 2 % in the resulting rpm, so the choice is not carrying the answer.
+`CombustionPackageCheck` pins the properties — the cylinder sweeps exactly the stated displacement,
+the friction keeps the ratio — rather than the numbers, so they survive any engine.
+
+#### `propulsion/set-running` cannot start a piston engine, and says nothing about it
+
+This is what made #41 look like a mystery, and no amount of reading our own files would have found
+it. **`FGEngine::InitRunning()` is `{ return 1; }`, and `FGPiston` does not override it.** So for a
+piston engine that property sets the throttle and mixture and then calls a no-op; it reads back `0`
+immediately, and `FGPiston::doEngineStartup` refuses to light an engine turning below `0.8 × idle`,
+which at rest is every engine. The turbine classes *do* override it — which is why the property works
+everywhere else, and why it looked as though it worked here.
+
+Nor can the aeroplane windmill up to that speed instead: the exported `C_POWER` table bottoms out at
+**+0.0061** and a JSBSim table holds its last row, so the propeller absorbs power at every advance
+ratio and can never drive the engine round. The starter is the only way in.
+
+`CombustionFlightCheck` therefore starts the engine as a real one is started — magnetos, mixture,
+throttle, starter — and then **lets go of the starter**, because an engine being motored looks exactly
+like one that is running until you release it. That release is the assertion: before this fix the
+engine stopped dead there.
 
 ### An electric motor is stated by its constants, never by a power
 
