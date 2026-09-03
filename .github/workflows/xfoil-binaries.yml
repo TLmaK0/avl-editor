@@ -135,6 +135,19 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: XFOIL 6.99 binaries
+          # Marked a pre-release so that GitHub does not count it as the repository's "Latest".
+          #
+          # GitHub resolves /releases/latest to the newest release that is neither a draft nor a
+          # pre-release. This one is a build tool, not a version of the editor, but it was the newest
+          # unmarked release — so it took that slot, and every download link in the README, which are
+          # all of the form /releases/latest/download/avl-editor-<platform>, returned 404 for every
+          # platform: the assets here are xfoil-linux, xfoil-macos and xfoil-windows.exe, and no
+          # avl-editor asset exists on it. With this flag, "latest" falls back to the newest actual
+          # release of the editor and those links resolve again.
+          #
+          # Nothing downloads this release through "latest": XfoilManager fetches it by its fixed tag,
+          # /releases/download/xfoil-6.99/, so the flag cannot affect how XFOIL is obtained.
+          prerelease: true
           files: artifacts/*
           body: |
             XFOIL 6.99 compiled from MIT source (GPL) with stable gfortran flags.
