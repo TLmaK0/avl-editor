@@ -23,13 +23,23 @@ object CriticalSectionCheck {
   /** Every strip is this wide, so its area follows its chord as a real strip's does. */
   private val StripWidth = 0.05
 
+  /**
+   * The pitching moment these fixtures state, which is zero.
+   *
+   * Where a wing gives up is decided by lift against section `clmax` (NACA TR 572), and the moment plays no
+   * part in it — so a zero here is a stated value rather than missing data, in the same sense as a mass of
+   * zero elsewhere in the editor. The moment's own subject is the decambering iteration, and it is measured
+   * from real AVL output there (`StripMomentCheck`).
+   */
+  private val NoMomentInThisQuestion = 0f
+
   /** A strip whose local lift is exactly `intercept + slope * alpha`, sampled at a list of attitudes. */
   private def loading(alphas: Seq[Double])(strips: Seq[(String, Int, Double, Double, Double, Double)]
                      ): Seq[(Double, Seq[StripForce])] =
     alphas.map { alpha =>
       (alpha, strips.map { case (surface, index, station, chord, intercept, slope) =>
         new StripForce(surface, false, index, station.toFloat, chord.toFloat,
-          (chord * StripWidth).toFloat, (intercept + slope * alpha).toFloat)
+          (chord * StripWidth).toFloat, (intercept + slope * alpha).toFloat, NoMomentInThisQuestion)
       })
     }
 
@@ -54,7 +64,7 @@ object CriticalSectionCheck {
     // aircraft (NACA TR 572's additional distribution "maintains the same form") and not a licence.
     val bent = Attitudes.map { alpha =>
       (alpha, Seq(new StripForce("wing", false, 1, 0.1f, 0.2f, 0.01f,
-        (0.20 + 0.070 * alpha + 0.05 * math.sin(alpha)).toFloat)))
+        (0.20 + 0.070 * alpha + 0.05 * math.sin(alpha)).toFloat, NoMomentInThisQuestion)))
     }
     check("a bent loading reports a residual", WingMaximumLift.stations(bent, 1.0).head.worstResidual > 0.01)
 
@@ -161,9 +171,9 @@ object CriticalSectionCheck {
       ("wing", 1, 0.3, 0.2, 0.20, 0.070))), 1.0).isEmpty)
     // A strip that AVL answered for at some attitudes and not others has no line through it.
     val patchy = Seq(
-      (0.0, Seq(new StripForce("wing", false, 1, 0.3f, 0.2f, 0.01f, 0.2f),
-                new StripForce("wing", false, 2, 0.5f, 0.2f, 0.01f, 0.2f))),
-      (5.0, Seq(new StripForce("wing", false, 1, 0.3f, 0.2f, 0.01f, 0.55f))))
+      (0.0, Seq(new StripForce("wing", false, 1, 0.3f, 0.2f, 0.01f, 0.2f, NoMomentInThisQuestion),
+                new StripForce("wing", false, 2, 0.5f, 0.2f, 0.01f, 0.2f, NoMomentInThisQuestion))),
+      (5.0, Seq(new StripForce("wing", false, 1, 0.3f, 0.2f, 0.01f, 0.55f, NoMomentInThisQuestion))))
     check("a station missing from an attitude is dropped rather than half-fitted",
       WingMaximumLift.stations(patchy, 1.0).map(_.index) == Seq(1))
 

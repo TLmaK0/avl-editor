@@ -543,11 +543,19 @@ public class AvlRunner {
      *     1  0.0000 0.0008 0.0000 0.1998 0.0006 0.1587 0.1099 0.8024 0.8004 -0.0166 0.0000 -0.0908 -0.2894 0.363
      * </pre>
      *
-     * Read by <b>column position within the table</b> rather than by label, because the rows carry no
-     * labels at all — but the table is entered only through its header line, so a stray row of numbers
+     * The rows carry no labels, so each quantity is read by <b>the position its label holds in that table's
+     * own header line</b> — and the table is entered only through that header, so a stray row of numbers
      * elsewhere in the file cannot be mistaken for a strip. A mirrored surface arrives as its own block
      * named {@code ... (YDUP)}, and both halves are kept: they are separate strips of the real aircraft,
      * and the analysis that uses them asks which single strip is closest to stalling.
+     *
+     * <b>The header is read rather than the positions being written down here</b>, and the difference is not
+     * cosmetic. Fixed indices were right for AVL 3.35 and were verified against its output — but a column
+     * inserted or reordered by any other build would hand every strip its neighbour's quantity, with every
+     * printed number still looking perfectly plausible: the lift of a wing that is about to stall read off
+     * the drag column is a number, not an error. A header that does not name a quantity this parser needs is
+     * therefore refused by name ({@link #columnsOf}), because that is a file we cannot read rather than a
+     * file whose values are zero.
      *
      * Shared rather than private, because the decambering measures the same {@code fs} files for its
      * influence matrix. One parser for one file format: a second one is what lets the first stay wrong.
@@ -557,6 +565,7 @@ public class AvlRunner {
         String surfaceName = null;
         boolean mirrored = false;
         boolean inTable = false;
+        Map<String, Integer> columnOf = null;
 
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
@@ -572,28 +581,62 @@ public class AvlRunner {
                     continue;
                 }
                 if (trimmed.startsWith(STRIP_TABLE_HEADER) && trimmed.contains("Yle") && trimmed.contains("Chord")) {
+                    columnOf = columnsOf(trimmed);
                     inTable = true;
                     continue;
                 }
                 if (!inTable) continue;
 
                 String[] columns = trimmed.split("\\s+");
-                // j Xle Yle Zle Chord Area c_cl ai cl_norm cl ... — ten columns are needed to reach cl.
-                if (columns.length < 10) { inTable = false; continue; }
+                if (columns.length <= widestColumnNeeded(columnOf)) { inTable = false; continue; }
                 try {
                     strips.add(new StripForce(
                         surfaceName == null ? "" : surfaceName, mirrored,
-                        Integer.parseInt(columns[0]),
-                        Float.parseFloat(columns[2]),   // Yle
-                        Float.parseFloat(columns[4]),   // Chord
-                        Float.parseFloat(columns[5]),   // Area
-                        Float.parseFloat(columns[9]))); // cl, referred to the strip's own area and chord
+                        Integer.parseInt(columns[columnOf.get("j")]),
+                        Float.parseFloat(columns[columnOf.get("Yle")]),
+                        Float.parseFloat(columns[columnOf.get("Chord")]),
+                        Float.parseFloat(columns[columnOf.get("Area")]),
+                        // cl and cm_c/4, both referred to the strip's own area and chord
+                        Float.parseFloat(columns[columnOf.get("cl")]),
+                        Float.parseFloat(columns[columnOf.get("cm_c/4")])));
                 } catch (NumberFormatException ex) {
                     inTable = false;
                 }
             }
         }
         return strips;
+    }
+
+    /** The labels the strip table has to name, each one a quantity something downstream measures with. */
+    private static final List<String> STRIP_COLUMNS_NEEDED =
+        Arrays.asList("j", "Yle", "Chord", "Area", "cl", "cm_c/4");
+
+    /**
+     * Where each needed quantity sits in this table, taken from the header line's own words.
+     *
+     * Matched as whole words, which is the reason this works at all: {@code cl} also appears inside
+     * {@code c_cl} and {@code cl_norm}, and AVL prints all three side by side.
+     */
+    private static Map<String, Integer> columnsOf(String header) throws IOException {
+        String[] labels = header.trim().split("\\s+");
+        Map<String, Integer> columnOf = new HashMap<String, Integer>();
+        for (int i = 0; i < labels.length; i++) {
+            if (STRIP_COLUMNS_NEEDED.contains(labels[i]) && !columnOf.containsKey(labels[i]))
+                columnOf.put(labels[i], i);
+        }
+        for (String needed : STRIP_COLUMNS_NEEDED) {
+            if (!columnOf.containsKey(needed))
+                throw new IOException("AVL's strip table does not name a column '" + needed
+                    + "', so its strips cannot be read. Its header is: " + header.trim());
+        }
+        return columnOf;
+    }
+
+    /** The last column any needed quantity sits in, so a row too short to reach it is not half-read. */
+    private static int widestColumnNeeded(Map<String, Integer> columnOf) {
+        int widest = 0;
+        for (Integer column : columnOf.values()) widest = Math.max(widest, column);
+        return widest;
     }
 
     private static Float labelled(String content, String label) {
