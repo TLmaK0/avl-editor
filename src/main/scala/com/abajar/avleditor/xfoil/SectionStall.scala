@@ -48,6 +48,9 @@ object SectionStall {
   /**
    * How many converged points past the peak count as having seen the aerofoil turn over. One could be
    * noise on a nearly flat curve; two in a row is a fall.
+   *
+   * It is **not** enough on its own to tell a stall from a bursting laminar bubble, which also falls for
+   * two points and then some — see the note below and issue #43.
    */
   val PointsPastThePeak: Int = 2
 
@@ -79,5 +82,38 @@ object SectionStall {
 
     Right(SectionStallData(peak.cl.toDouble, peak.alpha.toDouble, negative._1, negative._2,
       ordered.length, reynolds))
+  }
+
+  /**
+   * What the curve does after its peak: how far it falls, and how much of that it takes back afterwards.
+   *
+   * <b>Reported, and deliberately not acted on.</b> A curve that falls and then climbs again looks like a
+   * laminar separation bubble bursting and reattaching rather than a stall, and telling the two apart from
+   * the polar alone is **not established**: four candidate tests were measured against eleven real XFOIL
+   * polars in issue #43 and every one of them fails on data this editor's own aircraft produce. In
+   * particular the recovery is large for a *genuine* stall at the Reynolds numbers a model flies at — the
+   * check aircraft's own wing section takes back 26-34 % of its fall between Re 60,000 and 100,000 — so
+   * refusing a peak on account of it would throw the wing's stall away. So this states the shape and
+   * nothing is reclassified by it.
+   *
+   * The fall is from the peak to the lowest point after it; the recovery is from there to the highest point
+   * after **that**, which is the shape a reattaching flow leaves behind. Both come back zero for a curve
+   * that falls and stays down, which is what a stall looks like.
+   *
+   * The order matters and is the whole reason this is one function rather than two expressions: measured
+   * the other way round — the highest point anywhere after the peak — a bubble that bursts at 10 deg reports
+   * its own peak's neighbour as the recovery and comes out at 99 % on a curve that never recovers at all.
+   */
+  def shapeAfterPeak(ordered: Seq[XfoilPolarPoint]): (Double, Double) = {
+    if (ordered.isEmpty) return (0.0, 0.0)
+    val peakIndex = ordered.indices.maxBy(i => ordered(i).cl)
+    val after = ordered.drop(peakIndex + 1)
+    if (after.length < 2) return (0.0, 0.0)
+    val troughIndex = after.indices.minBy(i => after(i).cl)
+    val trough = after(troughIndex).cl.toDouble
+    val fall = math.max(0.0, ordered(peakIndex).cl.toDouble - trough)
+    val past = after.drop(troughIndex + 1)
+    val recovery = if (past.isEmpty) 0.0 else math.max(0.0, past.map(_.cl.toDouble).max - trough)
+    (fall, recovery)
   }
 }
