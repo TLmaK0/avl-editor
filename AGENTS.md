@@ -823,6 +823,15 @@ caller, a test, a tool nobody has written yet — gets a named exception at the 
 poisoned curve three calls later. `PropellerCurvesCheck` calls `targetJ0` directly with each missing in turn
 and asserts the message names the missing field, not the word "NaN".
 
+**Making the pitch required is a contract change, and every file saved before this fix is on the wrong side
+of it.** `Propeller.H` has existed since the project's earliest commits, so there is no older file format
+missing the field — there is only every file that never had a reason to fill it in, because nothing read it.
+`LegacyPropellerPitchCheck` builds exactly that model, saves it, reloads it, and confirms the two things that
+have to both be true: loading and saving are untouched (nothing but the export reads `H`, so a round trip
+keeps the diameter and keeps the pitch at zero, inventing neither), and only the export refuses, naming
+`'Pitch (H)'` in `SimulationRequirements`'s problem list the same way a missing diameter already did — not a
+crash on load, not a `NaN` three steps into the export.
+
 ## AVL's control variable is not an angle
 
 AVL states control derivatives **per unit of its control variable**, and that variable is dimensionless: the
