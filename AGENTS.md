@@ -1238,6 +1238,20 @@ that will not load for one that loads and cannot fly, which is worse: nothing ab
 until the throttle is opened. See issue #24, and `JsbsimWriter.Motor`, which carries the whole of
 this beside the code.
 
+That the exporter no longer writes a flat efficiency is one thing; that JSBSim's own motor keeps shaft
+power below electrical power is another, and issue #19 asks for the second explicitly — *"shaft power
+is below electrical power at every point on the curve"* — so the property survives the day `Kv`,
+`coilresistance` or `noloadcurrent` changes and nobody is still looking at the assumption that is no
+longer there. `ElectricMotorLossCheck` flies the check aircraft's own motor at full throttle from
+rest and reads both sides from what **JSBSim computes**, not from this project's model of it:
+electrical power as the exported `<maxvolts>` times the commanded throttle times
+`propulsion/engine/current-amperes`, and shaft power as `propulsion/engine/power-hp` converted to
+watts — the two properties `FGBrushLessDCMotor::Calculate` itself exposes (JSBSim's own source,
+`src/models/propulsion/FGBrushLessDCMotor.cpp`; there is no voltage property to read instead).
+Measured across a spin-up from 0 to 10,455 rpm, shaft power stays below electrical power at every
+one of 158 sampled points, and the efficiency implied, `shaft/electrical`, runs from 0.386 near rest
+to 0.884 near the settled speed — an ordinary small brushless motor's curve, not a constant.
+
 The **no-load current comes from the idle row and from nowhere else**. Taking it as the lowest
 current of the loaded curve — which on a single-row curve is the operating current — counts the whole
 draw as loss and costs most of the torque: measured, 7,122 rpm against the 9,500 the model states. A
