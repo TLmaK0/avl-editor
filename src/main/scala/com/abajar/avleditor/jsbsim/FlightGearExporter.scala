@@ -13,6 +13,7 @@ package com.abajar.avleditor.jsbsim
 import com.abajar.avleditor.crrcsim.CRRCSim
 import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.ac3d.AC3DWriter
+import com.abajar.avleditor.xfoil.StallExtension
 import java.io.{File, PrintWriter}
 import JsbsimWriter._
 
@@ -39,8 +40,9 @@ import JsbsimWriter._
  */
 object FlightGearExporter {
 
-  def export(rootDir: File, name: String, crrcsim: CRRCSim, calc: AvlCalculation): Unit = {
-    val ac = JsbsimExporter.buildAircraft(name, crrcsim, calc)
+  def export(rootDir: File, name: String, crrcsim: CRRCSim, calc: AvlCalculation,
+            stallExtension: Option[StallExtension] = None): Unit = {
+    val ac = JsbsimExporter.buildAircraft(name, crrcsim, calc, stallExtension)
     val model = generate(ac)
     val dir = new File(rootDir, name)
 

@@ -54,6 +54,12 @@ case class StallResult(
   notes: Seq[String]
 )
 
+/**
+ * What issue #17 adds to a settled [[StallResult]]: the critical section's own curve, measured past where
+ * the stall speed needed to look, for the exporter to write past the stall instead of holding the last row.
+ */
+case class StallExtension(result: StallResult, curve: SectionCurve)
+
 object StallAnalysis {
 
   private val logger = Logger.getLogger(StallAnalysis.getClass.getName)
@@ -128,6 +134,83 @@ object StallAnalysis {
         f"The Reynolds iteration was still moving by more than ${SpeedTolerance * 100}%.0f %% after " +
           f"$MostPasses%d passes; the last answer is the one reported.")
     }
+  }
+
+  /**
+   * How far past the measured stall the critical section's own curve is asked for, for issue #17: what is
+   * modelled past the stall, and what the exporter writes instead of holding the last row.
+   *
+   * 40 deg, not 20: measured in #17 (comment 2026-09-03T08:47:52Z) at +6.2 s per aerofoil and Reynolds
+   * number over the cost `analyse` already pays, polars already cached by aerofoil and Reynolds. Nothing
+   * past the critical section's own `stallAlphaDeg` is a viscous measurement — {@link SectionCurve} labels
+   * it `PastXfoilValidity` on its own — this only says how far XFOIL is asked to keep trying.
+   */
+  val PostStallEndDeg: Double = 40.0
+
+  /**
+   * The critical section's own curve, re-measured over the wider range above, for whoever writes the
+   * exported model past the stall `analyse` already found.
+   *
+   * A **second** XFOIL call for the same aerofoil at the same Reynolds number (`result.reynoldsAtCriticalSection`,
+   * already settled) — not a cache hit off `analyse`'s own run, because that polar is discarded the moment
+   * its peak is read out of it (`sectionStall`'s `polars` map lives and dies with one `analyse` call), and
+   * reusing the process rather than its answer would mean parsing a provenance-free number out of
+   * `analyse`'s internals from the outside.
+   *
+   * Refused, by name, rather than guessed at, when the critical station's bracket resolves to **two
+   * different aerofoils** (`fraction` between two different sections) — the same restraint
+   * `DecamberingGeometry` already applies to a blended aerofoil in AVL's own panel geometry, applied here to
+   * the curve instead: blending two sections' *curves* pointwise is a measurement of each; inventing the
+   * blend of two *aerofoils* is not.
+   */
+  def criticalSectionCurve(avl: AVL, result: StallResult, xfoilPath: String, originPath: Path,
+                           metresPerLengthUnit: Double): Either[String, SectionCurve] = {
+    val sections = sectionsBySurface(avl, metresPerLengthUnit)
+    sections.get(result.critical.station.surface) match {
+      case None =>
+        Left(f"the critical station's surface '${result.critical.station.surface}%s' is no longer in the " +
+          "geometry")
+      case Some(list) =>
+        bracketing(list, result.critical.station.station).right.flatMap { case (low, high, fraction) =>
+          for {
+            lowAerofoil <- aerofoilOf(low._1, originPath).right
+            highAerofoil <- aerofoilOf(high._1, originPath).right
+          } yield (lowAerofoil, highAerofoil, fraction)
+        }.right.flatMap {
+          case ((airfoil, label), _, fraction) if fraction <= 0.0 =>
+            runAndBuild(airfoil, label, result.reynoldsAtCriticalSection, xfoilPath)
+          case (_, (airfoil, label), fraction) if fraction >= 1.0 =>
+            runAndBuild(airfoil, label, result.reynoldsAtCriticalSection, xfoilPath)
+          case ((lowAirfoil, lowLabel), (highAirfoil, highLabel), fraction) if lowAirfoil == highAirfoil =>
+            runAndBuild(lowAirfoil, lowLabel, result.reynoldsAtCriticalSection, xfoilPath)
+          case (_, (_, highLabel), fraction) =>
+            Left(f"the critical station sits ${fraction * 100}%.0f %% of the way between two different " +
+              f"aerofoils (ending at '$highLabel%s') — blending their curves past the stall is not done " +
+              "yet, so the exported model holds its last row past the stall for this aircraft")
+        }
+    }
+  }
+
+  private def runAndBuild(airfoil: XfoilAirfoil, label: String, reynolds: Double, xfoilPath: String
+                          ): Either[String, SectionCurve] = {
+    val polar = new XfoilRunner(xfoilPath).computePolar(airfoil, reynolds, 0.0,
+      SectionStall.AlphaStartDeg, PostStallEndDeg, SectionStall.AlphaStepDeg,
+      iterations = 200, timeoutSeconds = 60)
+    SectionCurve.fromPolar(polar, reynolds, label)
+  }
+
+  /**
+   * `analyse` plus the critical section's own curve, in one call — what the exporter needs and `analyse`
+   * alone does not give it. Still never a refusal of the run itself: a failure here is reported by name and
+   * costs the exported model its post-stall rows, not the export.
+   */
+  def analyseWithCurve(avl: AVL, calculation: AvlCalculation, xfoilPath: String, originPath: Path
+                       ): Either[String, StallExtension] = {
+    val metresPerLengthUnit = calculation.getConfiguration.getMetresPerLengthUnit.toDouble
+    for {
+      result <- analyse(avl, calculation, xfoilPath, originPath).right
+      curve <- criticalSectionCurve(avl, result, xfoilPath, originPath, metresPerLengthUnit).right
+    } yield StallExtension(result, curve)
   }
 
   private def onePass(avl: AVL, stations: Seq[LoadedStation],

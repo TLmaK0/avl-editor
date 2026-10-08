@@ -13,6 +13,7 @@ package com.abajar.avleditor.jsbsim
 import com.abajar.avleditor.crrcsim.CRRCSim
 import com.abajar.avleditor.avl.runcase.AvlCalculation
 import com.abajar.avleditor.UnitConversor
+import com.abajar.avleditor.xfoil.{SectionStall, StallAnalysis, StallExtension, WingMaximumLift}
 import java.io.{File, PrintWriter}
 import java.util.logging.{Level, Logger}
 import scala.collection.JavaConverters._
@@ -32,7 +33,8 @@ import JsbsimWriter._
  */
 object JsbsimExporter {
 
-  def buildAircraft(name: String, crrcsim: CRRCSim, calc: AvlCalculation): Aircraft = {
+  def buildAircraft(name: String, crrcsim: CRRCSim, calc: AvlCalculation,
+                    stallExtension: Option[StallExtension] = None): Aircraft = {
     val avl = crrcsim.getAvl
     val geo = avl.getGeometry
     val lu = avl.getLengthUnit
@@ -58,7 +60,7 @@ object JsbsimExporter {
     val contacts = buildContacts(crrcsim)
 
     Aircraft(name, Metrics(sref, bref, cref, aeroRp), mass, contacts, controls, aero,
-      curves = buildCurves(calc), propulsion = buildPropulsion(crrcsim))
+      curves = buildCurves(calc, stallExtension), propulsion = buildPropulsion(crrcsim))
   }
 
   /** A position from the model, in metres: the one conversion every exported coordinate goes through. */
@@ -74,7 +76,8 @@ object JsbsimExporter {
    * the tangent at the trimmed point. Which of the two was written goes to the log, because the difference
    * is not visible in a flying aircraft until it is far from that point, and by then nobody remembers.
    */
-  private def buildCurves(calc: AvlCalculation): Option[AeroCurves] = {
+  private def buildCurves(calc: AvlCalculation, stallExtension: Option[StallExtension] = None
+                          ): Option[AeroCurves] = {
     val points = Option(calc.getAlphaSweep).map(_.asScala.toSeq).getOrElse(Nil).sortBy(_.getAlphaDeg)
     if (points.length < 3) {
       logger.log(Level.WARNING, s"The attitude sweep returned ${points.length} points, too few for a " +
@@ -85,11 +88,88 @@ object JsbsimExporter {
       logger.log(Level.INFO, f"The flight model states measured curves over " +
         f"${points.head.getAlphaDeg}%.1f..${points.last.getAlphaDeg}%.1f degrees of attitude " +
         f"(${points.length} points), replacing the single-point derivatives for lift, drag and pitch.")
-      Some(AeroCurves(
+      val base = AeroCurves(
         alphaRad = points.map(_.getAlphaRad.toDouble),
         cl = points.map(_.getCl.toDouble),
         cd = points.map(_.getCd.toDouble),
-        cm = points.map(_.getCm.toDouble)))
+        cm = points.map(_.getCm.toDouble))
+      stallExtension match {
+        case None =>
+          logger.log(Level.INFO, "No stall analysis for this run: the curve holds its last row past " +
+            f"${points.last.getAlphaDeg}%.1f deg rather than modelling the stall (issue #17).")
+          Some(base)
+        case Some(ext) =>
+          pastStall(points, ext) match {
+            case Right(extended) =>
+              logger.log(Level.INFO, f"Past ${ext.result.alphaDeg}%.1f deg (where '${ext.result.mainSurface}%s' " +
+                f"reaches its critical section's own limit) the curve is that section's own XFOIL polar " +
+                f"(${ext.curve.label}%s at Re ${ext.curve.reynolds.toLong}%d), joined to AVL's curve at that " +
+                f"attitude, out to ${extended.alphaRad.last * 180 / math.Pi}%.1f deg. Below it the curve is " +
+                "AVL's own, unchanged.")
+              Some(extended)
+            case Left(why) =>
+              logger.log(Level.WARNING, s"Not modelling past the stall for this run: $why. The curve holds " +
+                f"its last row past ${points.last.getAlphaDeg}%.1f deg instead.")
+              Some(base)
+          }
+      }
+    }
+  }
+
+  /**
+   * AVL's own curve below the stall, unchanged, followed by the critical section's own XFOIL curve above it
+   * — issue #17: what is modelled past the stall, and how the exported tables stop holding their last row.
+   *
+   * **Lift** is the critical section's curve **scaled** by the ratio already named in `AGENTS.md` as "the
+   * fraction of the section limit" — `AVL's own CL at the stall onset / the section's own limit` — which is
+   * 1 at the join by construction, since the onset is defined as where AVL's CL reaches that same section
+   * limit. This is Hugo's own alternative to writing the section's curve unscaled (2026-09-03T17:46:43Z),
+   * which steps the lift up by as much as 10.9 % on a rectangular wing at exactly the attitude the aircraft
+   * is supposed to be giving up lift, not gaining it.
+   *
+   * **Drag and pitching moment have no equivalent "fraction of a limit"** — XFOIL's section `cd`/`cm` are
+   * two-dimensional figures about the aerofoil's own quarter chord, not the aircraft's `Sref`/`cref` or its
+   * reference point, so there is nothing to scale them by. What is borrowed from XFOIL for them is the
+   * **shape of the change** past the stall, anchored to AVL's own absolute value at the join:
+   * `exported(a) = avl(onset) + (xfoil_section(a) - xfoil_section(onset))`. That is exact at the join by
+   * construction and never claims XFOIL's two-dimensional moment is the aircraft's.
+   */
+  private def pastStall(points: Seq[com.abajar.avleditor.avl.runcase.AlphaSweepPoint], ext: StallExtension
+                        ): Either[String, AeroCurves] = {
+    if (ext.result.critical.downward)
+      return Left(s"'${ext.result.mainSurface}' stalls downward, and joining the curve past a downward " +
+        "stall is not implemented yet")
+
+    val onsetDeg = ext.result.alphaDeg
+    val alphaDegOf = points.map(_.getAlphaDeg.toDouble)
+    def avlAt(of: com.abajar.avleditor.avl.runcase.AlphaSweepPoint => Double): Option[Double] =
+      WingMaximumLift.liftAt(alphaDegOf.zip(points.map(of)), onsetDeg)
+
+    for {
+      clAtOnset <- avlAt(_.getCl.toDouble).toRight(
+        s"the stall onset at $onsetDeg deg falls outside the attitudes AVL swept").right
+      cdAtOnset <- avlAt(_.getCd.toDouble).toRight(
+        s"AVL's own drag has no value at the stall onset $onsetDeg deg").right
+      cmAtOnset <- avlAt(_.getCm.toDouble).toRight(
+        s"AVL's own pitching moment has no value at the stall onset $onsetDeg deg").right
+    } yield {
+      val curve = ext.curve
+      val sectionClAtOnset = curve.cl(onsetDeg).value
+      val scale = if (sectionClAtOnset != 0.0) clAtOnset / sectionClAtOnset else 1.0
+      val cdAtOnsetSection = curve.cd(onsetDeg).value
+      val cmAtOnsetSection = curve.cm(onsetDeg).value
+
+      val below = points.filter(_.getAlphaDeg.toDouble < onsetDeg)
+      val aboveAlphaDeg = Iterator.iterate(onsetDeg)(_ + SectionStall.AlphaStepDeg)
+        .takeWhile(_ <= StallAnalysis.PostStallEndDeg + 1e-6).toSeq
+
+      val alphaRad = below.map(_.getAlphaRad.toDouble) ++ aboveAlphaDeg.map(math.toRadians)
+      val cl = below.map(_.getCl.toDouble) ++ aboveAlphaDeg.map(a => scale * curve.cl(a).value)
+      val cd = below.map(_.getCd.toDouble) ++
+        aboveAlphaDeg.map(a => cdAtOnset + (curve.cd(a).value - cdAtOnsetSection))
+      val cm = below.map(_.getCm.toDouble) ++
+        aboveAlphaDeg.map(a => cmAtOnset + (curve.cm(a).value - cmAtOnsetSection))
+      AeroCurves(alphaRad, cl, cd, cm)
     }
   }
 
@@ -439,8 +519,9 @@ object JsbsimExporter {
   }
 
   /** Write the aircraft + engine files under `rootDir` in JSBSim's expected layout. */
-  def export(rootDir: File, name: String, crrcsim: CRRCSim, calc: AvlCalculation): Unit = {
-    val model = generate(buildAircraft(name, crrcsim, calc))
+  def export(rootDir: File, name: String, crrcsim: CRRCSim, calc: AvlCalculation,
+            stallExtension: Option[StallExtension] = None): Unit = {
+    val model = generate(buildAircraft(name, crrcsim, calc, stallExtension))
     writeFile(new File(rootDir, s"aircraft/$name/$name.xml"), model.aircraftXml)
     model.engineFiles.foreach { case (fn, content) => writeFile(new File(rootDir, s"engine/$fn"), content) }
   }

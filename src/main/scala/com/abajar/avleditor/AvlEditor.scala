@@ -1002,8 +1002,10 @@ object AvlEditor{
       })
     }
 
-    // Runs AVL for the current model and hands (name, calculation) to a callback.
-    private def withAvlCalculation(action: (String, com.abajar.avleditor.avl.runcase.AvlCalculation) => Unit): Unit = {
+    // Runs AVL for the current model and hands (name, calculation, stall extension) to a callback.
+    private def withAvlCalculation(
+        action: (String, com.abajar.avleditor.avl.runcase.AvlCalculation,
+                 Option[com.abajar.avleditor.xfoil.StallExtension]) => Unit): Unit = {
       if (!existsAvlExecutable) {
         window.showError("AVL not configured",
           "The AVL executable is not configured, so the aerodynamic derivatives cannot be computed.")
@@ -1017,9 +1019,6 @@ object AvlEditor{
       logger.log(Level.INFO, s"Analysing at ${avl.describeAnalysisPoint}")
       try {
         val calc = new AvlRunner(configuration.getProperty("avl.path"), avl, crrcsim.getOriginPath()).getCalculation()
-        // No stall measured here on purpose: nothing an export writes reads it — it feeds one row of the
-        // results window — and it is an XFOIL process per aerofoil. Running it on every export and every
-        // launch would be minutes spent on a number the file does not contain.
         // A second stage: some inputs come from AVL's own output, so they can only be checked
         // once it has run. They are not substituted with typical values either.
         if (!reportModelProblems("simulated", SimulationRequirements.validateCalculation(calc))) return
@@ -1027,9 +1026,34 @@ object AvlEditor{
         // is the user's: they are told and they choose.
         if (!flightDoubtsAccepted(com.abajar.avleditor.jsbsim.FlightSanity.warnings(crrcsim, calc))) return
         val name = currentFile.map(_.getName.replaceAll("\\.[^.]+$", "")).getOrElse("aircraft")
-        action(name, calc)
+        // The stall **is** measured here now, unlike before issue #17: an export's curves model what
+        // happens past it (JsbsimExporter.pastStall), so this is no longer a number the file does not
+        // contain. Still never a refusal of the export — a missing or unusable XFOIL, or a stall the
+        // analysis could not pin down, costs the exported curve its post-stall rows (it holds its last
+        // row, as it always did) and is logged, not raised as an error for the whole export.
+        val stallExtension = measureStallExtension(avl, calc)
+        action(name, calc, stallExtension)
       } catch {
         case ex: Throwable => logger.log(Level.SEVERE, s"Export failed: ${ex.getMessage}", ex)
+      }
+    }
+
+    /** Same funnel `measureStall` uses for the results window, for the exporters' post-stall curve. */
+    private def measureStallExtension(avl: com.abajar.avleditor.avl.AVL,
+                                      calc: com.abajar.avleditor.avl.runcase.AvlCalculation
+                                     ): Option[com.abajar.avleditor.xfoil.StallExtension] = {
+      XfoilManager.usable(configuration) match {
+        case Left(why) =>
+          logger.log(Level.INFO, s"Not modelling past the stall: $why")
+          None
+        case Right(xfoilPath) =>
+          com.abajar.avleditor.xfoil.StallAnalysis.analyseWithCurve(
+              avl, calc, xfoilPath, crrcsim.getOriginPath()) match {
+            case Left(why) =>
+              logger.log(Level.INFO, s"Not modelling past the stall: $why")
+              None
+            case Right(extension) => Some(extension)
+          }
       }
     }
 
@@ -1119,31 +1143,33 @@ object AvlEditor{
       false
     }
 
-    // Runs AVL, prompts for a directory, and hands (dir, name, calculation) to an exporter.
-    private def exportWithAvl(dialogTitle: String)(writer: (File, String, com.abajar.avleditor.avl.runcase.AvlCalculation) => Unit): Unit =
-      withAvlCalculation { (name, calc) =>
+    // Runs AVL, prompts for a directory, and hands (dir, name, calculation, stall extension) to an exporter.
+    private def exportWithAvl(dialogTitle: String)(
+        writer: (File, String, com.abajar.avleditor.avl.runcase.AvlCalculation,
+                 Option[com.abajar.avleditor.xfoil.StallExtension]) => Unit): Unit =
+      withAvlCalculation { (name, calc, stallExtension) =>
         val dirDialog = new org.eclipse.swt.widgets.DirectoryDialog(window.getShell)
         dirDialog.setText(dialogTitle)
         Option(dirDialog.open()).foreach { dir =>
-          writer(new File(dir), name, calc)
+          writer(new File(dir), name, calc, stallExtension)
           logger.log(Level.INFO, s"Exported '$name' to $dir")
         }
       }
 
     private def exportAsJsbsim: Unit =
-      exportWithAvl("Choose JSBSim output directory") { (dir, name, calc) =>
-        com.abajar.avleditor.jsbsim.JsbsimExporter.export(dir, name, crrcsim, calc)
+      exportWithAvl("Choose JSBSim output directory") { (dir, name, calc, stallExtension) =>
+        com.abajar.avleditor.jsbsim.JsbsimExporter.export(dir, name, crrcsim, calc, stallExtension)
       }
 
     private def exportForFlightGear: Unit =
-      exportWithAvl("Choose FlightGear aircraft directory") { (dir, name, calc) =>
-        com.abajar.avleditor.jsbsim.FlightGearExporter.export(dir, name, crrcsim, calc)
+      exportWithAvl("Choose FlightGear aircraft directory") { (dir, name, calc, stallExtension) =>
+        com.abajar.avleditor.jsbsim.FlightGearExporter.export(dir, name, crrcsim, calc, stallExtension)
       }
 
     // One-click: export the FlightGear package to a fixed location and launch fgfs.
-    private def flyInFlightGear: Unit = withAvlCalculation { (name, calc) =>
+    private def flyInFlightGear: Unit = withAvlCalculation { (name, calc, stallExtension) =>
       val root = new File(AvlEditor.CONFIGURATION_ROOT, "flightgear")
-      com.abajar.avleditor.jsbsim.FlightGearExporter.export(root, name, crrcsim, calc)
+      com.abajar.avleditor.jsbsim.FlightGearExporter.export(root, name, crrcsim, calc, stallExtension)
       resolveFlightGearExecutable() match {
         case Some(exe) => launchFlightGear(exe, root, name)
         case None => logger.log(Level.WARNING,
