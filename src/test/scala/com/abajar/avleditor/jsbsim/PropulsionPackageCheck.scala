@@ -61,7 +61,7 @@ object PropulsionPackageCheck {
     val shaft = battery.getShafts.get(0)
     battery.setMass(0.45f); battery.getPos.setX(0.25f)
     val propeller = shaft.createPropeller()
-    propeller.setD(0.25f); propeller.setMass(0.03f); propeller.getPos.setX(0.02f)
+    propeller.setD(0.25f); propeller.setH(0.125f); propeller.setMass(0.03f); propeller.getPos.setX(0.02f)
     val engine = shaft.createEngine()
     engine.setMass(0.18f); engine.getPos.setX(0.08f)
     Seq((11.1f, 18.0f, 9000f), (11.1f, 0.8f, 11000f)).foreach { case (u, i, rpm) =>

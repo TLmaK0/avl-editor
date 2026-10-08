@@ -78,6 +78,7 @@ object ExportUnitsCheck {
     val shaft = battery.getShafts.get(0)
     val propeller = shaft.createPropeller()
     propeller.setD(0.25f * perMetre)
+    propeller.setH(0.125f * perMetre)
     propeller.setBlades(2)
     // A propeller mounted above the centreline: the offset that decides whether throttle pitches the nose.
     propeller.getPos.setX(0.05f * perMetre)

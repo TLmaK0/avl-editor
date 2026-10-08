@@ -52,7 +52,8 @@ object JsbsimWriterCheck {
       name = name,
       propulsion = Some(Propulsion(ElectricMotor(290.0, kvRpmPerVolt = 900.0, coilResistanceOhm = 0.1,
         noLoadCurrentA = 0.5, maxVolts = 11.1), propDiameterM = 0.24, numBlades = 2,
-        at = Vec3(0.0, 0, 0.0)))
+        at = Vec3(0.0, 0, 0.0),
+        curves = PropellerCurves.from(0.24, 0.15, 2).right.get))
     )
     val ac = if (withTable) base.copy(curves = Some(sampleCurves)) else base
     val gm = generate(ac)

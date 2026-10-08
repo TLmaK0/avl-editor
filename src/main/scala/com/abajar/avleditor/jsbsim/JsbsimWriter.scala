@@ -135,13 +135,17 @@ object JsbsimWriter {
   final case class ThrusterCurves(ct: Seq[(Double, Double)], cp: Seq[(Double, Double)])
 
   /**
+   * `curves` is never invented here: a ducted fan derives its own from [[DuctedFanCurves]] and a
+   * free propeller its own from [[PropellerCurves]], both from figures the model states, so every
+   * `Propulsion` reaching this writer already carries the right pair.
+   *
    * `rotorInertiaKgM2` is what the model **states** for the parts that turn, when it states
    * anything at all. `None` means it states nothing, and the writer then falls back to a constant
    * documented where it is used — see [[propellerFile]] and issue #32.
    */
   final case class Propulsion(motor: Motor, propDiameterM: Double, numBlades: Int, at: Vec3,
+                              curves: ThrusterCurves,
                               tanks: Seq[FuelTank] = Nil,
-                              curves: Option[ThrusterCurves] = None,
                               rotorInertiaKgM2: Option[Double] = None)
 
   /** The generated aircraft plus the auxiliary engine/thruster files it references. */
@@ -406,13 +410,14 @@ object JsbsimWriter {
    * remaining question, and it is a decision rather than a measurement.
    */
   private def propellerFile(name: String, diameterM: Double, numBlades: Int,
-                            curves: Option[ThrusterCurves] = None,
+                            curves: ThrusterCurves,
                             statedInertia: Option[Double] = None): String = {
     val ixx = statedInertia.filter(_ > 0).getOrElse(1.06e-3 * diameterM * diameterM)
-    // A thruster that stated its own curves gets them; anything else gets the generic propeller's, which are
-    // documented as an assumption in AGENTS.md.
-    val ctTable = curves.map(c => rows(c.ct)).getOrElse(GENERIC_CT)
-    val cpTable = curves.map(c => rows(c.cp)).getOrElse(GENERIC_CP)
+    // The caller already derived these from the model's own figures — a ducted fan's from
+    // DuctedFanCurves, a free propeller's from PropellerCurves — so there is nothing generic left
+    // to fall back to here; see issue #19.
+    val ctTable = rows(curves.ct)
+    val cpTable = rows(curves.cp)
     s"""<?xml version="1.0"?>
     |<propeller name="${xml(name)}" version="1.1">
     |  <ixx unit="KG*M2">${f(ixx)}</ixx>
@@ -432,34 +437,6 @@ object JsbsimWriter {
     |</propeller>
     |""".stripMargin
   }
-
-  // Generic small fixed-pitch propeller coefficients vs advance ratio J
-  // (from the APC 9x4.5e / JSBSim DJI_9450 reference; normalised by J so reusable).
-  private val GENERIC_CT =
-    """      0.0000 0.1288
-      |      0.0730 0.1230
-      |      0.1470 0.1153
-      |      0.2287 0.1053
-      |      0.3022 0.0932
-      |      0.3757 0.0794
-      |      0.4496 0.0644
-      |      0.5296 0.0483
-      |      0.6039 0.0310
-      |      0.6774 0.0128
-      |      0.7291 -0.0001""".stripMargin
-
-  private val GENERIC_CP =
-    """      0.0000 0.0666
-      |      0.0730 0.0611
-      |      0.1470 0.0567
-      |      0.2287 0.0531
-      |      0.3022 0.0498
-      |      0.3757 0.0456
-      |      0.4496 0.0402
-      |      0.5296 0.0332
-      |      0.6039 0.0243
-      |      0.6774 0.0137
-      |      0.7291 0.0061""".stripMargin
 
   private def flightControl(controls: Seq[ControlSurface]): String = {
     val channels = controls.map { c =>

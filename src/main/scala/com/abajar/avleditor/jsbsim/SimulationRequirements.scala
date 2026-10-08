@@ -149,6 +149,14 @@ object SimulationRequirements {
           if (p.getD > 0) Nil
           else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller must be greater than " +
             s"zero (found ${p.getD} m).")
+        // The exported thrust and power curves are stretched from a generic sample to where
+        // *this* propeller's pitch says the thrust should run out (issue #19); without a stated
+        // pitch there is nothing to stretch by, and the export used to borrow a 9.4x5's curve
+        // regardless of what was actually on the shaft.
+        val pitch =
+          if (p.getH > 0) Nil
+          else Seq(s"'${label(classOf[Propeller], "H")}' on the Propeller must be greater than " +
+            s"zero (found ${p.getH} m): it is what the exported thrust curve runs out at.")
         // n_fold is the folding-prop threshold, not a blade count: the export used to feed it
         // to JSBSim as the number of blades.
         val blades =
@@ -162,7 +170,7 @@ object SimulationRequirements {
           if (span <= 0 || p.getD <= 0 || p.getD < span) Nil
           else Seq(s"'${label(classOf[Propeller], "D")}' on the Propeller (${p.getD} m) is not " +
             s"smaller than the wingspan 'Bref' ($span); check the units.")
-        diameter ++ blades ++ oversized
+        diameter ++ pitch ++ blades ++ oversized
     }
 
   /**

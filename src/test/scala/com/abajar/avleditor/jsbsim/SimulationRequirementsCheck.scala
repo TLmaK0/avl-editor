@@ -63,6 +63,7 @@ object SimulationRequirementsCheck {
     // Same path the "+ Propeller" toolbar button uses.
     val propeller = shaft.createPropeller()
     propeller.setD(0.25f)
+    propeller.setH(0.125f)
     propeller.setMass(0.03f); propeller.getPos.setX(0.02f)
 
     val engine = shaft.createEngine()
@@ -208,6 +209,19 @@ object SimulationRequirementsCheck {
     zeroDiameter.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.get(0).setD(0f)
     check("zero propeller diameter is reported by the label the table shows",
       mentions(SimulationRequirements.validate(zeroDiameter), uiLabel(classOf[Propeller], "D")))
+
+    // The exported thrust curve is stretched to this propeller's own pitch (issue #19); a
+    // propeller straight from the toolbar has none, same as it has no diameter.
+    check("a newly added propeller's pitch is asked for too",
+      mentions(freshProblems, uiLabel(classOf[Propeller], "H")))
+
+    val zeroPitch = flyableModel()
+    zeroPitch.getConfig.getPower.getBateries.get(0).getShafts.get(0).getPropellers.get(0).setH(0f)
+    check("zero propeller pitch is reported by the label the table shows",
+      mentions(SimulationRequirements.validate(zeroPitch), uiLabel(classOf[Propeller], "H")))
+    check("and no generic curve is exported for it",
+      try { JsbsimExporter.buildPropulsion(zeroPitch); false }
+      catch { case _: IllegalStateException => true })
 
     // The '+ Trust' button builds a thrust model the export cannot use: say so, do not just ask
     // for an engine.

@@ -56,7 +56,7 @@ object FlightSanityCheck {
     battery.createShaft()
     val shaft = battery.getShafts.get(0)
     val propeller = shaft.createPropeller()
-    propeller.setD(propDiameter)
+    propeller.setD(propDiameter); propeller.setH(propDiameter * 0.5f)
     val engine = shaft.createEngine()
     val point = new EngineData
     point.setU_K(volts); point.setI_M(amps); point.setRpms(9000f)

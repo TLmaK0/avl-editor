@@ -755,6 +755,57 @@ this host), so whether the HUD actually draws legibly in a real FlightGear windo
 this package, a **FlightGear flight test** still to be done by a human with a screen — the same
 unresolved half PLAN.md already recorded for the package as a whole.
 
+## A free propeller's thrust follows its own pitch
+
+Every exported propeller used to write the same eleven rows, whatever its own diameter, pitch and blade count:
+an APC 9.4x5 / JSBSim `DJI_9450` sample, copied rather than scaled — every row byte-identical to that
+reference's own table. The diameter at least reached the thrust correctly, through `T = Ct rho n^2 D^4`
+outside the table; the **pitch** did not, though the model already asks for it (`Propeller.H`, "Pitch in
+meters") and nothing read it — `grep -rn "getH()"` returned one hit, its own getter. Pitch is exactly the
+figure that decides where the curve's thrust runs out, which decides the top speed, the climb rate, and
+whether the throttle still does anything at cruise, so a 5-inch racing prop and a 10-inch cruise prop on the
+same shaft used to fly identically (issue #19).
+
+This is **not** the ducted fan's derivation, and that is the whole reason this could not be closed the same
+way. `DuctedFanCurves` comes from momentum theory alone — given a disc area and the power and revolutions
+the fan is bought at, Froude's actuator-disc theory returns `Ct(J)` and `Cp(J)` with no geometry beyond the
+disc's own area — and that works for a duct because the duct's exit area *is* the parameter that matters. It
+does not carry over to a free propeller: momentum theory is blind to blade pitch, so on the same diameter and
+power it hands back the identical curve for a fine racing prop and a coarse cruise prop. What a free
+propeller's pitch fixes that a duct's area does not is where the blade's own angle of attack reaches zero,
+and that is a blade-element fact, which needs the blade's chord to turn an angle into a force — a figure the
+model does not state. Deriving one here would mean inventing a chord, which is the exact failure this exists
+to retire.
+
+What the model's own fields *can* fix without inventing anything is **where the curve crosses zero**. By the
+definition of geometric pitch, a propeller advancing by exactly its pitch every revolution meets its own
+blade at zero angle of attack, so the no-slip advance ratio is `J = H/D`. A real blade's profile drag means a
+little positive thrust survives a little past that point, so the true zero-thrust `J` runs a little ahead of
+`H/D` rather than sitting on it — measured, not guessed, from three propellers: the generic table's own APC
+9.4x5 (`H/D` = 0.532, zero at `J` = 0.7291, a ratio of 1.371) and two pulled fresh from the UIUC Propeller
+Data Site's wind-tunnel measurements (`m-selig.ae.illinois.edu/props/volume-2`, public domain data, no login
+required) — an APC Free Flight 9x4 (`H/D` = 0.444, zero at `J` ≈ 0.567, a ratio of 1.275) and an APC Sport 9x6
+(`H/D` = 0.667, zero at `J` ≈ 0.782, a ratio of 1.173). Three different pitch ratios, three ratios clustered
+at 1.17–1.37 and all on the same side (the true zero always past the geometric one): their mean, **1.27**
+(`PropellerCurves.PitchStretchRatio`), is the one stated assumption here, in the same spirit as
+`DuctedFanCurves.FigureOfMerit` — a documented constant for an effect too small to model from first principles
+with the fields the model has, bounded by measurement rather than invented.
+
+The curve's **shape** is kept from the generic sample — nothing says it should differ — and only its `J` axis
+is stretched so the zero crossing lands at `PitchStretchRatio * H/D` instead of the APC 9.4x5's own 0.7291,
+with `Cp` stretched by the same factor so the two curves still agree about which row belongs to which advance
+ratio. Blade count is validated (at least two) but, like the ducted fan's, does not enter the curve — a known
+limitation, stated rather than hidden — and the static thrust at `J = 0` is left at the generic sample's own
+value, since there is no measurement here saying how it should move with pitch.
+
+Reaching here without a stated pitch throws rather than borrowing the generic sample silently:
+`SimulationRequirements` now asks for the Propeller's `H` the same way it already asks for its `D`, because
+by this project's own test — a value the model *can* express — an unstretched generic curve was never a
+stated assumption, it was a silent fallback wearing one. `PropellerCurvesCheck` pins the property (thrust
+falls with advance ratio and runs out near `PitchStretchRatio * H/D`, not near a borrowed sample's own
+number) against three different pitch ratios, and `ExportUnitsCheck` confirms the stretch survives the
+model's own length unit, metres, centimetres or inches, to the same advance ratio.
+
 ## AVL's control variable is not an angle
 
 AVL states control derivatives **per unit of its control variable**, and that variable is dimensionless: the
@@ -1073,11 +1124,13 @@ from the reference geometry instead of assuming 5.0.
 
 What remains are **stated assumptions**: values the model genuinely cannot express, each documented
 where it is defined, and none of them standing in for something the user should have entered.
-Currently, all in `JsbsimWriter`/`JsbsimExporter`: the propeller's generic thrust and power
-coefficient tables and its inertia (scaled from a DJI 9450), the gear friction coefficients, the
-gear stiffness rule taken from FlightGear's c172p, the motor's coil resistance, and the piston
-engine's cylinder geometry and static friction (next section). Replace one only with a
-better-sourced derivation, never with a guess.
+Currently, all in `JsbsimWriter`/`JsbsimExporter`: the propeller's rotor inertia when the model
+states none of its own (scaled from a DJI 9450 — issue #32's remaining question), the pitch-stretch
+ratio that carries a propeller's thrust and power curves from the generic sample to its own pitch
+(see "A free propeller's thrust follows its own pitch"), the gear friction coefficients, the gear
+stiffness rule taken from FlightGear's c172p, the motor's coil resistance, and the piston engine's
+cylinder geometry and static friction (next section). Replace one only with a better-sourced
+derivation, never with a guess.
 
 ### A default you did not write is still a default
 

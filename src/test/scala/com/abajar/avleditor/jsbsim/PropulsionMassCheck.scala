@@ -46,7 +46,7 @@ object PropulsionMassCheck {
     val shaft = battery.getShafts.get(0)
 
     val propeller = shaft.createPropeller()
-    propeller.setD(0.25f); propeller.setMass(0.04f); propeller.getPos.setX(0.0f)
+    propeller.setD(0.25f); propeller.setH(0.125f); propeller.setMass(0.04f); propeller.getPos.setX(0.0f)
 
     val engine = shaft.createEngine()
     engine.setMass(0.2f); engine.getPos.setX(0.05f)

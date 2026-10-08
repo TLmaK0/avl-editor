@@ -59,7 +59,7 @@ object CombustionPackageCheck {
     val shaft = battery.getShafts.get(0)
     battery.setMass(0.10f); battery.getPos.setX(0.30f)
     val propeller = shaft.createPropeller()
-    propeller.setD(0.30f); propeller.setMass(0.05f); propeller.getPos.setX(0.02f)
+    propeller.setD(0.30f); propeller.setH(0.15f); propeller.setMass(0.05f); propeller.getPos.setX(0.02f)
     val engine = shaft.createCombustionEngine()
     engine.setMass(0.55f); engine.getPos.setX(0.10f)
     engine.setDisplacement(10.0f)

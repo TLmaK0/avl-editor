@@ -11,7 +11,7 @@ object PropulsionMappingCheck {
   def main(args: Array[String]): Unit = {
     val c = new CRRCSimFactory().create()
 
-    val prop = new Propeller(); prop.setD(0.25f); prop.setBlades(3)
+    val prop = new Propeller(); prop.setD(0.25f); prop.setH(0.125f); prop.setBlades(3)
     val engine = new Engine()
     val ed1 = new EngineData(); ed1.setU_K(14.0f); ed1.setI_M(1.0f); ed1.setRpms(9000f)
     val ed2 = new EngineData(); ed2.setU_K(14.0f); ed2.setI_M(20.0f); ed2.setRpms(6000f)

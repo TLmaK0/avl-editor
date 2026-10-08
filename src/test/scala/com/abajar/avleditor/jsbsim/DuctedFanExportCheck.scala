@@ -43,7 +43,7 @@ object DuctedFanExportCheck {
     }
     if (withPropeller) {
       val prop = shaft.createPropeller()
-      prop.setD(0.25f); prop.setBlades(2)
+      prop.setD(0.25f); prop.setH(0.125f); prop.setBlades(2)
     }
     battery.getShafts.add(shaft)
     crrcsim.getConfig.getPower.getBateries.add(battery)
@@ -76,7 +76,7 @@ object DuctedFanExportCheck {
     val pr = propulsion.get
     check("its diameter is the fan's bore, in metres", near(pr.propDiameterM, 0.068))
     check("and its blade count the fan's", pr.numBlades == 12)
-    check("it carries curves of its own", pr.curves.isDefined)
+    check("it carries curves of its own", pr.curves.ct.nonEmpty)
 
     println("and they are the fan's, not the generic propeller's")
     val file = propellerFileOf(withFan)
@@ -100,12 +100,20 @@ object DuctedFanExportCheck {
       near(j, dj, 1e-3) && near(c, dc, 1e-3)
     })
 
-    println("a propeller is untouched by any of this")
+    println("a propeller gets curves of its own too, stretched to its own pitch (issue #19)")
     val withProp = model(withFan = false, withPropeller = true)
     val propFile = propellerFileOf(withProp)
-    check("it still gets the generic curves", propFile.contains("0.1288"))
-    check("and states no curves of its own",
-      JsbsimExporter.buildPropulsion(withProp).get.curves.isEmpty)
+    val propCt = tableRows(propFile, "C_THRUST")
+    check("the static thrust coefficient is still the generic sample's own",
+      near(propCt.head._2, 0.1288, 1e-6))
+    val expectedJ0 = PropellerCurves.targetJ0(0.25, 0.125)
+    println(f"  thrust running out at J = ${propCt.last._1}%.4f (expected ${expectedJ0}%.4f " +
+      f"from this propeller's own pitch, not the generic sample's 0.7291)")
+    check("but it runs out where ITS pitch says, not the generic sample's",
+      near(propCt.last._1, expectedJ0, 1e-3))
+    check("which is not the generic sample's own 0.7291", !near(propCt.last._1, 0.7291, 1e-3))
+    check("and it carries curves of its own, not an absent one",
+      JsbsimExporter.buildPropulsion(withProp).get.curves.ct.nonEmpty)
 
     println("what the requirements say")
     def problems(crrcsim: CRRCSim): Seq[String] = SimulationRequirements.validate(crrcsim)

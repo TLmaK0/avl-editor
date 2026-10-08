@@ -131,8 +131,8 @@ object JsbsimExporter {
       shaft <- Option(battery.getShafts).map(_.asScala).getOrElse(Nil).headOption
       motor <- buildMotor(shaft, battery.getU_0.toDouble)
       thruster <- buildThruster(shaft, units)
-    } yield Propulsion(motor, thruster.diameterM, thruster.blades, thruster.at,
-      buildFuelTanks(power, units), thruster.curves, thruster.inertiaKgM2)
+    } yield Propulsion(motor, thruster.diameterM, thruster.blades, thruster.at, thruster.curves,
+      buildFuelTanks(power, units), thruster.inertiaKgM2)
   }
 
   /**
@@ -154,7 +154,7 @@ object JsbsimExporter {
    * gets right; the station along the fuselage never mattered to the moment and still does not.
    */
   private final case class Thruster(diameterM: Double, blades: Int, at: Vec3,
-                                    curves: Option[ThrusterCurves],
+                                    curves: ThrusterCurves,
                                     inertiaKgM2: Option[Double] = None)
 
   private def buildThruster(shaft: com.abajar.avleditor.crrcsim.Shaft,
@@ -180,13 +180,24 @@ object JsbsimExporter {
           // sits relative to the fan, and the shaft where the assembly is.
           metres(units, shaft.absoluteX(f.exhaustX()), shaft.absoluteY(f.exhaustY()),
             shaft.absoluteZ(f.exhaustZ())),
-          Some(ThrusterCurves(curves.ct, curves.cp)),
+          ThrusterCurves(curves.ct, curves.cp),
           statedInertia(shaft, None, units)))
       case None =>
-        Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption
-          // The diameter is stated in the model's length unit; JSBSim's propeller states it in metres.
-          .map(p => Thruster(units.toMetres(p.getD).toDouble, p.getBlades, at(shaft, p.getPos, units), None,
-            statedInertia(shaft, Some(p), units)))
+        Option(shaft.getPropellers).map(_.asScala).getOrElse(Nil).headOption.map { p =>
+          // The diameter and the pitch are stated in the model's length unit; JSBSim's propeller
+          // states them in metres.
+          val diameterM = units.toMetres(p.getD).toDouble
+          val pitchM = units.toMetres(p.getH).toDouble
+          val curves = PropellerCurves.from(diameterM, pitchM, p.getBlades).fold(
+            problem => throw new IllegalStateException(problem),
+            identity)
+          logger.log(Level.INFO, f"Propeller: ${units.fromMetres(diameterM.toFloat)}%.3f " +
+            f"${units.lengthUnit}%s diameter, ${units.fromMetres(pitchM.toFloat)}%.3f ${units.lengthUnit}%s " +
+            f"pitch — thrust running out at J = ${PropellerCurves.targetJ0(diameterM, pitchM)}%.3f, stretched " +
+            f"from the generic sample's own 0.7291 by this propeller's pitch rather than borrowed from it.")
+          Thruster(diameterM, p.getBlades, at(shaft, p.getPos, units), curves,
+            statedInertia(shaft, Some(p), units))
+        }
     }
   }
 
