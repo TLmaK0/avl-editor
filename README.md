@@ -21,18 +21,13 @@ bugs that produced it.
 Download
 --------
 
-The current release is **1.0.0**:
-
 | Platform | Download |
 |----------|----------|
-| Windows | [avl-editor-windows.exe](https://github.com/TLmaK0/avl-editor/releases/download/1.0.0/avl-editor-windows.exe) |
-| Linux | [avl-editor-linux.deb](https://github.com/TLmaK0/avl-editor/releases/download/1.0.0/avl-editor-linux.deb) |
-| macOS | [avl-editor-macos.dmg](https://github.com/TLmaK0/avl-editor/releases/download/1.0.0/avl-editor-macos.dmg) |
+| Windows | [avl-editor-windows.exe](https://github.com/TLmaK0/avl-editor/releases/latest/download/avl-editor-windows.exe) |
+| Linux | [avl-editor-linux.deb](https://github.com/TLmaK0/avl-editor/releases/latest/download/avl-editor-linux.deb) |
+| macOS | [avl-editor-macos.dmg](https://github.com/TLmaK0/avl-editor/releases/latest/download/avl-editor-macos.dmg) |
 
-Or browse [all releases](https://github.com/TLmaK0/avl-editor/releases). These link to 1.0.0 by name
-rather than to `releases/latest`, because GitHub's "latest" currently resolves to the **XFOIL binaries**
-release the CI publishes — so the `latest/download/...` links this table used to carry returned 404 for
-every platform. Reported in [#35](https://github.com/TLmaK0/avl-editor/issues/35).
+Or browse [all releases](https://github.com/TLmaK0/avl-editor/releases).
 
 **AVL, XFOIL and JSBSim do not have to be installed.** Whatever needs one fetches it into
 `~/.avleditor` on first use. Nothing is installed on the machine itself and nothing needs `sudo`.
