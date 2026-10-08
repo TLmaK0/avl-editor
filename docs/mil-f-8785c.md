@@ -130,11 +130,24 @@ Figure 3's 0.6 rad/s horizontal floor and its 1.8 g/rad vertical one — both st
 IV — are applied to every aircraft. Figure 1 draws one curve with no Class split at all, so nothing is
 chosen there.
 
+**The vertical reading carries the same uncertainty as Figures 4 and 5, which this issue's own closing
+paragraph says in as many words**: "the vertical values on these figures are on the plotted grid; the
+horizontal placement is a reading and carries the same ±10° style uncertainty as figures 4 and 5, so the
+band of indecision applies." Figure 3's horizontal axis is `n/α` rather than a phase angle, so the
+uncertainty is carried as a **fraction** of the reading (±10%) rather than a count of degrees — the natural
+analogue of a fixed angular slop on a log axis. `MilF8785cEvaluator.verticalVerdict` reuses
+`RollOscillationFigure.Verdict` itself rather than inventing a second three-way answer for the same idea:
+an aircraft whose `n/α` lands inside the ±10% band around 1.8 gets `RowOutcome.OnTheBoundary` and no Level,
+the same refusal Figures 4 and 5's own rows already give near their lines, rather than a side of the line
+this reading cannot actually see.
+
 Every floor is a frequency (or, for the vertical one, dimensionless `n/α`) and is shown both as the
 standard states it and as applied at the aircraft's own size, the same `applied`/stated pairing every other
-threshold here uses. `ShortPeriodQuicknessCheck` pins all of it, including that Category B draws neither
-kind and that an aircraft just below a floor reaches a visibly worse Level than CAP alone would have given
-it.
+threshold here uses — for every Level that carries one, not only Level 1: Category C's requirement names
+its Levels 2 & 3 floor and its vertical one even though Level 1 itself carries neither in that Category.
+`ShortPeriodQuicknessCheck` pins all of it, including that Category B draws neither kind, that an aircraft
+just below a floor reaches a visibly worse Level than CAP alone would have given it, and that a reading on
+the vertical line's own boundary refuses to claim a Level rather than guessing one.
 
 ### §3.2.2.1.2 Short-period damping — TABLE IV, PDF p. 13
 

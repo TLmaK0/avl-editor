@@ -371,6 +371,47 @@ object MilF8785cEvaluator {
    */
   private val Category_C_Level2MinLoadPerAlpha = 1.8
 
+  /**
+   * FIGURE 3's vertical line is read the same way `RollOscillationFigure` already reads FIGURES 4 and 5: the
+   * **vertical** values on these plots land on the printed grid and are read exactly, but a **horizontal**
+   * position is a reading, not a transcription — issue #16's own closing paragraph says so in as many words,
+   * "the horizontal placement is a reading and carries the same +-10 degree style uncertainty as figures 4
+   * and 5, so the band of indecision applies". FIGURE 3's horizontal axis is `n/alpha` rather than a phase
+   * angle, so the uncertainty is carried as a fraction of the reading rather than a count of degrees — ten
+   * percent, the same "ten" `RollOscillationFigure.PhaseUncertaintyDegrees` carries, on a log axis where a
+   * fraction is the natural analogue of a fixed angular slop.
+   *
+   * [[verticalVerdict]] reuses `RollOscillationFigure.Verdict` itself rather than inventing a second
+   * three-way answer for the same concept: `Unclear` is not a weaker `Outside`, it is "this code cannot see
+   * the figure precisely enough to say", and a verdict built from it refuses a Level rather than guessing —
+   * `RowOutcome.OnTheBoundary`, the same outcome FIGURES 4 and 5's rows already report near their own lines.
+   */
+  private val LoadPerAlphaReadingUncertainty = 0.10
+
+  private def verticalVerdict(level: Int, loadPerAlpha: Double, vertical: Boolean): RollOscillationFigure.Verdict =
+    if (!vertical || level == 3) RollOscillationFigure.Inside
+    else {
+      val lo = Category_C_Level2MinLoadPerAlpha * (1.0 - LoadPerAlphaReadingUncertainty)
+      val hi = Category_C_Level2MinLoadPerAlpha * (1.0 + LoadPerAlphaReadingUncertainty)
+      if (loadPerAlpha >= hi) RollOscillationFigure.Inside
+      else if (loadPerAlpha <= lo) RollOscillationFigure.Outside
+      else RollOscillationFigure.Unclear
+    }
+
+  /**
+   * The floors that apply, grouped by their value and named by the Level(s) sharing it — "0.60 rad/s for
+   * Level 2 & 3" rather than one line per Level, since Figures 1 and 3 draw one curve, and so one floor, for
+   * more than one Level at a time. Empty when the category draws none.
+   */
+  private def floorsSentence(floors: Map[Int, Double]): Option[String] = {
+    if (floors.isEmpty) return None
+    val groups = floors.toList.groupBy(_._2).toList.map { case (v, pairs) => (v, pairs.map(_._1).sorted) }
+    Some(groups.sortBy { case (_, levels) => levels.min }.map { case (v, levels) =>
+      val label = if (levels.size == 1) s"Level ${levels.head}" else "Level " + levels.mkString(" & ")
+      f"$v%.2f rad/s for $label"
+    }.mkString(", "))
+  }
+
   /** MIL-F-8785C 3.2.1.2 (PDF p. 12): phugoid. Level 3 is a doubling time, not a damping ratio. */
   private val PhugoidMinZetaLevel1 = 0.04
   private val PhugoidMinZetaLevel2 = 0.0
@@ -1018,8 +1059,8 @@ object MilF8785cEvaluator {
     val (_, minCap, maxCap) = limits.head
     val vertical = category == FlightPhaseCategory.C
     val wants = f"a control anticipation parameter between $minCap%.3f and $maxCap%.1f" +
-      floors.get(1).map(f => f", wn at least $f%.2f rad/s").getOrElse("") +
-      (if (vertical) f", and at least $Category_C_Level2MinLoadPerAlpha%.1f g per radian for Level 2" else "")
+      floorsSentence(floors).map(s => s", wn at least $s").getOrElse("") +
+      (if (vertical) f", and at least $Category_C_Level2MinLoadPerAlpha%.1f g per radian for Level 1 & 2" else "")
     // CAP is a frequency squared, so it scales as the square of a frequency threshold — and so does a floor,
     // being a frequency: wn >= floor is the same boundary as CAP >= floor^2 / (n/alpha).
     def scaled(cap: Double): Double = { val f = size.frequency(1.0); cap * f * f }
@@ -1027,7 +1068,7 @@ object MilF8785cEvaluator {
       floors.get(level).map(f => { val sf = size.frequency(f); sf * sf / loadPerAlpha }).getOrElse(0.0)
     val applied = if (size.scales)
         Some(f"at this size: between ${scaled(minCap)}%.2f and ${scaled(maxCap)}%.1f" +
-          floors.get(1).map(f => f", wn at least ${size.frequency(f)}%.2f rad/s").getOrElse(""))
+          floorsSentence(floors.mapValues(size.frequency).toMap).map(s => s", wn at least $s").getOrElse(""))
       else None
 
     def cannot(why: String) =
@@ -1056,30 +1097,56 @@ object MilF8785cEvaluator {
           math.max(scaled(stated), floorCap(level, loadPerAlpha))
         // FIGURE 3's vertical floor: below it, Level 2 and the tighter Level 1 inside it are both out of
         // reach whatever the frequency, so only Level 3 (which carries no such floor) is still open to it.
-        def verticalOk(level: Int): Boolean = !vertical || level == 3 || loadPerAlpha >= Category_C_Level2MinLoadPerAlpha
-        val level = levelMet(limits.map { case (n, lo, hi) =>
-          (n, cap >= effectiveMinCap(n, lo) && cap <= scaled(hi) && verticalOk(n))
-        })
-        val meets = f"CAP $cap%.2f, at $loadPerAlpha%.1f g per radian."
-        val floored = floors.get(1).exists(f => floorCap(1, loadPerAlpha) > scaled(minCap))
-        val miss =
-          if (vertical && loadPerAlpha < Category_C_Level2MinLoadPerAlpha)
-            f"too little g per radian of angle of attack: $loadPerAlpha%.2f against the " +
-              f"$Category_C_Level2MinLoadPerAlpha%.1f FIGURE 3 asks of Level 2 and better, at any frequency. " +
-              "A wing that makes more g per radian — more area, or less sweep — raises it."
-          else if (cap < effectiveMinCap(1, minCap))
-            if (floored)
-              f"too sluggish: wn $wn%.2f rad/s against the ${size.frequency(floors(1))}%.2f rad/s floor the " +
-                "figure draws at this n/alpha, below where the CAP line alone would ask less. More tailplane, " +
-                "or a longer tail arm."
+        // It is read within its own uncertainty band — see [[verticalVerdict]] — so a load factor close
+        // enough to the line that the reading cannot tell which side it falls on refuses a Level rather
+        // than guessing a side, the same way FIGURES 4 and 5's rows already do.
+        val levelChecks = limits.map { case (n, lo, hi) =>
+          val capOk = cap >= effectiveMinCap(n, lo) && cap <= scaled(hi)
+          (n, capOk, verticalVerdict(n, loadPerAlpha, vertical))
+        }
+        val met = levelChecks.collectFirst { case (n, true, RollOscillationFigure.Inside) => n }
+        val unclearBlocking = met.isEmpty && levelChecks.exists { case (_, capOk, vv) =>
+          capOk && vv == RollOscillationFigure.Unclear
+        }
+
+        if (unclearBlocking) {
+          val pct = (LoadPerAlphaReadingUncertainty * 100.0).round
+          ModalNormRow("Short-period quickness", is, Some(wn), None, None, None, wants,
+            f"On the boundary: $loadPerAlpha%.2f g per radian, within the +-$pct%d%% FIGURE 3's vertical " +
+              f"line at $Category_C_Level2MinLoadPerAlpha%.1f is good to as a reading. No Level is claimed.",
+            None, None, applied, RowOutcome.OnTheBoundary)
+        } else {
+          val level = met
+          val meets = f"CAP $cap%.2f, at $loadPerAlpha%.1f g per radian."
+          val floored = floors.get(1).exists(f => floorCap(1, loadPerAlpha) > scaled(minCap))
+          val vv1 = verticalVerdict(1, loadPerAlpha, vertical)
+          val capOk1 = cap >= effectiveMinCap(1, minCap) && cap <= scaled(maxCap)
+          val miss =
+            if (vertical && vv1 == RollOscillationFigure.Outside)
+              f"too little g per radian of angle of attack: $loadPerAlpha%.2f against the " +
+                f"$Category_C_Level2MinLoadPerAlpha%.1f FIGURE 3 asks of Level 2 and better, at any frequency. " +
+                "A wing that makes more g per radian — more area, or less sweep — raises it."
+            // The frequency alone clears Level 1, but this reading of g-per-radian is too close to FIGURE
+            // 3's own line to say whether it does too — reachable here only when a weaker Level was still
+            // met outright, so the aircraft has a Level; it just might be a better one than reported.
+            else if (vertical && vv1 == RollOscillationFigure.Unclear && capOk1)
+              f"on the boundary for Level 1: $loadPerAlpha%.2f g per radian against the " +
+                f"$Category_C_Level2MinLoadPerAlpha%.1f FIGURE 3 draws, within the reading's own uncertainty. " +
+                "The frequency itself is adequate; this alone is what is unresolved."
+            else if (cap < effectiveMinCap(1, minCap))
+              if (floored)
+                f"too sluggish: wn $wn%.2f rad/s against the ${size.frequency(floors(1))}%.2f rad/s floor the " +
+                  "figure draws at this n/alpha, below where the CAP line alone would ask less. More tailplane, " +
+                  "or a longer tail arm."
+              else
+                f"too sluggish: CAP $cap%.3f against the ${scaled(minCap)}%.3f wanted. The nose answers slowly " +
+                  "for the g the wing makes — a bigger tailplane, or a longer tail arm."
             else
-              f"too sluggish: CAP $cap%.3f against the ${scaled(minCap)}%.3f wanted. The nose answers slowly " +
-                "for the g the wing makes — a bigger tailplane, or a longer tail arm."
-          else
-            f"too sharp: CAP $cap%.2f against the ${scaled(maxCap)}%.1f allowed. The aircraft is twitchy in " +
-              "pitch for the g it produces, which is tiring to fly precisely."
-        ModalNormRow("Short-period quickness", is, Some(wn), None, None, None, wants,
-          levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied, outcomeOf(level))
+              f"too sharp: CAP $cap%.2f against the ${scaled(maxCap)}%.1f allowed. The aircraft is twitchy in " +
+                "pitch for the g it produces, which is tiring to fly precisely."
+          ModalNormRow("Short-period quickness", is, Some(wn), None, None, None, wants,
+            levelVerdict(level, meets, miss), Some(level == Some(1)), level, applied, outcomeOf(level))
+        }
     }
   }
 

@@ -157,6 +157,38 @@ object ShortPeriodQuicknessCheck {
     check("Category B draws neither floor, so the same aircraft reaches Level 1 there",
       row(aircraft(wn = 0.9, clAlpha = 1.0f, clTrim = 1.0f), FlightPhaseCategory.B).level == Some(1))
 
+    println("FIGURE 3's requirement names the floor even where Level 1 carries none of its own")
+    val catCWants = row(aircraft(wn = 0.9, clAlpha = 3.0f, clTrim = 1.0f), FlightPhaseCategory.C).requirement
+    println("    " + catCWants)
+    check("the Levels 2 & 3 floor is disclosed", catCWants.contains("0.60 rad/s for Level 2 & 3"))
+    check("and so is the vertical one", catCWants.contains("1.8 g per radian for Level 1 & 2"))
+
+    println("the vertical floor is read within its own uncertainty band, like FIGURES 4 and 5's own lines")
+    // n/alpha = 1.8 sits exactly on FIGURE 3's own line, inside its +-10% reading band [1.62, 1.98]. At
+    // this n/alpha the floor-raised CAP for Levels 2 & 3 is 0.36/1.8 = 0.20, above Level 1's own stated
+    // 0.16 — so a CAP of 0.18 clears Level 1's stated bound but not Levels 2 & 3's floor-raised one, and
+    // nothing else is left standing: the row cannot even fall back on Level 3.
+    val onBoundary = row(aircraft(wn = math.sqrt(0.18 * 1.8), clAlpha = 1.8f, clTrim = 1.0f),
+      FlightPhaseCategory.C)
+    println("    " + onBoundary.verdict)
+    check("no Level is claimed", onBoundary.level.isEmpty)
+    check("the outcome says it is a boundary, not a failure", onBoundary.outcome == RowOutcome.OnTheBoundary)
+    check("and the verdict names the reading uncertainty", onBoundary.verdict.contains("On the boundary") &&
+      onBoundary.verdict.contains("10%"))
+
+    println("but a Level already proven by a weaker one is still reported, even if Level 1 is the unclear part")
+    // Same n/alpha (1.8, on the line), CAP 0.25 this time: clears Level 1's stated 0.16 (so the frequency
+    // itself is adequate) and clears Level 3's floor-raised 0.20 too — the aircraft has a Level. Level 1
+    // itself stays unresolved rather than confidently denied, because the vertical reading at n/alpha 1.8
+    // cannot tell which side of 1.8 it is really on.
+    val unresolvedLevel1 = row(aircraft(wn = math.sqrt(0.25 * 1.8), clAlpha = 1.8f, clTrim = 1.0f),
+      FlightPhaseCategory.C)
+    println("    " + unresolvedLevel1.verdict)
+    check("Level 3 is still reported", unresolvedLevel1.level == Some(3))
+    check("and the miss names Level 1's own ambiguity, not a frequency or a confident vertical failure",
+      unresolvedLevel1.verdict.contains("on the boundary for Level 1") &&
+        unresolvedLevel1.verdict.contains("unresolved"))
+
     println("the floor is a frequency, so it scales with the aircraft's size like the CAP boundary does")
     val smallFloored = row(aircraft(wn = 0.95, clAlpha = 2.0f, clTrim = 1.0f, span = 1.5f), FlightPhaseCategory.A)
     println("    " + smallFloored.requirement)
