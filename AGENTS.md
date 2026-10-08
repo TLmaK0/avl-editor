@@ -4,6 +4,17 @@ This project is an editor for radio-controlled / small-UAV aircraft. It integrat
 for aerodynamic analysis and exports **JSBSim** flight dynamics models (metric), which run in
 JSBSim standalone, FlightGear and PX4 SITL (px4-jsbsim-bridge). It can also build XFOIL from
 source (CI) to derive viscous data. The legacy CRRCsim export has been removed.
+
+**PX4 SITL is flown, not just claimed** (#18): an exported `TestAircraft` armed, climbed and held
+altitude through `px4-jsbsim-bridge` (PX4 v1.17.0, Auterion's bridge). Nothing in this repository
+exercises it automatically — the aerodynamic export needs no bridge-specific support, so there is
+nothing here for a check to drive — and two things live entirely in the **bridge's own config**,
+never in the exported model, which is why the issue asked for them to be measured rather than
+assumed: the aileron and rudder channels both needed their `<scale>` flipped from the sign a
+different airframe (Rascal) uses, found by commanding a known stick input and reading the
+resulting body rate back. The elevator's inherited sign was already right. See #18 for the
+measurements, the exact scales, and the SITL-side arming-health tuning (unrelated to the export)
+that a current PX4 needs with this bridge.
 It allows users to modify aircraft geometry, mass and configuration for simulation.
 Developed in Java and Scala, it provides a GUI for streamlined editing and analysis.
 
