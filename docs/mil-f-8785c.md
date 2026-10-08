@@ -96,9 +96,45 @@ trim point from the weight, read the other way round.
 **Implemented.** CAP has units of 1/s², so it follows the aircraft's size like a frequency squared: `n/α`
 is dimensionless and does not scale, while ωnsp goes as `1/sqrt(b)`.
 
-**Not implemented from those figures**: the additional ωnsp floors that Figures 1 and 3 draw as horizontal
-and vertical lines at low `n/α`, which depend on the aircraft Class — including Figure 3's note that ωnsp
-shall always exceed 0.6 rad/s for Level 3 in Classes I, II-C and IV. Category B has none of them.
+**The extra ωnsp floors Figures 1 and 3 draw at low `n/α` are implemented too** (issue #16). A CAP boundary
+is a diagonal line of constant `ωnsp²/(n/α)` on the log-log plot; a floor is a horizontal line of constant
+`ωnsp` — which is the same line read differently, since it is where `CAP = ωnsp²/(n/α)` would have to rise
+without limit as `n/α` falls. So `MilF8785cEvaluator.shortPeriodFrequencyFloors` folds straight into the
+existing comparison: the effective minimum CAP is `max(stated minCap, floor² / (n/α))`.
+
+| Figure | Category | Level 1 floor | Levels 2 & 3 floor |
+|--------|----------|----------------|---------------------|
+| 1, p. 14 | A | 1.0 rad/s | 0.6 rad/s |
+| 2, p. 15 | B | none | none |
+| 3, p. 16 | C | none | 0.6 rad/s |
+
+Read directly off the page: Figure 1's Level 1 floor sits exactly on the 1.0 rad/s gridline, and its
+combined Levels 2 & 3 floor on the 0.6 one — one curve serves both Levels, which is why one floor does.
+Figure 3 states its floor in words rather than drawing it as a bare line: *"For Class I, II-C, and IV
+airplanes, ωnsp shall always be greater than 0.6 radians per second for Level 3"* — and Figure 3 likewise
+draws only **one** diagonal for Levels 2 and 3 (the table's `0.036` is a single number serving both rows),
+so the floor that continues that curve is given to both here, not Level 3 alone; naming it by the laxer
+Level says nothing about the stricter Level resting on the same line.
+
+**Figure 3 also draws a *vertical* floor**, which no amount of frequency buys past: a minimum `n/α` below
+which Level 2 — and Level 1, the tighter region inside it — cannot be reached at all. The figure draws it
+as two class-dependent vertical lines, each carrying its own Class group as a label; measured off the page,
+"LEVEL 2, CLASSES II-L, III" sits at `n/α ≈ 1.5` g/rad and "LEVEL 2, CLASSES I, II-C, IV" at `n/α ≈ 1.8`.
+Level 3 carries no such floor — the page's own note says the Level 3 boundary for `n/α` under 1.0 is "also
+defined by a straight-line extension", i.e. the plain diagonal, unclipped.
+
+**Neither figure's floor is applied per Class** — this editor asks for no Class field, by design (see "The
+criteria follow the aircraft's size" below). Where a table already forces that choice, `dutchRollLimits`
+takes the stricter of a two-way split rather than guessing per model; the same call is made here:
+Figure 3's 0.6 rad/s horizontal floor and its 1.8 g/rad vertical one — both stated for Classes I, II-C and
+IV — are applied to every aircraft. Figure 1 draws one curve with no Class split at all, so nothing is
+chosen there.
+
+Every floor is a frequency (or, for the vertical one, dimensionless `n/α`) and is shown both as the
+standard states it and as applied at the aircraft's own size, the same `applied`/stated pairing every other
+threshold here uses. `ShortPeriodQuicknessCheck` pins all of it, including that Category B draws neither
+kind and that an aircraft just below a floor reaches a visibly worse Level than CAP alone would have given
+it.
 
 ### §3.2.2.1.2 Short-period damping — TABLE IV, PDF p. 13
 

@@ -108,6 +108,63 @@ object ShortPeriodQuicknessCheck {
     check("and so is a lift slope that is not one",
       noSlope.level.isEmpty && noSlope.verdict.contains("not one"))
 
+    println("FIGURE 1 draws a floor under its Level 1 CAP line, which the CAP test alone would miss — issue #16")
+    // n/alpha = 2 (CLalpha 2.0, CLtrim 1.0): Level 1's stated CAP bound alone wants wn >= sqrt(0.28*2) = 0.75,
+    // but the figure's 1.0 rad/s floor (it sits exactly on the gridline, not derived from CAP) wants more:
+    // wn >= 1.0. wn 0.95 clears the stated CAP bound (cap 0.45 > 0.28) and would have passed Level 1 without
+    // the floor.
+    val floorBoundA1 = row(aircraft(wn = 0.95, clAlpha = 2.0f, clTrim = 1.0f), FlightPhaseCategory.A)
+    println("    " + floorBoundA1.verdict)
+    check("the floor keeps it out of Level 1 even though CAP alone would admit it",
+      floorBoundA1.level == Some(2))
+    check("and the verdict names the floor, not just CAP", floorBoundA1.verdict.contains("1.00 rad/s floor"))
+    // The same aircraft just over the floor reaches Level 1.
+    val overFloorA1 = row(aircraft(wn = 1.05, clAlpha = 2.0f, clTrim = 1.0f), FlightPhaseCategory.A)
+    check("and just over the floor it does reach Level 1", overFloorA1.level == Some(1))
+
+    println("FIGURE 1's Levels 2 & 3 share one floor too, and missing it is worse than Level 3 — not Level 2")
+    // n/alpha = 1.5: the stated CAP bound for Levels 2 & 3 (0.16) alone wants only wn >= sqrt(0.16*1.5) =
+    // 0.49, which wn 0.55 would have cleared under the old, floor-less test (cap 0.2017 > 0.16 -> "Level 2").
+    // The figure's 0.6 rad/s floor (shared by both Levels, since one curve serves them both) wants more.
+    val floorBoundA23 = row(aircraft(wn = 0.55, clAlpha = 3.0f, clTrim = 2.0f), FlightPhaseCategory.A)
+    println("    " + floorBoundA23.verdict)
+    check("below the shared floor it is worse than Level 3, not Level 2 as CAP alone would have said",
+      floorBoundA23.level.isEmpty && floorBoundA23.verdict.contains("Worse than Level 3"))
+
+    println("FIGURE 3's own floor is 0.6 rad/s too, shared by Levels 2 and 3 the same way")
+    // n/alpha = 5: Levels 2 & 3's stated CAP bound (0.036) alone wants wn >= sqrt(0.036*5) = 0.424, which wn
+    // 0.5 would clear (cap 0.05 > 0.036). The figure's 0.6 rad/s floor wants more.
+    val floorBoundC = row(aircraft(wn = 0.5, clAlpha = 2.5f, clTrim = 0.5f), FlightPhaseCategory.C)
+    println("    " + floorBoundC.verdict)
+    check("Category C's floor fails it the same way", floorBoundC.level.isEmpty)
+
+    println("FIGURE 3 also draws a VERTICAL floor: below it, Level 2 (and Level 1 inside it) are shut off " +
+      "at any frequency — but Level 3 carries no such floor, and the figure says so explicitly")
+    // n/alpha = 1.0, well under the 1.8 g/rad FIGURE 3 draws for Classes I, II-C, IV. cap = 0.81/1.0 = 0.81,
+    // inside Level 1's stated 0.16..3.6 band, so by CAP alone this would be Level 1.
+    val lowLoadPerAlpha = row(aircraft(wn = 0.9, clAlpha = 1.0f, clTrim = 1.0f), FlightPhaseCategory.C)
+    println("    " + lowLoadPerAlpha.verdict)
+    check("the vertical floor shuts out Level 1 and Level 2, leaving only Level 3, which has none",
+      lowLoadPerAlpha.level == Some(3))
+    check("and the verdict says why: too little g per radian, not a frequency complaint",
+      lowLoadPerAlpha.verdict.contains("g per radian of angle of attack"))
+    // The same frequency and lift slope at a high enough n/alpha (3.0, clear of the 1.8 floor) reaches Level 1.
+    val clearLoadPerAlpha = row(aircraft(wn = 0.9, clAlpha = 3.0f, clTrim = 1.0f), FlightPhaseCategory.C)
+    check("clear of the vertical floor the same frequency reaches Level 1",
+      clearLoadPerAlpha.level == Some(1))
+    // Category B draws neither kind of floor: the same aircraft that the vertical floor downgraded to
+    // Level 3 in Category C reaches Level 1 there, since 0.81 is within B's own 0.085..3.6 band untouched.
+    check("Category B draws neither floor, so the same aircraft reaches Level 1 there",
+      row(aircraft(wn = 0.9, clAlpha = 1.0f, clTrim = 1.0f), FlightPhaseCategory.B).level == Some(1))
+
+    println("the floor is a frequency, so it scales with the aircraft's size like the CAP boundary does")
+    val smallFloored = row(aircraft(wn = 0.95, clAlpha = 2.0f, clTrim = 1.0f, span = 1.5f), FlightPhaseCategory.A)
+    println("    " + smallFloored.requirement)
+    println("    " + smallFloored.applied.getOrElse("(not scaled)"))
+    check("the requirement states the standard's own floor", smallFloored.requirement.contains("wn at least 1.00 rad/s"))
+    // The floor scales linearly with frequency ratio sqrt(9.80665/1.5) = 2.557, so 1.0 rad/s becomes 2.56.
+    check("and the applied one is scaled by the same frequency ratio as CAP", smallFloored.applied.exists(_.contains("2.56 rad/s")))
+
     println("with no pitch mode there is no frequency to judge, and it says so")
     val noMode = new AvlCalculation(0, 1, 2)
     noMode.setConfiguration(new Configuration)

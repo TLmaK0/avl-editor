@@ -301,10 +301,8 @@ object MilF8785cEvaluator {
    * Anticipation Parameter — and each line carries its own value printed up the right-hand edge, so the
    * figures are a table with four numbers per Flight Phase. Nothing has to be measured off the paper.
    *
-   * What is **not** implemented from those figures: the additional `wn_sp` floors that Figures 1 and 3 draw
-   * as horizontal and vertical lines at low `n/alpha`, which depend on the aircraft Class. Category B — the
-   * default, and Figure 2 — has none of them: it says in as many words that its boundaries continue as
-   * straight-line extensions outside the range shown.
+   * These four numbers are not the whole of the figures — see [[shortPeriodFrequencyFloors]] and
+   * [[Category_C_Level2MinLoadPerAlpha]] for the rest, the part that *does* have to be read off the plot.
    */
   private def shortPeriodFrequencyLimits(category: FlightPhaseCategory): List[(Int, Double, Double)] =
     category match {
@@ -312,6 +310,66 @@ object MilF8785cEvaluator {
       case FlightPhaseCategory.B => List((1, 0.085, 3.6), (2, 0.038, 10.0), (3, 0.038, Double.MaxValue))
       case FlightPhaseCategory.C => List((1, 0.16, 3.6), (2, 0.036, 10.0), (3, 0.036, Double.MaxValue))
     }
+
+  /**
+   * MIL-F-8785C 3.2.2.1.1, FIGURES 1 and 3 (pp. 14, 16): the extra `wn_sp` floors those two figures draw as
+   * horizontal lines at low `n/alpha`, as `(level, floor rad/s)` — issue #16.
+   *
+   * A CAP boundary is a diagonal line of constant `wn_sp^2 / (n/alpha)` on a log-log plot; a floor is a
+   * horizontal line of constant `wn_sp`, i.e. of `CAP = wn_sp^2 / (n/alpha)` rising **without limit** as
+   * `n/alpha` falls. So it is not a separate rule to evaluate — it is the same `CAP >= minCap` comparison the
+   * figure already makes, with `minCap` replaced below the crossing point by `floor^2 / (n/alpha)`. Read
+   * off `docs/MIL-F-8785C.pdf` pages 14 and 16 (`FroudeScale.known` figures and the pixel measurement behind
+   * them are in the issue): Figure 1 draws its Level 1 floor sitting exactly on the 1.0 rad/s gridline and
+   * its Levels 2 & 3 floor on the 0.6 one; Figure 3 states its Level 3 floor in words, "for Class I, II-C,
+   * and IV airplanes, wn_sp shall always be greater than 0.6 radians per second for Level 3".
+   *
+   * Figure 3's Level 3 floor is printed as applying to three of the standard's five Classes and not to
+   * Class II-L or III — and this editor asks for no Class, by design (see "The criteria follow the
+   * aircraft's size"). Where a table already forced that choice, `dutchRollLimits` takes the stricter of a
+   * two-way split; the same call is made here, applied to every aircraft rather than guessed per model.
+   *
+   * The note names "Level 3" and the floor is given to **both** Level 2 and Level 3 here, not Level 3 alone
+   * — because Figure 3 draws only **one** diagonal for the two of them (p. 16's own right-edge label is a
+   * single `0.036`, the number TABLE's Level 2 and Level 3 rows share), the same shared curve Figure 1 draws
+   * for its own Levels 2 & 3. A floor is a flat continuation of a curve; naming it by the laxer Level it
+   * guards says nothing about the stricter Level resting on the same line. Giving it to Level 3 only would
+   * let an aircraft reach *Level 2* on a frequency the figure says is too low for *Level 3*, which the
+   * standard cannot have meant.
+   *
+   * Category B — Figure 2 — draws neither kind of floor; the figure says in as many words that its
+   * boundaries continue as straight-line extensions outside the plotted range.
+   */
+  private def shortPeriodFrequencyFloors(category: FlightPhaseCategory): List[(Int, Double)] =
+    category match {
+      case FlightPhaseCategory.A => List((1, 1.0), (2, 0.6), (3, 0.6))
+      case FlightPhaseCategory.B => Nil
+      case FlightPhaseCategory.C => List((2, 0.6), (3, 0.6))
+    }
+
+  /**
+   * MIL-F-8785C 3.2.2.1.1, FIGURE 3 (p. 16): the **vertical** half of the same floor, read off the same
+   * page — a minimum `n/alpha` below which Level 2 (and so Level 1, the tighter region inside it) cannot be
+   * reached whatever the frequency. The figure draws it as two class-dependent vertical lines, each labelled
+   * with its own Class group: "LEVEL 2, CLASSES II-L, III" at `n/alpha ~= 1.5` g/rad and
+   * "LEVEL 2, CLASSES I, II-C, IV" at `n/alpha ~= 1.8`. Both are pixel measurements off the rendered page
+   * (±10% reading uncertainty, the same band of indecision as Figures 4 and 5 — see "The standard is in the
+   * repository"); the full method, the rendering and the calibration that measured them are recorded in
+   * issue #16 so the figure does not have to be re-rendered to check a number here again.
+   *
+   * **This editor asks for no Class field**, by design (see "The criteria follow the aircraft's size"
+   * below): size comes from the span, never from a Class the user would have to pick. So the two lines
+   * above are not a choice this code can make per model — and `dutchRollLimits` already faced the same
+   * fork (TABLE VI's dutch-roll floor splits Class I/IV from Class II/III) and resolved it by taking the
+   * **stricter** row rather than guessing. The same resolution is used here: `1.8`, the Class I/II-C/IV
+   * figure, applied to every aircraft. It is a stated, conservative assumption — an aircraft that is
+   * actually Class II-L or III is held to a floor the standard does not draw for it — not a measurement of
+   * the aircraft's own Class, which this code has no way to know.
+   *
+   * `n/alpha` is dimensionless (it is `CLalpha / CL_trim`), so unlike every other threshold here it does not
+   * scale with the aircraft's size.
+   */
+  private val Category_C_Level2MinLoadPerAlpha = 1.8
 
   /** MIL-F-8785C 3.2.1.2 (PDF p. 12): phugoid. Level 3 is a doubling time, not a damping ratio. */
   private val PhugoidMinZetaLevel1 = 0.04
@@ -956,12 +1014,21 @@ object MilF8785cEvaluator {
                                       shapesReported: Boolean): ModalNormRow = {
     val is = "how sharply the nose answers the elevator, against how much g the wing makes when it does"
     val limits = shortPeriodFrequencyLimits(category)
+    val floors = shortPeriodFrequencyFloors(category).toMap
     val (_, minCap, maxCap) = limits.head
-    val wants = f"a control anticipation parameter between $minCap%.3f and $maxCap%.1f"
-    // CAP is a frequency squared, so it scales as the square of a frequency threshold.
+    val vertical = category == FlightPhaseCategory.C
+    val wants = f"a control anticipation parameter between $minCap%.3f and $maxCap%.1f" +
+      floors.get(1).map(f => f", wn at least $f%.2f rad/s").getOrElse("") +
+      (if (vertical) f", and at least $Category_C_Level2MinLoadPerAlpha%.1f g per radian for Level 2" else "")
+    // CAP is a frequency squared, so it scales as the square of a frequency threshold — and so does a floor,
+    // being a frequency: wn >= floor is the same boundary as CAP >= floor^2 / (n/alpha).
     def scaled(cap: Double): Double = { val f = size.frequency(1.0); cap * f * f }
-    val applied = if (size.scales) Some(f"at this size: between ${scaled(minCap)}%.2f and ${scaled(maxCap)}%.1f")
-                  else None
+    def floorCap(level: Int, loadPerAlpha: Double): Double =
+      floors.get(level).map(f => { val sf = size.frequency(f); sf * sf / loadPerAlpha }).getOrElse(0.0)
+    val applied = if (size.scales)
+        Some(f"at this size: between ${scaled(minCap)}%.2f and ${scaled(maxCap)}%.1f" +
+          floors.get(1).map(f => f", wn at least ${size.frequency(f)}%.2f rad/s").getOrElse(""))
+      else None
 
     def cannot(why: String) =
       ModalNormRow("Short-period quickness", is, None, None, None, None, wants,
@@ -985,12 +1052,29 @@ object MilF8785cEvaluator {
         val loadPerAlpha = clAlpha / clTrim
         val wn = mode.getNaturalFrequency.toDouble
         val cap = wn * wn / loadPerAlpha
-        val level = levelMet(limits.map { case (n, lo, hi) => (n, cap >= scaled(lo) && cap <= scaled(hi)) })
-        val meets = f"CAP $cap%.2f, at ${loadPerAlpha}%.1f g per radian."
+        def effectiveMinCap(level: Int, stated: Double): Double =
+          math.max(scaled(stated), floorCap(level, loadPerAlpha))
+        // FIGURE 3's vertical floor: below it, Level 2 and the tighter Level 1 inside it are both out of
+        // reach whatever the frequency, so only Level 3 (which carries no such floor) is still open to it.
+        def verticalOk(level: Int): Boolean = !vertical || level == 3 || loadPerAlpha >= Category_C_Level2MinLoadPerAlpha
+        val level = levelMet(limits.map { case (n, lo, hi) =>
+          (n, cap >= effectiveMinCap(n, lo) && cap <= scaled(hi) && verticalOk(n))
+        })
+        val meets = f"CAP $cap%.2f, at $loadPerAlpha%.1f g per radian."
+        val floored = floors.get(1).exists(f => floorCap(1, loadPerAlpha) > scaled(minCap))
         val miss =
-          if (cap < scaled(minCap))
-            f"too sluggish: CAP $cap%.3f against the ${scaled(minCap)}%.3f wanted. The nose answers slowly " +
-              "for the g the wing makes — a bigger tailplane, or a longer tail arm."
+          if (vertical && loadPerAlpha < Category_C_Level2MinLoadPerAlpha)
+            f"too little g per radian of angle of attack: $loadPerAlpha%.2f against the " +
+              f"$Category_C_Level2MinLoadPerAlpha%.1f FIGURE 3 asks of Level 2 and better, at any frequency. " +
+              "A wing that makes more g per radian — more area, or less sweep — raises it."
+          else if (cap < effectiveMinCap(1, minCap))
+            if (floored)
+              f"too sluggish: wn $wn%.2f rad/s against the ${size.frequency(floors(1))}%.2f rad/s floor the " +
+                "figure draws at this n/alpha, below where the CAP line alone would ask less. More tailplane, " +
+                "or a longer tail arm."
+            else
+              f"too sluggish: CAP $cap%.3f against the ${scaled(minCap)}%.3f wanted. The nose answers slowly " +
+                "for the g the wing makes — a bigger tailplane, or a longer tail arm."
           else
             f"too sharp: CAP $cap%.2f against the ${scaled(maxCap)}%.1f allowed. The aircraft is twitchy in " +
               "pitch for the g it produces, which is tiring to fly precisely."
