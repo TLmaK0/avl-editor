@@ -725,6 +725,36 @@ finds its thrust is `Ct x rho x n^2 x D^4` with the coefficient from the file it
 JSBSim meant radians per second, or another power of the diameter, every other assertion would still have
 passed and the aircraft would have had the wrong thrust.
 
+## A readout while flying, since the external view has none
+
+The generated model has no cockpit, so it is flown from FlightGear's external view
+(`FlightGearExporter.ChaseView`), and until now that left nothing on screen to read: no airspeed, no
+altitude, no throttle position, no attitude — no way to tell whether a flight matches what AVL and the
+MIL-F-8785C report predicted. Issue #20.
+
+`FlightGearExporter.hudXml` writes `Huds/hud.xml`, a FlightGear **classic 2D HUD** — the mechanism behind
+the 'h' key on every stock aircraft since the 1990s, chosen because it draws over whichever view is
+active rather than requiring a 3D cockpit to project onto. It is five plain text objects
+(`FlightGearExporter.HudReadouts`), one per figure the issue asks for: indicated airspeed, altitude,
+throttle and the two attitude angles. Each is a printf-style `format` paired with **one of FlightGear's
+own generic properties** — `/velocities/airspeed-kt`, `/position/altitude-ft`,
+`/controls/engines/engine[0]/throttle`, `/orientation/{pitch,roll}-deg` — never anything this export
+invents: every one of them is populated by FlightGear itself from the FDM's state, the same way for `jsb`
+as for any other flight model, so the readout cannot disagree with what is actually simulated.
+
+`-set.xml` points `<sim><hud><path>` at it and forces `/sim/hud/visibility[0]` on from the same
+`fdm-initialized` Nasal listener that already selects the external view: the HUD defaults to visible and
+is user-togglable, but this model, unlike a stock aircraft, has no cockpit to fall back to if it is ever
+off, so the readout is forced on rather than assumed.
+
+**What `FlightGearHudCheck` can and cannot establish.** It parses `hud.xml` and `-set.xml` the way
+`FlightGearSetXmlCheck` already does — well-formed, one object per declared readout, every property one
+of the four generic ones above, the HUD wired in and forced visible — which is everything checkable
+without a display. `fgfs` is not installed in this environment (nor is there a way to render anything on
+this host), so whether the HUD actually draws legibly in a real FlightGear window is, like the rest of
+this package, a **FlightGear flight test** still to be done by a human with a screen — the same
+unresolved half PLAN.md already recorded for the package as a whole.
+
 ## AVL's control variable is not an angle
 
 AVL states control derivatives **per unit of its control variable**, and that variable is dimensionless: the

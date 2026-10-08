@@ -31,6 +31,11 @@ import JsbsimWriter._
  * `/sim/model/path` is resolved by FlightGear relative to the aircraft's own directory,
  * so it stays a bare `Models/<name>.ac`. Prefixing it with the package name makes
  * FlightGear log "Failed to find aircraft model" and fall back to glider.ac.
+ *
+ * The package also carries a `Huds/hud.xml` (see [[hudXml]]): the generated model has no
+ * cockpit and is flown from the external view (see [[ChaseView]] below), so there is
+ * otherwise nothing on screen to read while flying — no airspeed, no altitude, no throttle
+ * position, no attitude. Issue #20.
  */
 object FlightGearExporter {
 
@@ -43,6 +48,7 @@ object FlightGearExporter {
     model.engineFiles.foreach { case (fn, content) => write(new File(dir, s"Engines/$fn"), content) }
     val geo = crrcsim.getAvl.getGeometry
     write(new File(dir, s"Models/$name.ac"), AC3DWriter.fromGeometry(geo))
+    write(new File(dir, s"Huds/hud.xml"), hudXml(name))
     write(new File(dir, s"$name-set.xml"), setXml(name, AC3DWriter.boundsFromGeometry(geo)))
   }
 
@@ -89,6 +95,67 @@ object FlightGearExporter {
         ViewGeometry(0.5, 0.0, 10.0)
     }
 
+  /**
+   * One line of the HUD: a fixed label, the FlightGear property it reads and a printf-style
+   * `format` for the value. The properties are FlightGear's own generic ones — the same for
+   * every FDM, `jsb` included — never anything this export invents: `/velocities/airspeed-kt`,
+   * `/position/altitude-ft`, `/orientation/{roll,pitch}-deg` are populated by FlightGear itself
+   * from the FDM's state, and `/controls/engines/engine[0]/throttle` is the pilot's own throttle
+   * command (0..1), set by the same input that drives the JSBSim FCS.
+   */
+  private[jsbsim] final case class HudReadout(property: String, format: String, y: Int)
+
+  /** Airspeed, altitude, throttle and attitude — the four things issue #20 asks to read while
+    * flying, in that order, each a plain number rather than a tape or a ladder: there is no
+    * cockpit to frame them in, so the simplest readout that cannot be misread is the right one. */
+  private[jsbsim] val HudReadouts: Seq[HudReadout] = Seq(
+    HudReadout("/velocities/airspeed-kt", "IAS %5.1f kt", 700),
+    HudReadout("/position/altitude-ft", "ALT %6.1f ft", 670),
+    HudReadout("/controls/engines/engine[0]/throttle", "THR %5.0f %%", 640),
+    HudReadout("/orientation/pitch-deg", "PITCH %5.1f deg", 610),
+    HudReadout("/orientation/roll-deg", "ROLL  %5.1f deg", 580)
+  )
+
+  /**
+   * A FlightGear classic 2D HUD definition (the mechanism behind the 'h' key on every stock
+   * aircraft since the 1990s): plain text objects, each bound to one property via a printf
+   * `format`, drawn over whichever view is active — unlike a 3D panel, it does not require a
+   * cockpit. `enable3d-hud` is left false because the generated model has no instrument panel
+   * geometry for a 3D HUD to project onto.
+   */
+  private[jsbsim] def hudXml(name: String): String = {
+    val objects = HudReadouts.map { r =>
+      f"""  <object>
+         |    <type>text</type>
+         |    <x>20</x>
+         |    <y>${r.y}</y>
+         |    <width>220</width>
+         |    <height>26</height>
+         |    <justify>left</justify>
+         |    <point-size>14</point-size>
+         |    <format>${r.format}</format>
+         |    <property>${r.property}</property>
+         |  </object>"""
+    }.mkString("\n")
+    s"""<?xml version="1.0"?>
+       |<PropertyList>
+       |  <name>$name HUD</name>
+       |  <x-start>0</x-start>
+       |  <y-start>0</y-start>
+       |  <x-end>1024</x-end>
+       |  <y-end>768</y-end>
+       |  <color>
+       |    <red>0.1</red>
+       |    <green>0.9</green>
+       |    <blue>0.1</blue>
+       |  </color>
+       |  <line-width>1</line-width>
+       |  <enable3d-hud>false</enable3d-hud>
+       |$objects
+       |</PropertyList>
+       |""".stripMargin
+  }
+
   private[jsbsim] def setXml(
       name: String,
       bounds: Option[((Float, Float, Float), (Float, Float, Float))] = None): String = {
@@ -104,6 +171,11 @@ object FlightGearExporter {
     |      <path>Models/$name.ac</path>
     |    </model>
     |    <chase-distance-m archive="y">${-view.chaseDistance}%.3f</chase-distance-m>
+    |    <hud>
+    |      <path>Huds/hud.xml</path>
+    |      <visibility archive="y">true</visibility>
+    |      <enable3d archive="y">false</enable3d>
+    |    </hud>
     |  </sim>
     |  <nasal>
     |    <$NasalModule>
@@ -116,6 +188,9 @@ object FlightGearExporter {
     |        # CDATA because Nasal uses characters XML would otherwise parse as markup.
     |        setlistener("/sim/signals/fdm-initialized", func {
     |          setprop("/sim/current-view/view-number", $ChaseView);
+    |          # The HUD defaults to on, but is user-togglable ('h') and this model has no
+    |          # cockpit to fall back to, so the readout is forced on rather than assumed.
+    |          setprop("/sim/hud/visibility[0]", 1);
     |        });
     |      ]]></script>
     |    </$NasalModule>
