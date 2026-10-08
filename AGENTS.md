@@ -781,15 +781,21 @@ What the model's own fields *can* fix without inventing anything is **where the 
 definition of geometric pitch, a propeller advancing by exactly its pitch every revolution meets its own
 blade at zero angle of attack, so the no-slip advance ratio is `J = H/D`. A real blade's profile drag means a
 little positive thrust survives a little past that point, so the true zero-thrust `J` runs a little ahead of
-`H/D` rather than sitting on it — measured, not guessed, from three propellers: the generic table's own APC
-9.4x5 (`H/D` = 0.532, zero at `J` = 0.7291, a ratio of 1.371) and two pulled fresh from the UIUC Propeller
-Data Site's wind-tunnel measurements (`m-selig.ae.illinois.edu/props/volume-2`, public domain data, no login
-required) — an APC Free Flight 9x4 (`H/D` = 0.444, zero at `J` ≈ 0.567, a ratio of 1.275) and an APC Sport 9x6
-(`H/D` = 0.667, zero at `J` ≈ 0.782, a ratio of 1.173). Three different pitch ratios, three ratios clustered
-at 1.17–1.37 and all on the same side (the true zero always past the geometric one): their mean, **1.27**
-(`PropellerCurves.PitchStretchRatio`), is the one stated assumption here, in the same spirit as
-`DuctedFanCurves.FigureOfMerit` — a documented constant for an effect too small to model from first principles
-with the fields the model has, bounded by measurement rather than invented.
+`H/D` rather than sitting on it — measured, not guessed, from three propellers, each a
+`PropellerCurves.PitchStretchMeasurement` **in code**, not only in this paragraph, so the number it feeds can
+be checked against where it came from rather than taken on trust: the generic table's own APC 9.4x5 (`H/D` =
+0.532, zero at `J` = 0.7291, a ratio of 1.371) needs no outside source, and two more are read straight off
+the UIUC Propeller Data Site's published wind-tunnel runs (`m-selig.ae.illinois.edu/props/volume-2`, public
+domain data, no login required) — an APC Free Flight 9x4 (`H/D` = 0.444, zero at `J` ≈ 0.567, a ratio of
+1.275) and an APC Sport 9x6 (`H/D` = 0.667, zero at `J` ≈ 0.782, a ratio of 1.173). Three different pitch
+ratios, three ratios clustered at 1.17–1.37 and all on the same side (the true zero always past the geometric
+one): their mean (`PropellerCurves.PitchStretchRatio`) is the one stated assumption here, in the same spirit
+as `DuctedFanCurves.FigureOfMerit` — a documented constant for an effect too small to model from first
+principles with the fields the model has, bounded by measurement rather than invented. The spread behind that
+mean is a value too, `PropellerCurves.PitchStretchRatioRange` (1.17–1.37): a constant with no dispersion
+recorded beside it reads as more certain than the three propellers that produced it, and the range is what
+`PropellerCurvesCheck` asserts actually came out of those three rather than restating it as a comment that
+could drift from the code.
 
 The curve's **shape** is kept from the generic sample — nothing says it should differ — and only its `J` axis
 is stretched so the zero crossing lands at `PitchStretchRatio * H/D` instead of the APC 9.4x5's own 0.7291,
@@ -805,6 +811,17 @@ stated assumption, it was a silent fallback wearing one. `PropellerCurvesCheck` 
 falls with advance ratio and runs out near `PitchStretchRatio * H/D`, not near a borrowed sample's own
 number) against three different pitch ratios, and `ExportUnitsCheck` confirms the stretch survives the
 model's own length unit, metres, centimetres or inches, to the same advance ratio.
+
+**The division that turns a missing pitch into a stretched curve is guarded where it happens, not only
+upstream of it.** `targetJ0` divides by the diameter, so a diameter or a pitch of zero reaching it is a `NaN`
+or an `Infinity` — and `0 * Infinity` inside the table-stretch that follows is a `NaN` on every row, which is
+exactly the shape of failure #24 already named once for the motor: a missing input surfacing several steps
+downstream as a number that merely looks wrong, with nothing at the point it happened saying what was
+missing. `SimulationRequirements`'s refusal is the one a user sees, worded for the properties table; but
+`targetJ0` guards the same two fields itself (`require`), so anything that calls it directly — a future
+caller, a test, a tool nobody has written yet — gets a named exception at the division and not a quietly
+poisoned curve three calls later. `PropellerCurvesCheck` calls `targetJ0` directly with each missing in turn
+and asserts the message names the missing field, not the word "NaN".
 
 ## AVL's control variable is not an angle
 

@@ -64,9 +64,12 @@ package com.abajar.avleditor.jsbsim
  *
  * Three propellers, three different pitch ratios, three ratios clustered at 1.17–1.37 — close
  * enough, and consistently on the same side (true zero always past the geometric one), that their
- * mean, **1.27**, is the one stated assumption here ([[PitchStretchRatio]]), in the same spirit as
+ * mean is the one stated assumption here ([[PitchStretchRatio]]), in the same spirit as
  * [[DuctedFanCurves.FigureOfMerit]]: a documented constant standing for an effect too small to model
  * from first principles with the fields available, bounded by measurement rather than invented.
+ * Each of the three measurements is [[PitchStretchMeasurements]], a value in code rather than only
+ * in this prose, and [[PitchStretchRatioRange]] is how far they actually disagreed — a constant with
+ * no dispersion recorded beside it reads as more certain than the three propellers that produced it.
  *
  * The curve's **shape** — how `Ct` and `Cp` fall off between zero advance and the point they run
  * out — is kept from the generic sample, since nothing in the model says it should differ, and only
@@ -88,19 +91,68 @@ package com.abajar.avleditor.jsbsim
 object PropellerCurves {
 
   /**
-   * How far past the geometric, no-slip advance ratio (`H/D`) a real propeller's thrust actually
-   * runs out, averaged over three measured propellers spanning `H/D` 0.44–0.67 (1.275, 1.173, and
-   * the generic sample's own 1.371) — see the class documentation for where each came from.
-   */
-  val PitchStretchRatio = 1.27
-
-  /**
    * The generic sample's own `J` grid and the `Ct`/`Cp` it carries at each point: an APC 9.4x5 /
    * JSBSim `DJI_9450`, `H/D` = 5.0/9.4 = 0.5319, whose own zero crossing sits at `ReferenceJ0`.
    * [[from]] stretches this grid's `J` axis to a different propeller's pitch; it never touches the
    * coefficients themselves, which is the "shape kept, reach stretched" rule the class doc states.
    */
   private val ReferenceJ0 = 0.7291
+
+  /**
+   * One propeller used to measure [[PitchStretchRatio]]: its pitch-to-diameter ratio, the advance
+   * ratio its thrust was actually measured crossing zero at, and where that measurement came from
+   * — named so the constant it feeds is never a bare number with no way to check it.
+   */
+  final case class PitchStretchMeasurement(source: String, pitchRatio: Double, measuredJ0: Double) {
+    /** How far past the geometric, no-slip advance ratio (`pitchRatio`) this one actually ran out. */
+    def ratio: Double = measuredJ0 / pitchRatio
+  }
+
+  /**
+   * The three propellers [[PitchStretchRatio]] is the mean of. Each is independently sourced and
+   * spans a different pitch ratio, so the constant rests on a spread rather than one sample:
+   *
+   *  - the generic table itself needs no outside source — its own last row is where it already
+   *    crosses zero;
+   *  - the other two are read straight off real wind-tunnel runs published by the UIUC Propeller
+   *    Data Site (`m-selig.ae.illinois.edu/props/volume-2`, public domain, no login required), with
+   *    the file named so the figures can be checked against the source rather than this comment.
+   */
+  val PitchStretchMeasurements: Seq[PitchStretchMeasurement] = Seq(
+    PitchStretchMeasurement(
+      source = "the generic sample itself: an APC 9.4x5, JSBSim's own DJI_9450 reference",
+      pitchRatio = 5.0 / 9.4,
+      measuredJ0 = ReferenceJ0),
+    PitchStretchMeasurement(
+      source = "UIUC Propeller Data Site, volume 2, APC Free Flight 9x4 at 4033 rpm " +
+        "(data/apcff_9x4_1018ga_4033.txt): Ct crosses zero between J=0.5586 (Ct=0.00155) and " +
+        "J=0.6014 (Ct=-0.00667), interpolated",
+      pitchRatio = 4.0 / 9.0,
+      measuredJ0 = 0.56662),
+    PitchStretchMeasurement(
+      source = "UIUC Propeller Data Site, volume 2, APC Sport 9x6 at 4049 rpm " +
+        "(data/apcsp_9x6_0760ga_4049.txt): Ct crosses zero between J=0.7507 (Ct=0.00638) and " +
+        "J=0.7879 (Ct=-0.00117), interpolated",
+      pitchRatio = 6.0 / 9.0,
+      measuredJ0 = 0.78213)
+  )
+
+  /**
+   * How far past the geometric, no-slip advance ratio (`H/D`) a real propeller's thrust actually
+   * runs out, averaged over [[PitchStretchMeasurements]] — see there for each one's own ratio and
+   * where it came from.
+   */
+  val PitchStretchRatio: Double =
+    PitchStretchMeasurements.map(_.ratio).sum / PitchStretchMeasurements.length
+
+  /**
+   * The lowest and highest of the three measured ratios — 1.17 to 1.37, not a single agreed figure
+   * — so [[PitchStretchRatio]] is never read as more certain than the three propellers behind it.
+   */
+  val PitchStretchRatioRange: (Double, Double) = {
+    val ratios = PitchStretchMeasurements.map(_.ratio)
+    (ratios.min, ratios.max)
+  }
 
   private val GenericCt: Seq[(Double, Double)] = Seq(
     0.0000 -> 0.1288, 0.0730 -> 0.1230, 0.1470 -> 0.1153, 0.2287 -> 0.1053, 0.3022 -> 0.0932,
@@ -112,13 +164,30 @@ object PropellerCurves {
     0.3757 -> 0.0456, 0.4496 -> 0.0402, 0.5296 -> 0.0332, 0.6039 -> 0.0243, 0.6774 -> 0.0137,
     0.7291 -> 0.0061)
 
-  /** The advance ratio this propeller's thrust should run out at, from its own stated pitch. */
-  def targetJ0(diameterM: Double, pitchM: Double): Double = PitchStretchRatio * pitchM / diameterM
+  /**
+   * The advance ratio this propeller's thrust should run out at, from its own stated pitch.
+   *
+   * Guarded here, not only in [[from]]: `pitchM / diameterM` with either at zero is a `NaN` or an
+   * `Infinity`, and a `NaN` reached through this path used to surface three steps downstream, as a
+   * stretched table whose every row read `NaN` — exactly the failure issue #24 named for the motor
+   * and this file exists not to repeat for the propeller. A caller that reaches this function with
+   * nothing stated gets a named refusal here, at the division, rather than a number that only looks
+   * wrong once it has already travelled into a generated file.
+   */
+  def targetJ0(diameterM: Double, pitchM: Double): Double = {
+    require(diameterM > 0, "PropellerCurves.targetJ0: the propeller needs its diameter.")
+    require(pitchM > 0, "PropellerCurves.targetJ0: the propeller needs its pitch.")
+    PitchStretchRatio * pitchM / diameterM
+  }
 
   /**
    * The curves, or one line saying which stated figure is missing. Nothing is substituted: the
    * diameter, the pitch and the blade count are all on the Propeller, and a propeller the user has
    * not described this far is one the export must refuse rather than hand a generic curve to.
+   *
+   * These checks and [[targetJ0]]'s own say the same thing for the same two fields, deliberately:
+   * this is the friendly, UI-facing refusal for the path every real export takes, and `targetJ0`'s
+   * `require` is the backstop for anything that calls it directly without going through here first.
    */
   def from(diameterM: Double, pitchM: Double, blades: Int): Either[String, JsbsimWriter.ThrusterCurves] = {
     if (diameterM <= 0)

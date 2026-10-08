@@ -56,23 +56,43 @@ object PropellerCurvesCheck {
     check("same diameter, so the static thrust coefficient is unmoved by pitch",
       near(finePitch.ct.head._2, tenByFive.ct.head._2) && near(coarsePitch.ct.head._2, tenByFive.ct.head._2))
 
-    println("it is close to the three propellers it was measured against")
-    // APC Free Flight 9x4 (H/D = 0.444, measured zero crossing 0.5666) and APC Sport 9x6
-    // (H/D = 0.667, measured zero crossing 0.7821), both from the UIUC Propeller Data Site
-    // (m-selig.ae.illinois.edu/props/volume-2); the generic sample's own APC 9.4x5 (H/D = 0.5319,
-    // zero crossing 0.7291). PitchStretchRatio is their mean, so none lands exactly on it.
-    val ff9x4 = targetJ0(1.0, 4.0 / 9.0)
-    val sp9x6 = targetJ0(1.0, 6.0 / 9.0)
-    println(f"  predicted J0 at H/D=0.444: ${ff9x4}%.4f (measured 0.5666); " +
-      f"at H/D=0.667: ${sp9x6}%.4f (measured 0.7821)")
-    check("within 10% of the APC 9x4 measurement", math.abs(ff9x4 - 0.5666) / 0.5666 < 0.10)
-    check("within 10% of the APC 9x6 measurement", math.abs(sp9x6 - 0.7821) / 0.7821 < 0.10)
+    println("it is close to the three propellers it was measured against, named one by one")
+    PitchStretchMeasurements.foreach { m =>
+      println(f"  ${m.source}")
+      println(f"    pitch ratio ${m.pitchRatio}%.4f, measured J0 ${m.measuredJ0}%.4f, ratio ${m.ratio}%.4f")
+      val predicted = targetJ0(1.0, m.pitchRatio)
+      check(f"predicted J0 (${predicted}%.4f) is within 10%% of this one's own measurement",
+        math.abs(predicted - m.measuredJ0) / m.measuredJ0 < 0.10)
+    }
+    check("three measurements, not one", PitchStretchMeasurements.length == 3)
+    check("each from its own named source", PitchStretchMeasurements.map(_.source).distinct.length == 3)
+
+    println("the mean carries its own spread, not a bare number")
+    val (lo, hi) = PitchStretchRatioRange
+    println(f"  PitchStretchRatio = ${PitchStretchRatio}%.4f, range ${lo}%.4f - ${hi}%.4f")
+    check("the mean sits inside the range it was built from", PitchStretchRatio > lo && PitchStretchRatio < hi)
+    check("the range is the three measurements' own min and max",
+      near(lo, PitchStretchMeasurements.map(_.ratio).min) && near(hi, PitchStretchMeasurements.map(_.ratio).max))
+    check("the three measurements really do disagree: not a one-point range pretending to be a spread",
+      hi - lo > 0.05)
 
     println("what it refuses rather than inventing")
     check("no diameter", from(0.0, 0.127, 2).left.getOrElse("").contains("diameter"))
     check("no pitch", from(0.254, 0.0, 2).left.getOrElse("").contains("pitch"))
     check("one blade is not a propeller", from(0.254, 0.127, 1).left.getOrElse("").contains("blades"))
     check("a good propeller is refused nothing", from(0.254, 0.127, 2).isRight)
+
+    println("targetJ0 called directly, bypassing from, fails by name and not by NaN")
+    def refusesCleanly(thunk: => Double): Boolean =
+      try { val r = thunk; false /* should have thrown */ }
+      catch {
+        case e: IllegalArgumentException => !e.getMessage.contains("NaN") && e.getMessage.nonEmpty
+        case _: Throwable => false
+      }
+    check("no diameter names the diameter, not a NaN", refusesCleanly(targetJ0(0.0, 0.127)))
+    check("no pitch names the pitch, not a NaN", refusesCleanly(targetJ0(0.254, 0.0)))
+    check("neither stated names one of them, not a 0/0 NaN", refusesCleanly(targetJ0(0.0, 0.0)))
+    check("a real propeller is not refused", { targetJ0(0.254, 0.127); true })
 
     println(if (ok) "PROPELLER_CURVES_OK" else "PROPELLER_CURVES_FAIL")
     if (!ok) sys.exit(1)
