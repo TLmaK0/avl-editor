@@ -142,14 +142,26 @@ and fixing defects in what is already built, need no authorisation; **adding** d
 put to him in his language: one sentence he can judge without opening anything — what it is, what
 it is for, what becomes possible — never a phase name or a bare issue number.
 
+## One session owns this repo, end to end (2026-10-25)
+
+**This repo is worked by a single session that owns it end to end:** measuring, ordering the work,
+implementing, delivering. There is no separate coordinator to escalate to and no queue to hand a
+measurement to — **the owner is talked to directly.** Any instruction, in this repo or inherited
+from elsewhere, that says to report work to a coordinator, to queue a question for a relay, or to
+wait for a periodic review round, is **obsolete** — decide it here, or say it to the owner.
+
+⛔ **And none of this becomes waiting.** What belongs to the owner — money, credentials, deletions,
+labels, opening issues, publishing a release, visibility changes — is not a blocker: say it, and
+carry on with whatever does not depend on it.
+
 ## How we work here
 
 **The state does not live in this file: it lives in GitHub.** Open issues are the state, closed
 ones are the history; a change of plan is a comment on its issue. This document contains only what
 will still be true tomorrow without anyone editing it.
 
-**Every task is worked in its own git worktree**, never the main checkout — more than one agent
-works in this repository at once, and the main checkout stays on master and is only read:
+**Every task is worked in its own git worktree**, never the main checkout — the main checkout stays
+on master and is only read, and there may be worktrees left from earlier tasks:
 
 ```bash
 git worktree add .claude/worktrees/<branch> -b <branch> origin/master
@@ -162,7 +174,10 @@ gitignored so the worktrees do not leave the repository permanently dirty.
 a tool installs it itself, under `~/.avleditor` — the `*Manager` classes are the shape to copy. If
 you think the host has to be touched, ask and wait; asking and doing at the same time is not asking.
 
-Load these skills for the kind of work at hand:
+🔑 **Skills are this house's method, and they are loaded BEFORE acting, not after.** They live in
+`~/.claude/skills` (a link to `management/skills`: one source in git, never copied into this repo)
+and the **superpowers** plugin is active at user level. If there is any chance a skill applies to
+what you are about to do, invoke it first.
 
 | You are about to… | Load |
 |---|---|
@@ -172,8 +187,11 @@ Load these skills for the kind of work at hand:
 | write tests, checks or fixtures | `bdd-integration-first` |
 | write an assertion, or read a green, a zero or a "does not reproduce" | `rules-of-evidence` |
 | open a PR, merge, or publish | `delivering-a-branch` |
+| create, archive or **delete** a repo, a package or an image | `managing-repos` |
+| install anything on this machine, sudo, symlinks, dependencies | `host-tools` |
 | review security or respond to a suspected compromise | `security-review-and-incidents` |
 | write user-visible text or render a failure | `ui-texts-and-failures` |
+| email, or anything that goes outside | `operator-preferences` |
 
 📌 **The history of how each of these rules was arrived at is in this file's git history** (it was
 1,298 lines). `git log -p AGENTS.md` holds the case behind every rule; none of it is needed to work.
